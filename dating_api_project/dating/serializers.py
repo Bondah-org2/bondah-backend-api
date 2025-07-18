@@ -2,11 +2,26 @@ from rest_framework import serializers
 from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction
 
 class UserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False)
+
     class Meta:
         model = User
         fields = [
-            'id', 'name', 'email', 'gender', 'age', 'location', 'is_matchmaker', 'bio'
+            'id', 'name', 'email', 'password', 'gender', 'age', 'location', 'is_matchmaker', 'bio'
         ]
+
+    def create(self, validated_data):
+        # Set username to email if not provided
+        if 'username' not in validated_data or not validated_data.get('username'):
+            validated_data['username'] = validated_data['email']
+        password = validated_data.pop('password', None)
+        user = User(**validated_data)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        user.save()
+        return user
 
 class NewsletterSubscriberSerializer(serializers.ModelSerializer):
     class Meta:
