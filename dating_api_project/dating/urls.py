@@ -5,6 +5,7 @@ from .views import (
     GetPuzzleView, SubmitPuzzleAnswerView, 
     EarnCoinsView, 
     SpendCoinsView,
+    JoinWaitlistView,
 )
 
 urlpatterns = [
@@ -14,4 +15,5 @@ urlpatterns = [
     path('puzzle/verify/', SubmitPuzzleAnswerView.as_view(), name='verify-puzzle'),
     path('coins/earn/', EarnCoinsView.as_view(), name='earn-coins'),
     path('coins/spend/', SpendCoinsView.as_view(), name='spend-coins'),
+    path('waitlist/', JoinWaitlistView.as_view(), name='join-waitlist'),
 ]

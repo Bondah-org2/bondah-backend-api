@@ -61,3 +61,16 @@ class CoinTransaction(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.transaction_type} {self.amount} coins"
+
+
+class Waitlist(models.Model):
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    email = models.EmailField(unique=True)
+    date_joined = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} - {self.email}"
+
+    class Meta:
+        ordering = ['-date_joined']

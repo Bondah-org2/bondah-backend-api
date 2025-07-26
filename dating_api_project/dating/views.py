@@ -4,13 +4,14 @@ from rest_framework.response import Response
 from django.db.models import Sum
 from rest_framework import status
 from rest_framework import generics
-from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction
+from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist
 from django.contrib.auth import get_user_model
 from .serializers import (
     UserSerializer, 
     NewsletterSubscriberSerializer, 
     PuzzleVerificationSerializer, 
     CoinTransactionSerializer,
+    WaitlistSerializer
 )
 
 User = get_user_model()
@@ -23,6 +24,37 @@ class UserCreateView(generics.CreateAPIView):
 class NewsletterSignupView(generics.CreateAPIView):
     queryset = NewsletterSubscriber.objects.all()
     serializer_class = NewsletterSubscriberSerializer
+
+class JoinWaitlistView(generics.CreateAPIView):
+    queryset = Waitlist.objects.all()
+    serializer_class = WaitlistSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            # Check if email already exists
+            email = serializer.validated_data.get('email')
+            if Waitlist.objects.filter(email=email).exists():
+                return Response({
+                    "message": "Email already registered on waitlist",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Save the waitlist entry
+            waitlist_entry = serializer.save()
+            
+            # Return success response
+            return Response({
+                "message": "You've successfully joined the waitlist!",
+                "status": "success"
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response({
+            "message": "Invalid data provided",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
 
 class GetPuzzleView(APIView):
     def post(self, request):
