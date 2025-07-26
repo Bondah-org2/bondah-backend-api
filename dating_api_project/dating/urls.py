@@ -11,6 +11,7 @@ from .views import (
 urlpatterns = [
     path('create-user/', UserCreateView.as_view(), name='create-user'),
     path('newsletter/signup/', NewsletterSignupView.as_view(), name='newsletter-signup'),
+    path('newsletter/subscribe/', NewsletterSignupView.as_view(), name='newsletter-subscribe'),
     path('puzzle/', GetPuzzleView.as_view(), name='get-puzzle'),
     path('puzzle/verify/', SubmitPuzzleAnswerView.as_view(), name='verify-puzzle'),
     path('coins/earn/', EarnCoinsView.as_view(), name='earn-coins'),

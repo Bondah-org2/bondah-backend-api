@@ -25,6 +25,39 @@ class NewsletterSignupView(generics.CreateAPIView):
     queryset = NewsletterSubscriber.objects.all()
     serializer_class = NewsletterSubscriberSerializer
 
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                # Check if email already exists
+                email = serializer.validated_data.get('email')
+                if NewsletterSubscriber.objects.filter(email=email).exists():
+                    return Response({
+                        "message": "Email already subscribed to newsletter",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Save the newsletter subscription
+                subscriber = serializer.save()
+                
+                # Return success response
+                return Response({
+                    "message": "Subscription successful!",
+                    "status": "success"
+                }, status=status.HTTP_201_CREATED)
+            
+            return Response({
+                "message": "Invalid data provided",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Server error: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class JoinWaitlistView(generics.CreateAPIView):
     queryset = Waitlist.objects.all()
     serializer_class = WaitlistSerializer

@@ -29,6 +29,13 @@ class NewsletterSubscriberSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'date_subscribed']
         read_only_fields = ['date_subscribed']
 
+    def to_representation(self, instance):
+        # Return the exact message format the frontend expects
+        return {
+            "message": "Subscription successful!",
+            "status": "success"
+        }
+
 
 class PuzzleVerificationSerializer(serializers.ModelSerializer):
     class Meta:
