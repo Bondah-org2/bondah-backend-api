@@ -74,3 +74,25 @@ class Waitlist(models.Model):
 
     class Meta:
         ordering = ['-date_joined']
+
+
+class EmailLog(models.Model):
+    EMAIL_TYPES = (
+        ('newsletter_welcome', 'Newsletter Welcome'),
+        ('waitlist_confirmation', 'Waitlist Confirmation'),
+        ('generic', 'Generic Email'),
+    )
+
+    email_type = models.CharField(max_length=50, choices=EMAIL_TYPES)
+    recipient_email = models.EmailField()
+    subject = models.CharField(max_length=200)
+    message = models.TextField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+    is_sent = models.BooleanField(default=False)
+    error_message = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.email_type} to {self.recipient_email} - {'Sent' if self.is_sent else 'Failed'}"
+
+    class Meta:
+        ordering = ['-sent_at']

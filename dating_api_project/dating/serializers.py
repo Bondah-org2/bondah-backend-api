@@ -64,3 +64,18 @@ class WaitlistSerializer(serializers.ModelSerializer):
             "message": "You've successfully joined the waitlist!",
             "status": "success"
         }
+
+class NewsletterWelcomeEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    name = serializers.CharField(max_length=100, required=False, default="")
+
+class WaitlistConfirmationEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    firstName = serializers.CharField(max_length=100)
+    lastName = serializers.CharField(max_length=100)
+
+class GenericEmailSerializer(serializers.Serializer):
+    to_email = serializers.EmailField()
+    subject = serializers.CharField(max_length=200)
+    message = serializers.CharField()
+    template_name = serializers.CharField(required=False, default="")

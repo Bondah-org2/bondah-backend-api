@@ -6,6 +6,9 @@ from .views import (
     EarnCoinsView, 
     SpendCoinsView,
     JoinWaitlistView,
+    SendNewsletterWelcomeEmailView,
+    SendWaitlistConfirmationEmailView,
+    SendGenericEmailView,
 )
 
 urlpatterns = [
@@ -17,4 +20,7 @@ urlpatterns = [
     path('coins/earn/', EarnCoinsView.as_view(), name='earn-coins'),
     path('coins/spend/', SpendCoinsView.as_view(), name='spend-coins'),
     path('waitlist/', JoinWaitlistView.as_view(), name='join-waitlist'),
+    path('email/send-newsletter-welcome/', SendNewsletterWelcomeEmailView.as_view(), name='send-newsletter-welcome'),
+    path('email/send-waitlist-confirmation/', SendWaitlistConfirmationEmailView.as_view(), name='send-waitlist-confirmation'),
+    path('email/send/', SendGenericEmailView.as_view(), name='send-generic-email'),
 ]

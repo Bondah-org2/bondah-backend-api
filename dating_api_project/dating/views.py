@@ -4,14 +4,19 @@ from rest_framework.response import Response
 from django.db.models import Sum
 from rest_framework import status
 from rest_framework import generics
-from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist
+from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog
 from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
+from django.conf import settings
 from .serializers import (
     UserSerializer, 
     NewsletterSubscriberSerializer, 
     PuzzleVerificationSerializer, 
     CoinTransactionSerializer,
-    WaitlistSerializer
+    WaitlistSerializer,
+    NewsletterWelcomeEmailSerializer,
+    WaitlistConfirmationEmailSerializer,
+    GenericEmailSerializer
 )
 
 User = get_user_model()
@@ -205,3 +210,191 @@ class SpendCoinsView(APIView):
         )
 
         return Response(CoinTransactionSerializer(transaction).data, status=201)
+
+
+class SendNewsletterWelcomeEmailView(APIView):
+    def post(self, request):
+        serializer = NewsletterWelcomeEmailSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            name = serializer.validated_data.get('name', '')
+            
+            # Create personalized message
+            subject = f"Welcome to Bondah Dating{f', {name}' if name else ''}! 🎉"
+            message = f"""
+Hi {name if name else 'there'},
+
+Thank you for subscribing to our newsletter! 
+
+We're excited to keep you updated on:
+• Latest dating tips and advice
+• Success stories from our community
+• New features and updates
+• Exclusive matchmaking opportunities
+
+Stay tuned for amazing content coming your way!
+
+Best regards,
+The Bondah Team
+            """.strip()
+            
+            # Log email attempt
+            email_log = EmailLog.objects.create(
+                email_type='newsletter_welcome',
+                recipient_email=email,
+                subject=subject,
+                message=message
+            )
+            
+            try:
+                # Send email using Django's email functionality
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+                
+                email_log.is_sent = True
+                email_log.save()
+                
+                return Response({
+                    "message": "Welcome email sent successfully!",
+                    "status": "success"
+                }, status=status.HTTP_200_OK)
+            except Exception as e:
+                email_log.is_sent = False
+                email_log.error_message = str(e)
+                email_log.save()
+                
+                return Response({
+                    "message": f"Failed to send email: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid data provided",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SendWaitlistConfirmationEmailView(APIView):
+    def post(self, request):
+        serializer = WaitlistConfirmationEmailSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            first_name = serializer.validated_data['firstName']
+            last_name = serializer.validated_data['lastName']
+            
+            # Create personalized message
+            subject = f"You're on the Bondah Waitlist, {first_name}! ⏳"
+            message = f"""
+Hi {first_name} {last_name},
+
+Great news! You've successfully joined the Bondah Dating waitlist.
+
+Your spot is reserved, and we'll notify you as soon as:
+• Our platform launches
+• Early access becomes available
+• Special features are ready
+
+We'll keep you updated on our progress and send you exclusive early-bird offers!
+
+Thanks for your patience,
+The Bondah Team
+
+P.S. Share this with friends who might be interested in joining too!
+            """.strip()
+            
+            # Log email attempt
+            email_log = EmailLog.objects.create(
+                email_type='waitlist_confirmation',
+                recipient_email=email,
+                subject=subject,
+                message=message
+            )
+            
+            try:
+                # Send email using Django's email functionality
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+                
+                email_log.is_sent = True
+                email_log.save()
+                
+                return Response({
+                    "message": "Waitlist confirmation email sent!",
+                    "status": "success"
+                }, status=status.HTTP_200_OK)
+            except Exception as e:
+                email_log.is_sent = False
+                email_log.error_message = str(e)
+                email_log.save()
+                
+                return Response({
+                    "message": f"Failed to send email: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid data provided",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SendGenericEmailView(APIView):
+    def post(self, request):
+        serializer = GenericEmailSerializer(data=request.data)
+        if serializer.is_valid():
+            to_email = serializer.validated_data['to_email']
+            subject = serializer.validated_data['subject']
+            message = serializer.validated_data['message']
+            
+            # Log email attempt
+            email_log = EmailLog.objects.create(
+                email_type='generic',
+                recipient_email=to_email,
+                subject=subject,
+                message=message
+            )
+            
+            try:
+                # Send email using Django's email functionality
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[to_email],
+                    fail_silently=False,
+                )
+                
+                email_log.is_sent = True
+                email_log.save()
+                
+                return Response({
+                    "message": "Email sent successfully!",
+                    "status": "success"
+                }, status=status.HTTP_200_OK)
+            except Exception as e:
+                email_log.is_sent = False
+                email_log.error_message = str(e)
+                email_log.save()
+                
+                return Response({
+                    "message": f"Failed to send email: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid data provided",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
