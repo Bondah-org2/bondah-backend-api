@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -79,3 +79,21 @@ class GenericEmailSerializer(serializers.Serializer):
     subject = serializers.CharField(max_length=200)
     message = serializers.CharField()
     template_name = serializers.CharField(required=False, default="")
+
+class JobListSerializer(serializers.ModelSerializer):
+    jobType = serializers.CharField(source='job_type')
+    salaryRange = serializers.CharField(source='salary_range')
+    createdAt = serializers.DateTimeField(source='created_at')
+    
+    class Meta:
+        model = Job
+        fields = ['id', 'title', 'jobType', 'category', 'status', 'salaryRange', 'createdAt']
+
+class JobDetailSerializer(serializers.ModelSerializer):
+    jobType = serializers.CharField(source='job_type')
+    salaryRange = serializers.CharField(source='salary_range')
+    createdAt = serializers.DateTimeField(source='created_at')
+    
+    class Meta:
+        model = Job
+        fields = ['id', 'title', 'jobType', 'category', 'status', 'description', 'location', 'salaryRange', 'requirements', 'createdAt']

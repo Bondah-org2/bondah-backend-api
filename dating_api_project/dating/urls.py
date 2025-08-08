@@ -9,6 +9,8 @@ from .views import (
     SendNewsletterWelcomeEmailView,
     SendWaitlistConfirmationEmailView,
     SendGenericEmailView,
+    JobListView,
+    JobDetailView,
 )
 
 urlpatterns = [
@@ -23,4 +25,6 @@ urlpatterns = [
     path('email/send-newsletter-welcome/', SendNewsletterWelcomeEmailView.as_view(), name='send-newsletter-welcome'),
     path('email/send-waitlist-confirmation/', SendWaitlistConfirmationEmailView.as_view(), name='send-waitlist-confirmation'),
     path('email/send/', SendGenericEmailView.as_view(), name='send-generic-email'),
+    path('jobs/', JobListView.as_view(), name='job-list'),
+    path('jobs/<int:id>/', JobDetailView.as_view(), name='job-detail'),
 ]

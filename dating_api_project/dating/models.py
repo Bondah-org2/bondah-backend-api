@@ -96,3 +96,49 @@ class EmailLog(models.Model):
 
     class Meta:
         ordering = ['-sent_at']
+
+
+class Job(models.Model):
+    JOB_TYPES = (
+        ('full-time', 'Full-time'),
+        ('part-time', 'Part-time'),
+        ('contract', 'Contract'),
+        ('internship', 'Internship'),
+        ('freelance', 'Freelance'),
+    )
+
+    CATEGORIES = (
+        ('engineering', 'Engineering'),
+        ('design', 'Design'),
+        ('marketing', 'Marketing'),
+        ('sales', 'Sales'),
+        ('product', 'Product'),
+        ('operations', 'Operations'),
+        ('hr', 'Human Resources'),
+        ('finance', 'Finance'),
+        ('other', 'Other'),
+    )
+
+    STATUS_CHOICES = (
+        ('open', 'Open'),
+        ('closed', 'Closed'),
+        ('draft', 'Draft'),
+        ('archived', 'Archived'),
+    )
+
+    title = models.CharField(max_length=200)
+    job_type = models.CharField(max_length=20, choices=JOB_TYPES)
+    category = models.CharField(max_length=20, choices=CATEGORIES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    description = models.TextField()
+    location = models.CharField(max_length=100)
+    salary_range = models.CharField(max_length=100, blank=True, null=True)
+    requirements = models.JSONField(default=list)  # Store as JSON array
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.title} - {self.get_job_type_display()}"
+
+    class Meta:
+        ordering = ['-created_at']

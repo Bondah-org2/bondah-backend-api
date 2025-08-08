@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from django.db.models import Sum
 from rest_framework import status
 from rest_framework import generics
-from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog
+from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
@@ -16,7 +16,9 @@ from .serializers import (
     WaitlistSerializer,
     NewsletterWelcomeEmailSerializer,
     WaitlistConfirmationEmailSerializer,
-    GenericEmailSerializer
+    GenericEmailSerializer,
+    JobListSerializer,
+    JobDetailSerializer
 )
 
 User = get_user_model()
@@ -398,3 +400,30 @@ class SendGenericEmailView(APIView):
             "status": "error",
             "errors": serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class JobListView(generics.ListAPIView):
+    serializer_class = JobListSerializer
+    
+    def get_queryset(self):
+        queryset = Job.objects.filter(status='open')  # Only show open jobs by default
+        
+        # Apply filters
+        job_type = self.request.query_params.get('jobType', None)
+        category = self.request.query_params.get('category', None)
+        status = self.request.query_params.get('status', None)
+        
+        if job_type:
+            queryset = queryset.filter(job_type=job_type)
+        if category:
+            queryset = queryset.filter(category=category)
+        if status:
+            queryset = queryset.filter(status=status)
+            
+        return queryset
+
+
+class JobDetailView(generics.RetrieveAPIView):
+    queryset = Job.objects.all()
+    serializer_class = JobDetailSerializer
+    lookup_field = 'id'
