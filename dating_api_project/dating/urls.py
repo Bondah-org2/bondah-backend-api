@@ -2,7 +2,8 @@ from django.urls import path
 from .views import (
     UserCreateView, 
     NewsletterSignupView, 
-    GetPuzzleView, SubmitPuzzleAnswerView, 
+    GetPuzzleView, 
+    SubmitPuzzleAnswerView, 
     EarnCoinsView, 
     SpendCoinsView,
     JoinWaitlistView,
@@ -11,9 +12,18 @@ from .views import (
     SendGenericEmailView,
     JobListView,
     JobDetailView,
+    JobApplicationView,
+    AdminLoginView,
+    AdminOTPVerificationView,
+    AdminJobListView,
+    AdminJobCreateView,
+    AdminJobUpdateView,
+    AdminJobApplicationsView,
+    AdminUpdateApplicationStatusView,
 )
 
 urlpatterns = [
+    # Public API endpoints
     path('create-user/', UserCreateView.as_view(), name='create-user'),
     path('newsletter/signup/', NewsletterSignupView.as_view(), name='newsletter-signup'),
     path('newsletter/subscribe/', NewsletterSignupView.as_view(), name='newsletter-subscribe'),
@@ -27,4 +37,14 @@ urlpatterns = [
     path('email/send/', SendGenericEmailView.as_view(), name='send-generic-email'),
     path('jobs/', JobListView.as_view(), name='job-list'),
     path('jobs/<int:id>/', JobDetailView.as_view(), name='job-detail'),
+    path('jobs/apply/', JobApplicationView.as_view(), name='job-application'),
+    
+    # Admin API endpoints
+    path('admin/login/', AdminLoginView.as_view(), name='admin-login'),
+    path('admin/verify-otp/', AdminOTPVerificationView.as_view(), name='admin-verify-otp'),
+    path('admin/jobs/', AdminJobListView.as_view(), name='admin-job-list'),
+    path('admin/jobs/create/', AdminJobCreateView.as_view(), name='admin-job-create'),
+    path('admin/jobs/<int:job_id>/update/', AdminJobUpdateView.as_view(), name='admin-job-update'),
+    path('admin/applications/', AdminJobApplicationsView.as_view(), name='admin-applications'),
+    path('admin/applications/<int:application_id>/status/', AdminUpdateApplicationStatusView.as_view(), name='admin-update-application-status'),
 ]

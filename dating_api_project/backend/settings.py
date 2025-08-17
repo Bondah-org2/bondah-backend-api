@@ -136,20 +136,13 @@ AUTH_USER_MODEL = 'dating.User'
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Email Configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'your-email@gmail.com'  # Replace with your Gmail
-EMAIL_HOST_PASSWORD = 'your-app-password'  # Replace with your Gmail app password
-DEFAULT_FROM_EMAIL = 'your-email@gmail.com'
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-# To get Gmail app password:
-# 1. Enable 2-Factor Authentication on your Gmail
-# 2. Go to Google Account → Security → 2-Step Verification → App passwords
-# 3. Generate password for "Mail"
-# 4. Use that password here (not your regular Gmail password)
-
-# For development/testing, you can use console backend instead
-# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-# This will print emails to your terminal instead of sending them
+# For production, use SMTP backend:
+# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# EMAIL_HOST = 'smtp.gmail.com'
+# EMAIL_PORT = 587
+# EMAIL_USE_TLS = True
+# EMAIL_HOST_USER = 'your-email@gmail.com'  # Replace with your Gmail
+# EMAIL_HOST_PASSWORD = 'your-app-password'  # Replace with your Gmail app password
+# DEFAULT_FROM_EMAIL = 'your-email@gmail.com'

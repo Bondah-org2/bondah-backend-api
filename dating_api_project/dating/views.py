@@ -4,7 +4,12 @@ from rest_framework.response import Response
 from django.db.models import Sum
 from rest_framework import status
 from rest_framework import generics
-from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job
+import random
+import string
+from django.utils import timezone
+from datetime import timedelta
+from django.contrib.auth.hashers import make_password, check_password
+from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
@@ -18,7 +23,14 @@ from .serializers import (
     WaitlistConfirmationEmailSerializer,
     GenericEmailSerializer,
     JobListSerializer,
-    JobDetailSerializer
+    JobDetailSerializer,
+    JobApplicationSerializer,
+    AdminLoginSerializer,
+    AdminOTPVerificationSerializer,
+    AdminJobCreateSerializer,
+    AdminJobUpdateSerializer,
+    AdminJobListSerializer,
+    AdminJobApplicationSerializer
 )
 
 User = get_user_model()
@@ -427,3 +439,302 @@ class JobDetailView(generics.RetrieveAPIView):
     queryset = Job.objects.all()
     serializer_class = JobDetailSerializer
     lookup_field = 'id'
+
+
+class JobApplicationView(generics.CreateAPIView):
+    serializer_class = JobApplicationSerializer
+
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                # Get the job
+                job_id = serializer.validated_data.get('job', {}).get('id')
+                job = Job.objects.get(id=job_id)
+                
+                # Create the application
+                application = serializer.save(job=job)
+                
+                # Return success response
+                return Response({
+                    "message": "Job application submitted successfully!",
+                    "status": "success",
+                    "applicationId": application.id
+                }, status=status.HTTP_201_CREATED)
+            
+            return Response({
+                "message": "Invalid application data",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Job.DoesNotExist:
+            return Response({
+                "message": "Job not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                "message": f"Application failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminLoginView(APIView):
+    def post(self, request):
+        serializer = AdminLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            password = serializer.validated_data['password']
+            
+            try:
+                admin_user = AdminUser.objects.get(email=email, is_active=True)
+                if check_password(password, admin_user.password):
+                    # Generate OTP
+                    otp_code = ''.join(random.choices(string.digits, k=6))
+                    expires_at = timezone.now() + timedelta(minutes=10)
+                    
+                    # Create OTP record
+                    AdminOTP.objects.create(
+                        admin_user=admin_user,
+                        otp_code=otp_code,
+                        expires_at=expires_at
+                    )
+                    
+                    # Send OTP email
+                    subject = "Admin Login OTP - Bondah Dating"
+                    message = f"""
+                    Your OTP for admin login is: {otp_code}
+                    
+                    This code will expire in 10 minutes.
+                    If you didn't request this, please ignore this email.
+                    
+                    Best regards,
+                    Bondah Team
+                    """.strip()
+                    
+                    try:
+                        send_mail(
+                            subject=subject,
+                            message=message,
+                            from_email=settings.DEFAULT_FROM_EMAIL,
+                            recipient_list=[email],
+                            fail_silently=False,
+                        )
+                        
+                        return Response({
+                            "message": "OTP sent to your email",
+                            "status": "success"
+                        }, status=status.HTTP_200_OK)
+                    except Exception as e:
+                        return Response({
+                            "message": f"Failed to send OTP: {str(e)}",
+                            "status": "error"
+                        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                else:
+                    return Response({
+                        "message": "Invalid credentials",
+                        "status": "error"
+                    }, status=status.HTTP_401_UNAUTHORIZED)
+            except AdminUser.DoesNotExist:
+                return Response({
+                    "message": "Invalid credentials",
+                    "status": "error"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        return Response({
+            "message": "Invalid data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminOTPVerificationView(APIView):
+    def post(self, request):
+        serializer = AdminOTPVerificationSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            otp_code = serializer.validated_data['otp_code']
+            
+            try:
+                admin_user = AdminUser.objects.get(email=email, is_active=True)
+                otp = AdminOTP.objects.filter(
+                    admin_user=admin_user,
+                    otp_code=otp_code,
+                    is_used=False
+                ).latest('created_at')
+                
+                if otp.is_expired():
+                    return Response({
+                        "message": "OTP has expired",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Mark OTP as used
+                otp.is_used = True
+                otp.save()
+                
+                # Update last login
+                admin_user.last_login = timezone.now()
+                admin_user.save()
+                
+                return Response({
+                    "message": "Login successful",
+                    "status": "success",
+                    "admin_email": admin_user.email
+                }, status=status.HTTP_200_OK)
+                
+            except (AdminUser.DoesNotExist, AdminOTP.DoesNotExist):
+                return Response({
+                    "message": "Invalid OTP",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            "message": "Invalid data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminJobListView(APIView):
+    def get(self, request):
+        try:
+            jobs = Job.objects.all().order_by('-created_at')
+            serializer = AdminJobListSerializer(jobs, many=True)
+            
+            return Response({
+                "message": "Jobs retrieved successfully",
+                "status": "success",
+                "jobs": serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve jobs: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminJobCreateView(APIView):
+    def post(self, request):
+        try:
+            serializer = AdminJobCreateSerializer(data=request.data)
+            if serializer.is_valid():
+                job = serializer.save()
+                
+                return Response({
+                    "message": "Job created successfully",
+                    "status": "success",
+                    "job": AdminJobCreateSerializer(job).data
+                }, status=status.HTTP_201_CREATED)
+            
+            return Response({
+                "message": "Invalid job data",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to create job: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminJobUpdateView(APIView):
+    def put(self, request, job_id):
+        try:
+            job = Job.objects.get(id=job_id)
+            serializer = AdminJobUpdateSerializer(job, data=request.data, partial=True)
+            
+            if serializer.is_valid():
+                updated_job = serializer.save()
+                
+                return Response({
+                    "message": "Job updated successfully",
+                    "status": "success",
+                    "job": AdminJobUpdateSerializer(updated_job).data
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                "message": "Invalid job data",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Job.DoesNotExist:
+            return Response({
+                "message": "Job not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to update job: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminJobApplicationsView(APIView):
+    def get(self, request):
+        try:
+            # Get query parameters for filtering
+            job_id = request.query_params.get('job_id')
+            status_filter = request.query_params.get('status')
+            
+            applications = JobApplication.objects.all().order_by('-applied_at')
+            
+            if job_id:
+                applications = applications.filter(job_id=job_id)
+            if status_filter:
+                applications = applications.filter(status=status_filter)
+            
+            serializer = AdminJobApplicationSerializer(applications, many=True)
+            
+            return Response({
+                "message": "Applications retrieved successfully",
+                "status": "success",
+                "applications": serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve applications: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminUpdateApplicationStatusView(APIView):
+    def put(self, request, application_id):
+        try:
+            application = JobApplication.objects.get(id=application_id)
+            new_status = request.data.get('status')
+            
+            if not new_status:
+                return Response({
+                    "message": "Status is required",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate status
+            valid_statuses = [choice[0] for choice in JobApplication.STATUS_CHOICES]
+            if new_status not in valid_statuses:
+                return Response({
+                    "message": f"Invalid status. Must be one of: {', '.join(valid_statuses)}",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            application.status = new_status
+            application.save()
+            
+            return Response({
+                "message": "Application status updated successfully",
+                "status": "success",
+                "application": AdminJobApplicationSerializer(application).data
+            }, status=status.HTTP_200_OK)
+        except JobApplication.DoesNotExist:
+            return Response({
+                "message": "Application not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to update application status: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
