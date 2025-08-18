@@ -20,6 +20,10 @@ from .views import (
     AdminJobUpdateView,
     AdminJobApplicationsView,
     AdminUpdateApplicationStatusView,
+    TranslationView,
+    SupportedLanguagesView,
+    TranslationHistoryView,
+    TranslationStatsView,
 )
 
 urlpatterns = [
@@ -38,6 +42,12 @@ urlpatterns = [
     path('jobs/', JobListView.as_view(), name='job-list'),
     path('jobs/<int:id>/', JobDetailView.as_view(), name='job-detail'),
     path('jobs/apply/', JobApplicationView.as_view(), name='job-application'),
+    
+    # Translation API endpoints
+    path('translate/', TranslationView.as_view(), name='translate'),
+    path('translate/languages/', SupportedLanguagesView.as_view(), name='supported-languages'),
+    path('translate/history/', TranslationHistoryView.as_view(), name='translation-history'),
+    path('translate/stats/', TranslationStatsView.as_view(), name='translation-stats'),
     
     # Admin API endpoints
     path('admin/login/', AdminLoginView.as_view(), name='admin-login'),

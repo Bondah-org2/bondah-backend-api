@@ -9,7 +9,7 @@ import string
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.hashers import make_password, check_password
-from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP
+from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
@@ -30,8 +30,14 @@ from .serializers import (
     AdminJobCreateSerializer,
     AdminJobUpdateSerializer,
     AdminJobListSerializer,
-    AdminJobApplicationSerializer
+    AdminJobApplicationSerializer,
+    TranslationRequestSerializer,
+    TranslationResponseSerializer,
+    SupportedLanguagesSerializer
 )
+import time
+from deep_translator import GoogleTranslator
+from django.db import models
 
 User = get_user_model()
 
@@ -736,5 +742,277 @@ class AdminUpdateApplicationStatusView(APIView):
         except Exception as e:
             return Response({
                 "message": f"Failed to update application status: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class TranslationView(APIView):
+    def post(self, request):
+        start_time = time.time()
+        
+        try:
+            serializer = TranslationRequestSerializer(data=request.data)
+            if serializer.is_valid():
+                text = serializer.validated_data['text']
+                source_language = serializer.validated_data.get('source_language', 'auto')
+                target_language = serializer.validated_data['target_language']
+                
+                # Initialize translator
+                if source_language == 'auto':
+                    # For auto-detect, we'll use 'auto' as source and assume English if detection fails
+                    try:
+                        translator = GoogleTranslator(source='auto', target=target_language)
+                        translated_text = translator.translate(text)
+                        detected_source = 'auto'  # We'll store 'auto' as detected source
+                    except:
+                        # Fallback to English if auto-detection fails
+                        translator = GoogleTranslator(source='en', target=target_language)
+                        translated_text = translator.translate(text)
+                        detected_source = 'en'
+                else:
+                    # Use specified source language
+                    translator = GoogleTranslator(source=source_language, target=target_language)
+                    translated_text = translator.translate(text)
+                    detected_source = source_language
+                translation_time = time.time() - start_time
+                
+                # Log translation
+                translation_log = TranslationLog.objects.create(
+                    source_text=text,
+                    translated_text=translated_text,
+                    source_language=detected_source,
+                    target_language=target_language,
+                    character_count=len(text),
+                    translation_time=translation_time,
+                    ip_address=self.get_client_ip(request),
+                    user_agent=request.META.get('HTTP_USER_AGENT', '')
+                )
+                
+                return Response({
+                    "message": "Translation successful",
+                    "status": "success",
+                    "translation": {
+                        "source_text": text,
+                        "translated_text": translated_text,
+                        "source_language": detected_source,
+                        "target_language": target_language,
+                        "character_count": len(text),
+                        "translation_time": round(translation_time, 3)
+                    }
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                "message": "Invalid translation request",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Translation failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+
+
+class SupportedLanguagesView(APIView):
+    def get(self, request):
+        try:
+            languages = {
+                'en': 'English',
+                'en-US': 'English (US)',
+                'en-GB': 'English (UK)',
+                'es': 'Spanish',
+                'fr': 'French',
+                'de': 'German',
+                'nl': 'Dutch',
+                'ar': 'Arabic',
+                'zh': 'Chinese (Simplified)',
+                'zh-TW': 'Chinese (Traditional)',
+                'ja': 'Japanese',
+                'ko': 'Korean',
+                'pt': 'Portuguese',
+                'it': 'Italian',
+                'ru': 'Russian',
+                'hi': 'Hindi',
+                'bn': 'Bengali',
+                'tr': 'Turkish',
+                'pl': 'Polish',
+                'vi': 'Vietnamese',
+                'th': 'Thai',
+                'id': 'Indonesian',
+                'ms': 'Malay',
+                'fa': 'Persian',
+                'he': 'Hebrew',
+                'sv': 'Swedish',
+                'da': 'Danish',
+                'no': 'Norwegian',
+                'fi': 'Finnish',
+                'cs': 'Czech',
+                'sk': 'Slovak',
+                'hu': 'Hungarian',
+                'ro': 'Romanian',
+                'bg': 'Bulgarian',
+                'hr': 'Croatian',
+                'sl': 'Slovenian',
+                'et': 'Estonian',
+                'lv': 'Latvian',
+                'lt': 'Lithuanian',
+                'mt': 'Maltese',
+                'el': 'Greek',
+                'uk': 'Ukrainian',
+                'be': 'Belarusian',
+                'mk': 'Macedonian',
+                'sq': 'Albanian',
+                'bs': 'Bosnian',
+                'sr': 'Serbian',
+                'me': 'Montenegrin',
+                'ka': 'Georgian',
+                'hy': 'Armenian',
+                'az': 'Azerbaijani',
+                'kk': 'Kazakh',
+                'ky': 'Kyrgyz',
+                'uz': 'Uzbek',
+                'tg': 'Tajik',
+                'mn': 'Mongolian',
+                'ne': 'Nepali',
+                'si': 'Sinhala',
+                'my': 'Burmese',
+                'km': 'Khmer',
+                'lo': 'Lao',
+                'gl': 'Galician',
+                'eu': 'Basque',
+                'ca': 'Catalan',
+                'cy': 'Welsh',
+                'ga': 'Irish',
+                'is': 'Icelandic',
+                'fo': 'Faroese',
+                'kl': 'Greenlandic',
+                'sm': 'Samoan',
+                'to': 'Tongan',
+                'fj': 'Fijian',
+                'haw': 'Hawaiian',
+                'mi': 'Maori',
+                'sw': 'Swahili',
+                'yo': 'Yoruba',
+                'ig': 'Igbo',
+                'ha': 'Hausa',
+                'zu': 'Zulu',
+                'xh': 'Xhosa',
+                'af': 'Afrikaans',
+                'am': 'Amharic',
+                'ti': 'Tigrinya',
+                'so': 'Somali',
+                'om': 'Oromo',
+                'rw': 'Kinyarwanda',
+                'lg': 'Ganda',
+                'ak': 'Akan',
+                'tw': 'Twi',
+                'ee': 'Ewe',
+                'fon': 'Fon',
+                'sn': 'Shona',
+                'ny': 'Chichewa',
+                'st': 'Southern Sotho',
+                'tn': 'Tswana',
+                'ts': 'Tsonga',
+                've': 'Venda',
+                'ss': 'Swati',
+                'nr': 'Southern Ndebele',
+                'nd': 'Northern Ndebele',
+            }
+            
+            return Response({
+                "message": "Supported languages retrieved successfully",
+                "status": "success",
+                "languages": languages,
+                "total_languages": len(languages)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve languages: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class TranslationHistoryView(APIView):
+    def get(self, request):
+        try:
+            # Get query parameters for filtering
+            source_language = request.query_params.get('source_language')
+            target_language = request.query_params.get('target_language')
+            limit = int(request.query_params.get('limit', 50))
+            
+            translations = TranslationLog.objects.all().order_by('-created_at')
+            
+            if source_language:
+                translations = translations.filter(source_language=source_language)
+            if target_language:
+                translations = translations.filter(target_language=target_language)
+            
+            # Limit results
+            translations = translations[:limit]
+            
+            serializer = TranslationResponseSerializer(translations, many=True)
+            
+            return Response({
+                "message": "Translation history retrieved successfully",
+                "status": "success",
+                "translations": serializer.data,
+                "total_count": len(serializer.data)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve translation history: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class TranslationStatsView(APIView):
+    def get(self, request):
+        try:
+            total_translations = TranslationLog.objects.count()
+            total_characters = TranslationLog.objects.aggregate(
+                total_chars=models.Sum('character_count')
+            )['total_chars'] or 0
+            
+            # Most popular target languages
+            popular_targets = TranslationLog.objects.values('target_language').annotate(
+                count=models.Count('id')
+            ).order_by('-count')[:10]
+            
+            # Most popular source languages
+            popular_sources = TranslationLog.objects.values('source_language').annotate(
+                count=models.Count('id')
+            ).order_by('-count')[:10]
+            
+            # Average translation time
+            avg_time = TranslationLog.objects.aggregate(
+                avg_time=models.Avg('translation_time')
+            )['avg_time'] or 0
+            
+            return Response({
+                "message": "Translation statistics retrieved successfully",
+                "status": "success",
+                "stats": {
+                    "total_translations": total_translations,
+                    "total_characters_translated": total_characters,
+                    "average_translation_time": round(avg_time, 3),
+                    "popular_target_languages": list(popular_targets),
+                    "popular_source_languages": list(popular_sources)
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve translation statistics: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

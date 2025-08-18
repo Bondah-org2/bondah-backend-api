@@ -209,3 +209,21 @@ class AdminOTP(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class TranslationLog(models.Model):
+    source_text = models.TextField()
+    translated_text = models.TextField()
+    source_language = models.CharField(max_length=10)  # e.g., 'en', 'es', 'fr'
+    target_language = models.CharField(max_length=10)
+    character_count = models.PositiveIntegerField()
+    translation_time = models.FloatField(help_text="Translation time in seconds")
+    created_at = models.DateTimeField(auto_now_add=True)
+    ip_address = models.GenericIPAddressField(blank=True, null=True)
+    user_agent = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.source_language} → {self.target_language} ({self.character_count} chars)"
+
+    class Meta:
+        ordering = ['-created_at']

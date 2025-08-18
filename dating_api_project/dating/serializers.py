@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -227,3 +227,196 @@ class AdminJobApplicationSerializer(serializers.ModelSerializer):
     
     def get_applicant_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
+
+class TranslationRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=5000)  # Limit text length
+    source_language = serializers.CharField(max_length=10, required=False, default='auto')
+    target_language = serializers.CharField(max_length=10)
+    
+    def validate_target_language(self, value):
+        # Supported languages
+        supported_languages = {
+            'en': 'English',
+            'en-US': 'English (US)',
+            'en-GB': 'English (UK)',
+            'es': 'Spanish',
+            'fr': 'French',
+            'de': 'German',
+            'nl': 'Dutch',
+            'ar': 'Arabic',
+            'zh': 'Chinese (Simplified)',
+            'zh-TW': 'Chinese (Traditional)',
+            'ja': 'Japanese',
+            'ko': 'Korean',
+            'pt': 'Portuguese',
+            'it': 'Italian',
+            'ru': 'Russian',
+            'hi': 'Hindi',
+            'bn': 'Bengali',
+            'tr': 'Turkish',
+            'pl': 'Polish',
+            'vi': 'Vietnamese',
+            'th': 'Thai',
+            'id': 'Indonesian',
+            'ms': 'Malay',
+            'fa': 'Persian',
+            'he': 'Hebrew',
+            'sv': 'Swedish',
+            'da': 'Danish',
+            'no': 'Norwegian',
+            'fi': 'Finnish',
+            'cs': 'Czech',
+            'sk': 'Slovak',
+            'hu': 'Hungarian',
+            'ro': 'Romanian',
+            'bg': 'Bulgarian',
+            'hr': 'Croatian',
+            'sl': 'Slovenian',
+            'et': 'Estonian',
+            'lv': 'Latvian',
+            'lt': 'Lithuanian',
+            'mt': 'Maltese',
+            'el': 'Greek',
+            'uk': 'Ukrainian',
+            'be': 'Belarusian',
+            'mk': 'Macedonian',
+            'sq': 'Albanian',
+            'bs': 'Bosnian',
+            'sr': 'Serbian',
+            'me': 'Montenegrin',
+            'ka': 'Georgian',
+            'hy': 'Armenian',
+            'az': 'Azerbaijani',
+            'kk': 'Kazakh',
+            'ky': 'Kyrgyz',
+            'uz': 'Uzbek',
+            'tg': 'Tajik',
+            'mn': 'Mongolian',
+            'ne': 'Nepali',
+            'si': 'Sinhala',
+            'my': 'Burmese',
+            'km': 'Khmer',
+            'lo': 'Lao',
+            'gl': 'Galician',
+            'eu': 'Basque',
+            'ca': 'Catalan',
+            'cy': 'Welsh',
+            'ga': 'Irish',
+            'is': 'Icelandic',
+            'fo': 'Faroese',
+            'kl': 'Greenlandic',
+            'sm': 'Samoan',
+            'to': 'Tongan',
+            'fj': 'Fijian',
+            'haw': 'Hawaiian',
+            'mi': 'Maori',
+            'sw': 'Swahili',
+            'yo': 'Yoruba',
+            'ig': 'Igbo',
+            'ha': 'Hausa',
+            'zu': 'Zulu',
+            'xh': 'Xhosa',
+            'af': 'Afrikaans',
+            'am': 'Amharic',
+            'ti': 'Tigrinya',
+            'so': 'Somali',
+            'om': 'Oromo',
+            'rw': 'Kinyarwanda',
+            'lg': 'Ganda',
+            'ak': 'Akan',
+            'tw': 'Twi',
+            'ee': 'Ewe',
+            'fon': 'Fon',
+            'sn': 'Shona',
+            'ny': 'Chichewa',
+            'st': 'Southern Sotho',
+            'tn': 'Tswana',
+            'ts': 'Tsonga',
+            've': 'Venda',
+            'ss': 'Swati',
+            'nr': 'Southern Ndebele',
+            'nd': 'Northern Ndebele',
+        }
+        
+        if value not in supported_languages:
+            raise serializers.ValidationError(f"Unsupported language: {value}. Supported languages: {', '.join(supported_languages.keys())}")
+        
+        return value
+
+class TranslationResponseSerializer(serializers.ModelSerializer):
+    source_language_name = serializers.SerializerMethodField()
+    target_language_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TranslationLog
+        fields = [
+            'id', 'source_text', 'translated_text', 'source_language', 
+            'target_language', 'source_language_name', 'target_language_name',
+            'character_count', 'translation_time', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
+    
+    def get_source_language_name(self, obj):
+        language_names = {
+            'en': 'English', 'en-US': 'English (US)', 'en-GB': 'English (UK)',
+            'es': 'Spanish', 'fr': 'French', 'de': 'German', 'nl': 'Dutch',
+            'ar': 'Arabic', 'zh': 'Chinese (Simplified)', 'zh-TW': 'Chinese (Traditional)',
+            'ja': 'Japanese', 'ko': 'Korean', 'pt': 'Portuguese', 'it': 'Italian',
+            'ru': 'Russian', 'hi': 'Hindi', 'bn': 'Bengali', 'tr': 'Turkish',
+            'pl': 'Polish', 'vi': 'Vietnamese', 'th': 'Thai', 'id': 'Indonesian',
+            'ms': 'Malay', 'fa': 'Persian', 'he': 'Hebrew', 'sv': 'Swedish',
+            'da': 'Danish', 'no': 'Norwegian', 'fi': 'Finnish', 'cs': 'Czech',
+            'sk': 'Slovak', 'hu': 'Hungarian', 'ro': 'Romanian', 'bg': 'Bulgarian',
+            'hr': 'Croatian', 'sl': 'Slovenian', 'et': 'Estonian', 'lv': 'Latvian',
+            'lt': 'Lithuanian', 'mt': 'Maltese', 'el': 'Greek', 'uk': 'Ukrainian',
+            'be': 'Belarusian', 'mk': 'Macedonian', 'sq': 'Albanian', 'bs': 'Bosnian',
+            'sr': 'Serbian', 'me': 'Montenegrin', 'ka': 'Georgian', 'hy': 'Armenian',
+            'az': 'Azerbaijani', 'kk': 'Kazakh', 'ky': 'Kyrgyz', 'uz': 'Uzbek',
+            'tg': 'Tajik', 'mn': 'Mongolian', 'ne': 'Nepali', 'si': 'Sinhala',
+            'my': 'Burmese', 'km': 'Khmer', 'lo': 'Lao', 'gl': 'Galician',
+            'eu': 'Basque', 'ca': 'Catalan', 'cy': 'Welsh', 'ga': 'Irish',
+            'is': 'Icelandic', 'fo': 'Faroese', 'kl': 'Greenlandic', 'sm': 'Samoan',
+            'to': 'Tongan', 'fj': 'Fijian', 'haw': 'Hawaiian', 'mi': 'Maori',
+            'sw': 'Swahili', 'yo': 'Yoruba', 'ig': 'Igbo', 'ha': 'Hausa',
+            'zu': 'Zulu', 'xh': 'Xhosa', 'af': 'Afrikaans', 'am': 'Amharic',
+            'ti': 'Tigrinya', 'so': 'Somali', 'om': 'Oromo', 'rw': 'Kinyarwanda',
+            'lg': 'Ganda', 'ak': 'Akan', 'tw': 'Twi', 'ee': 'Ewe', 'fon': 'Fon',
+            'sn': 'Shona', 'ny': 'Chichewa', 'st': 'Southern Sotho', 'tn': 'Tswana',
+            'ts': 'Tsonga', 've': 'Venda', 'ss': 'Swati', 'nr': 'Southern Ndebele',
+            'nd': 'Northern Ndebele', 'auto': 'Auto-detect'
+        }
+        return language_names.get(obj.source_language, obj.source_language)
+    
+    def get_target_language_name(self, obj):
+        language_names = {
+            'en': 'English', 'en-US': 'English (US)', 'en-GB': 'English (UK)',
+            'es': 'Spanish', 'fr': 'French', 'de': 'German', 'nl': 'Dutch',
+            'ar': 'Arabic', 'zh': 'Chinese (Simplified)', 'zh-TW': 'Chinese (Traditional)',
+            'ja': 'Japanese', 'ko': 'Korean', 'pt': 'Portuguese', 'it': 'Italian',
+            'ru': 'Russian', 'hi': 'Hindi', 'bn': 'Bengali', 'tr': 'Turkish',
+            'pl': 'Polish', 'vi': 'Vietnamese', 'th': 'Thai', 'id': 'Indonesian',
+            'ms': 'Malay', 'fa': 'Persian', 'he': 'Hebrew', 'sv': 'Swedish',
+            'da': 'Danish', 'no': 'Norwegian', 'fi': 'Finnish', 'cs': 'Czech',
+            'sk': 'Slovak', 'hu': 'Hungarian', 'ro': 'Romanian', 'bg': 'Bulgarian',
+            'hr': 'Croatian', 'sl': 'Slovenian', 'et': 'Estonian', 'lv': 'Latvian',
+            'lt': 'Lithuanian', 'mt': 'Maltese', 'el': 'Greek', 'uk': 'Ukrainian',
+            'be': 'Belarusian', 'mk': 'Macedonian', 'sq': 'Albanian', 'bs': 'Bosnian',
+            'sr': 'Serbian', 'me': 'Montenegrin', 'ka': 'Georgian', 'hy': 'Armenian',
+            'az': 'Azerbaijani', 'kk': 'Kazakh', 'ky': 'Kyrgyz', 'uz': 'Uzbek',
+            'tg': 'Tajik', 'mn': 'Mongolian', 'ne': 'Nepali', 'si': 'Sinhala',
+            'my': 'Burmese', 'km': 'Khmer', 'lo': 'Lao', 'gl': 'Galician',
+            'eu': 'Basque', 'ca': 'Catalan', 'cy': 'Welsh', 'ga': 'Irish',
+            'is': 'Icelandic', 'fo': 'Faroese', 'kl': 'Greenlandic', 'sm': 'Samoan',
+            'to': 'Tongan', 'fj': 'Fijian', 'haw': 'Hawaiian', 'mi': 'Maori',
+            'sw': 'Swahili', 'yo': 'Yoruba', 'ig': 'Igbo', 'ha': 'Hausa',
+            'zu': 'Zulu', 'xh': 'Xhosa', 'af': 'Afrikaans', 'am': 'Amharic',
+            'ti': 'Tigrinya', 'so': 'Somali', 'om': 'Oromo', 'rw': 'Kinyarwanda',
+            'lg': 'Ganda', 'ak': 'Akan', 'tw': 'Twi', 'ee': 'Ewe', 'fon': 'Fon',
+            'sn': 'Shona', 'ny': 'Chichewa', 'st': 'Southern Sotho', 'tn': 'Tswana',
+            'ts': 'Tsonga', 've': 'Venda', 'ss': 'Swati', 'nr': 'Southern Ndebele',
+            'nd': 'Northern Ndebele'
+        }
+        return language_names.get(obj.target_language, obj.target_language)
+
+class SupportedLanguagesSerializer(serializers.Serializer):
+    languages = serializers.DictField()

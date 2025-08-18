@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog
 
 # Register your models here.
 
@@ -13,3 +13,4 @@ admin.site.register(Job)
 admin.site.register(JobApplication)
 admin.site.register(AdminUser)
 admin.site.register(AdminOTP)
+admin.site.register(TranslationLog)
