@@ -7,17 +7,13 @@ echo "Starting build process..."
 # Install dependencies
 pip install -r requirements.txt
 
-# Run Railway-specific setup
-echo "Running Railway setup..."
-python railway_setup.py
+# Run FORCE database setup
+echo "Running FORCE database setup..."
+python force_setup.py
 
 # Debug current status
 echo "Debugging current status..."
 python debug_railway.py
-
-# Check database connection and tables
-echo "Checking database configuration..."
-python check_database.py
 
 # Test static files configuration
 echo "Testing static files configuration..."
