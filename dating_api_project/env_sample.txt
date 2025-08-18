@@ -1,0 +1,14 @@
+# Email Configuration - Copy this to .env file
+EMAIL_HOST_USER=your-email@gmail.com
+EMAIL_HOST_PASSWORD=your-app-password
+DEFAULT_FROM_EMAIL=your-email@gmail.com
+
+# Django Secret Key
+SECRET_KEY=your-secret-key-here
+
+# Database Configuration
+DB_NAME=bondah_db2
+DB_USER=bondah_user2
+DB_PASSWORD=bondahpassorg
+DB_HOST=localhost
+DB_PORT=5432

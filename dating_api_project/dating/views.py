@@ -56,6 +56,8 @@ class NewsletterSignupView(generics.CreateAPIView):
             if serializer.is_valid():
                 # Check if email already exists
                 email = serializer.validated_data.get('email')
+                name = serializer.validated_data.get('name', '')
+                
                 if NewsletterSubscriber.objects.filter(email=email).exists():
                     return Response({
                         "message": "Email already subscribed to newsletter",
@@ -65,9 +67,58 @@ class NewsletterSignupView(generics.CreateAPIView):
                 # Save the newsletter subscription
                 subscriber = serializer.save()
                 
+                # Send automatic welcome email
+                subject = f"Welcome to Bondah Dating{f', {name}' if name else ''}! 🎉"
+                message = f"""
+Hi {name if name else 'there'},
+
+Thank you for subscribing to our newsletter! 
+
+We're excited to keep you updated on:
+• Latest dating tips and advice
+• Success stories from our community
+• New features and updates
+• Exclusive matchmaking opportunities
+• Early access to premium features
+
+Stay tuned for amazing content coming your way!
+
+Best regards,
+The Bondah Team
+
+P.S. Follow us on social media for daily dating insights!
+                """.strip()
+                
+                # Log email attempt
+                email_log = EmailLog.objects.create(
+                    email_type='newsletter_welcome',
+                    recipient_email=email,
+                    subject=subject,
+                    message=message
+                )
+                
+                try:
+                    # Send email using Django's email functionality
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[email],
+                        fail_silently=False,
+                    )
+                    
+                    email_log.is_sent = True
+                    email_log.save()
+                    
+                except Exception as e:
+                    email_log.is_sent = False
+                    email_log.error_message = str(e)
+                    email_log.save()
+                    # Don't fail the signup if email fails
+                
                 # Return success response
                 return Response({
-                    "message": "Subscription successful!",
+                    "message": "Subscription successful! Welcome email sent.",
                     "status": "success"
                 }, status=status.HTTP_201_CREATED)
             
@@ -92,6 +143,9 @@ class JoinWaitlistView(generics.CreateAPIView):
         if serializer.is_valid():
             # Check if email already exists
             email = serializer.validated_data.get('email')
+            first_name = serializer.validated_data.get('firstName', '')
+            last_name = serializer.validated_data.get('lastName', '')
+            
             if Waitlist.objects.filter(email=email).exists():
                 return Response({
                     "message": "Email already registered on waitlist",
@@ -101,9 +155,57 @@ class JoinWaitlistView(generics.CreateAPIView):
             # Save the waitlist entry
             waitlist_entry = serializer.save()
             
+            # Send automatic confirmation email
+            subject = f"You're on the Bondah Waitlist, {first_name}! ⏳"
+            message = f"""
+Hi {first_name} {last_name},
+
+Great news! You've successfully joined the Bondah Dating waitlist.
+
+Your spot is reserved, and we'll notify you as soon as:
+• Our platform launches
+• Early access becomes available
+• Special features are ready
+• Exclusive beta testing opportunities
+
+We'll keep you updated on our progress and send you exclusive early-bird offers!
+
+Thanks for your patience,
+The Bondah Team
+
+P.S. Share this with friends who might be interested in joining too!
+            """.strip()
+            
+            # Log email attempt
+            email_log = EmailLog.objects.create(
+                email_type='waitlist_confirmation',
+                recipient_email=email,
+                subject=subject,
+                message=message
+            )
+            
+            try:
+                # Send email using Django's email functionality
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+                
+                email_log.is_sent = True
+                email_log.save()
+                
+            except Exception as e:
+                email_log.is_sent = False
+                email_log.error_message = str(e)
+                email_log.save()
+                # Don't fail the signup if email fails
+            
             # Return success response
             return Response({
-                "message": "You've successfully joined the waitlist!",
+                "message": "You've successfully joined the waitlist! Confirmation email sent.",
                 "status": "success"
             }, status=status.HTTP_201_CREATED)
         
@@ -458,12 +560,70 @@ class JobApplicationView(generics.CreateAPIView):
                 job_id = serializer.validated_data.get('job', {}).get('id')
                 job = Job.objects.get(id=job_id)
                 
+                # Get applicant details
+                applicant_email = serializer.validated_data.get('email', '')
+                applicant_name = serializer.validated_data.get('name', '')
+                
                 # Create the application
                 application = serializer.save(job=job)
                 
+                # Send automatic confirmation email
+                subject = f"Application Received - {job.title} at Bondah Dating"
+                message = f"""
+Hi {applicant_name},
+
+Thank you for your interest in joining the Bondah Dating team!
+
+We've received your application for the {job.title} position and are excited to review your qualifications.
+
+What happens next:
+• Our team will review your application within 3-5 business days
+• If selected, we'll contact you for the next steps
+• You'll receive updates on your application status
+
+Application Details:
+• Position: {job.title}
+• Application ID: {application.id}
+• Applied: {application.applied_at.strftime('%B %d, %Y')}
+
+We appreciate your interest in helping us build the future of dating!
+
+Best regards,
+The Bondah Team
+
+P.S. Follow us on social media to stay updated on our journey!
+                """.strip()
+                
+                # Log email attempt
+                email_log = EmailLog.objects.create(
+                    email_type='job_application_confirmation',
+                    recipient_email=applicant_email,
+                    subject=subject,
+                    message=message
+                )
+                
+                try:
+                    # Send email using Django's email functionality
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[applicant_email],
+                        fail_silently=False,
+                    )
+                    
+                    email_log.is_sent = True
+                    email_log.save()
+                    
+                except Exception as e:
+                    email_log.is_sent = False
+                    email_log.error_message = str(e)
+                    email_log.save()
+                    # Don't fail the application if email fails
+                
                 # Return success response
                 return Response({
-                    "message": "Job application submitted successfully!",
+                    "message": "Job application submitted successfully! Confirmation email sent.",
                     "status": "success",
                     "applicationId": application.id
                 }, status=status.HTTP_201_CREATED)
@@ -508,15 +668,24 @@ class AdminLoginView(APIView):
                     )
                     
                     # Send OTP email
-                    subject = "Admin Login OTP - Bondah Dating"
+                    subject = "🔐 Admin Login OTP - Bondah Dating"
                     message = f"""
-                    Your OTP for admin login is: {otp_code}
-                    
-                    This code will expire in 10 minutes.
-                    If you didn't request this, please ignore this email.
-                    
-                    Best regards,
-                    Bondah Team
+Hi there,
+
+Your OTP for admin login is: {otp_code}
+
+This code will expire in 10 minutes.
+If you didn't request this login, please ignore this email and contact support immediately.
+
+For security reasons, please:
+• Don't share this code with anyone
+• Use it only on the official Bondah admin portal
+• Delete this email after use
+
+Best regards,
+The Bondah Team
+
+P.S. Keep your admin credentials secure!
                     """.strip()
                     
                     try:
