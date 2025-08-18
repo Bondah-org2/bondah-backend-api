@@ -16,13 +16,33 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.http import HttpResponse
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views import View
+
+@method_decorator(csrf_exempt, name='dispatch')
+class HealthCheckView(View):
+    def get(self, request):
+        return JsonResponse({
+            "status": "healthy",
+            "message": "Bondah Dating API is running",
+            "version": "1.0.0"
+        })
 
 def home(request):
-    return HttpResponse("Welcome to Bondah Dating API")
+    return JsonResponse({
+        "message": "Welcome to Bondah Dating API",
+        "endpoints": {
+            "health": "/health/",
+            "api": "/api/",
+            "admin": "/admin/"
+        }
+    })
 
 urlpatterns = [
     path('', home),
+    path('health/', HealthCheckView.as_view(), name='health-check'),
     path('admin/', admin.site.urls),
     path('api/', include('dating.urls')),  # Include the dating app URLs
 ]
