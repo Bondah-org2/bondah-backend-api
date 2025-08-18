@@ -7,13 +7,9 @@ echo "Starting build process..."
 # Install dependencies
 pip install -r requirements.txt
 
-# Run DIRECT table creation
-echo "Running DIRECT table creation..."
-python create_tables.py
-
-# Fix password hashing
-echo "Fixing password hashing..."
-python fix_password_hash.py
+# Run Railway PostgreSQL database fix
+echo "Running Railway PostgreSQL database fix..."
+python railway_db_fix.py
 
 # Debug current status
 echo "Debugging current status..."
