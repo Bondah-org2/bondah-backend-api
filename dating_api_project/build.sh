@@ -7,9 +7,9 @@ echo "Starting build process..."
 # Install dependencies
 pip install -r requirements.txt
 
-# Run FORCE database setup
-echo "Running FORCE database setup..."
-python force_setup.py
+# Run DIRECT table creation
+echo "Running DIRECT table creation..."
+python create_tables.py
 
 # Debug current status
 echo "Debugging current status..."
