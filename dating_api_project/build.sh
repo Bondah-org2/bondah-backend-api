@@ -7,9 +7,9 @@ echo "Starting build process..."
 # Install dependencies
 pip install -r requirements.txt
 
-# Run Railway PostgreSQL database fix
-echo "Running Railway PostgreSQL database fix..."
-python railway_db_fix.py
+# Run Complete Railway fix
+echo "Running Complete Railway fix..."
+python railway_complete_fix.py
 
 # Debug current status
 echo "Debugging current status..."
