@@ -11,6 +11,10 @@ pip install -r requirements.txt
 echo "Running Railway setup..."
 python railway_setup.py
 
+# Debug current status
+echo "Debugging current status..."
+python debug_railway.py
+
 # Check database connection and tables
 echo "Checking database configuration..."
 python check_database.py
