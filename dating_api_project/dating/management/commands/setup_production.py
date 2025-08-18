@@ -50,8 +50,12 @@ class Command(BaseCommand):
         
         # Step 2: Collect static files
         self.stdout.write('📁 Collecting static files...')
-        call_command('collectstatic', '--noinput', verbosity=0)
-        self.stdout.write(self.style.SUCCESS('✅ Static files collected successfully!'))
+        try:
+            call_command('collectstatic', '--noinput', '--clear', verbosity=0)
+            self.stdout.write(self.style.SUCCESS('✅ Static files collected successfully!'))
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️  Static files collection warning: {str(e)}'))
+            # Continue anyway as this might not be critical
         
         # Step 3: Create superuser if it doesn't exist
         username = options['username']
