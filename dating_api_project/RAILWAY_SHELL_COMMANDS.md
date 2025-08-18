@@ -18,22 +18,32 @@ If the automatic deployment doesn't work, you can run these commands directly on
 python debug_railway.py
 ```
 
-### 2. Create Tables Directly (if migrations fail)
+### 2. Complete Setup (RECOMMENDED)
+```bash
+python complete_setup.py
+```
+
+### 3. Create Tables Directly (if migrations fail)
 ```bash
 python create_tables.py
 ```
 
-### 3. Force Setup (if direct creation fails)
+### 4. Fix Password Hashing (if login fails)
+```bash
+python fix_password_hash.py
+```
+
+### 5. Force Setup (if direct creation fails)
 ```bash
 python force_setup.py
 ```
 
-### 4. Manual Setup (alternative)
+### 6. Manual Setup (alternative)
 ```bash
 python manual_setup.py
 ```
 
-### 5. Check Database Tables
+### 7. Check Database Tables
 ```bash
 python check_database.py
 ```

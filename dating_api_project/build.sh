@@ -11,6 +11,10 @@ pip install -r requirements.txt
 echo "Running DIRECT table creation..."
 python create_tables.py
 
+# Fix password hashing
+echo "Fixing password hashing..."
+python fix_password_hash.py
+
 # Debug current status
 echo "Debugging current status..."
 python debug_railway.py
