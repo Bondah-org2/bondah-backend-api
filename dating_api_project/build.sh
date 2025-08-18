@@ -14,4 +14,8 @@ python manage.py setup_production
 echo "Testing static files configuration..."
 python test_static.py
 
+# Test CSRF configuration
+echo "Testing CSRF configuration..."
+python test_csrf.py
+
 echo "Build completed successfully!"

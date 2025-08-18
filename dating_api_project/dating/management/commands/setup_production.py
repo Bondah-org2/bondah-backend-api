@@ -86,6 +86,14 @@ class Command(BaseCommand):
         self.stdout.write('   ✅ Database migrations applied')
         self.stdout.write('   ✅ Static files collected')
         self.stdout.write('   ✅ Superuser created/verified')
+        
+        # Step 5: Display security configuration
+        from django.conf import settings
+        self.stdout.write('\n🔒 Security Configuration:')
+        self.stdout.write(f'   CSRF_TRUSTED_ORIGINS: {settings.CSRF_TRUSTED_ORIGINS}')
+        self.stdout.write(f'   ALLOWED_HOSTS: {settings.ALLOWED_HOSTS}')
+        self.stdout.write(f'   CORS_ALLOWED_ORIGINS: {settings.CORS_ALLOWED_ORIGINS}')
+        
         self.stdout.write('\n🔗 Your API is ready to use!')
         self.stdout.write('   Health check: /health/')
         self.stdout.write('   Admin panel: /admin/')
