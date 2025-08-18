@@ -7,8 +7,13 @@ echo "Starting build process..."
 # Install dependencies
 pip install -r requirements.txt
 
-# Run production setup (migrations + superuser creation)
-python manage.py setup_production
+# Run Railway-specific setup
+echo "Running Railway setup..."
+python railway_setup.py
+
+# Check database connection and tables
+echo "Checking database configuration..."
+python check_database.py
 
 # Test static files configuration
 echo "Testing static files configuration..."

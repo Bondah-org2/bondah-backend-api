@@ -45,8 +45,20 @@ class Command(BaseCommand):
         # Step 1: Run migrations
         self.stdout.write('📊 Running database migrations...')
         from django.core.management import call_command
-        call_command('migrate', verbosity=0)
-        self.stdout.write(self.style.SUCCESS('✅ Migrations completed successfully!'))
+        
+        try:
+            call_command('migrate', verbosity=0)
+            self.stdout.write(self.style.SUCCESS('✅ Migrations completed successfully!'))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'❌ Migration error: {str(e)}'))
+            self.stdout.write('🔄 Attempting to create initial migration...')
+            try:
+                call_command('makemigrations', 'dating', verbosity=0)
+                call_command('migrate', verbosity=0)
+                self.stdout.write(self.style.SUCCESS('✅ Initial migration created and applied!'))
+            except Exception as e2:
+                self.stdout.write(self.style.ERROR(f'❌ Failed to create initial migration: {str(e2)}'))
+                raise
         
         # Step 2: Collect static files
         self.stdout.write('📁 Collecting static files...')
