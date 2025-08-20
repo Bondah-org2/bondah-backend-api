@@ -7,9 +7,9 @@ echo "Starting build process..."
 # Install dependencies
 pip install -r requirements.txt
 
-# Run Complete Railway fix
-echo "Running Complete Railway fix..."
-python railway_complete_fix.py
+# Run Final Railway fix
+echo "Running Final Railway fix..."
+python final_railway_fix.py
 
 # Debug current status
 echo "Debugging current status..."
