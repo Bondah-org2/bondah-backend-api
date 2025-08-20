@@ -7,9 +7,17 @@ echo "Starting build process..."
 # Install dependencies
 pip install -r requirements.txt
 
+# Create staticfiles directory
+echo "Creating staticfiles directory..."
+mkdir -p staticfiles
+
 # Run Final Railway fix
 echo "Running Final Railway fix..."
 python final_railway_fix.py
+
+# Collect static files
+echo "Collecting static files..."
+python collect_static_fix.py
 
 # Debug current status
 echo "Debugging current status..."

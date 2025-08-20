@@ -107,6 +107,12 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# Ensure staticfiles directory exists
+import os
+if not os.path.exists(STATIC_ROOT):
+    os.makedirs(STATIC_ROOT, exist_ok=True)
+
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'),
 ] if os.path.exists(os.path.join(BASE_DIR, 'static')) else []
