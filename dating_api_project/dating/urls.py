@@ -13,6 +13,7 @@ from .views import (
     JobListView,
     JobDetailView,
     JobApplicationView,
+    JobOptionsView,
     AdminLoginView,
     AdminOTPVerificationView,
     AdminJobListView,
@@ -42,6 +43,7 @@ urlpatterns = [
     path('jobs/', JobListView.as_view(), name='job-list'),
     path('jobs/<int:id>/', JobDetailView.as_view(), name='job-detail'),
     path('jobs/apply/', JobApplicationView.as_view(), name='job-application'),
+    path('jobs/options/', JobOptionsView.as_view(), name='job-options'),
     
     # Translation API endpoints
     path('translate/', TranslationView.as_view(), name='translate'),

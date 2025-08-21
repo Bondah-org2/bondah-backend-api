@@ -1185,3 +1185,28 @@ class TranslationStatsView(APIView):
                 "message": f"Failed to retrieve translation statistics: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class JobOptionsView(APIView):
+    """Provide job categories and types for frontend dropdowns"""
+    
+    def get(self, request):
+        """Get available job categories and types"""
+        try:
+            # Get job categories and types from the Job model
+            job_categories = [{'value': choice[0], 'label': choice[1]} for choice in Job.CATEGORIES]
+            job_types = [{'value': choice[0], 'label': choice[1]} for choice in Job.JOB_TYPES]
+            job_statuses = [{'value': choice[0], 'label': choice[1]} for choice in Job.STATUS_CHOICES]
+            
+            return Response({
+                'categories': job_categories,
+                'job_types': job_types,
+                'statuses': job_statuses,
+                'status': 'success'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'message': f'Error fetching job options: {str(e)}',
+                'status': 'error'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
