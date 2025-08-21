@@ -27,6 +27,10 @@ python create_all_tables.py
 echo "Collecting static files..."
 python collect_static_fix.py
 
+# Test static files
+echo "Testing static files..."
+python test_static_files.py
+
 # Debug current status
 echo "Debugging current status..."
 python debug_railway.py

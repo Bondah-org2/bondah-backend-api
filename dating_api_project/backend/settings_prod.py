@@ -118,7 +118,7 @@ STATICFILES_DIRS = [
 ] if os.path.exists(os.path.join(BASE_DIR, 'static')) else []
 
 # WhiteNoise configuration for static files
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+STATICFILES_STORAGE = 'whitenoise.storage.StaticFilesStorage'
 
 # Ensure static files are served correctly
 STATICFILES_FINDERS = [

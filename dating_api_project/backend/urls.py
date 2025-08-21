@@ -20,6 +20,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.views import View
+from django.conf import settings
+from django.conf.urls.static import static
 
 @method_decorator(csrf_exempt, name='dispatch')
 class HealthCheckView(View):
@@ -46,3 +48,10 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('dating.urls')),  # Include the dating app URLs
 ]
+
+# Serve static files in production
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+else:
+    # In production, WhiteNoise will handle static files
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
