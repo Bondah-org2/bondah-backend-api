@@ -25,11 +25,32 @@ python create_all_tables.py
 
 # Collect static files
 echo "Collecting static files..."
-python collect_static_fix.py
+python force_collect_static.py
+
+# Verify static files were collected
+echo "Verifying static files..."
+ls -la staticfiles/
+ls -la staticfiles/admin/css/ || echo "Admin CSS directory not found"
+ls -la staticfiles/admin/js/ || echo "Admin JS directory not found"
+
+# Check static files
+echo "Checking static files..."
+python check_static_build.py
+
+# Fallback: Try direct Django command if script failed
+if [ ! -f "staticfiles/admin/css/base.css" ]; then
+    echo "⚠️  Static files missing, trying fallback..."
+    python manage.py collectstatic --noinput --clear --settings=backend.settings_prod
+    python check_static_build.py
+fi
 
 # Test static files
 echo "Testing static files..."
 python test_static_files.py
+
+# Test static files serving
+echo "Testing static files serving..."
+python test_static_serving.py
 
 # Debug current status
 echo "Debugging current status..."
