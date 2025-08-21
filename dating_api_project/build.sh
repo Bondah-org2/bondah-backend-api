@@ -15,6 +15,14 @@ mkdir -p staticfiles
 echo "Running Final Railway fix..."
 python final_railway_fix.py
 
+# Fix database columns
+echo "Fixing database columns..."
+python fix_database_columns.py
+
+# Create all missing tables
+echo "Creating all missing tables..."
+python create_all_tables.py
+
 # Collect static files
 echo "Collecting static files..."
 python collect_static_fix.py
