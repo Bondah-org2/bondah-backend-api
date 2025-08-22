@@ -20,6 +20,7 @@ from .views import (
     AdminJobCreateView,
     AdminJobUpdateView,
     AdminJobApplicationsView,
+    AdminJobApplicationDetailView,
     AdminUpdateApplicationStatusView,
     TranslationView,
     SupportedLanguagesView,
@@ -58,5 +59,6 @@ urlpatterns = [
     path('admin/jobs/create/', AdminJobCreateView.as_view(), name='admin-job-create'),
     path('admin/jobs/<int:job_id>/update/', AdminJobUpdateView.as_view(), name='admin-job-update'),
     path('admin/applications/', AdminJobApplicationsView.as_view(), name='admin-applications'),
+    path('admin/applications/<int:application_id>/', AdminJobApplicationDetailView.as_view(), name='admin-application-detail'),
     path('admin/applications/<int:application_id>/status/', AdminUpdateApplicationStatusView.as_view(), name='admin-update-application-status'),
 ]

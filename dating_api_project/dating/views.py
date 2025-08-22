@@ -925,6 +925,30 @@ class AdminUpdateApplicationStatusView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class AdminJobApplicationDetailView(APIView):
+    def get(self, request, application_id):
+        """Get detailed view of a specific job application"""
+        try:
+            application = JobApplication.objects.get(id=application_id)
+            serializer = AdminJobApplicationDetailSerializer(application)
+            
+            return Response({
+                "message": "Application details retrieved successfully",
+                "status": "success",
+                "application": serializer.data
+            }, status=status.HTTP_200_OK)
+        except JobApplication.DoesNotExist:
+            return Response({
+                "message": "Application not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve application details: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class TranslationView(APIView):
     def post(self, request):
         start_time = time.time()

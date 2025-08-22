@@ -228,6 +228,29 @@ class AdminJobApplicationSerializer(serializers.ModelSerializer):
     def get_applicant_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
 
+class AdminJobApplicationDetailSerializer(serializers.ModelSerializer):
+    job_title = serializers.CharField(source='job.title', read_only=True)
+    job_category = serializers.CharField(source='job.category', read_only=True)
+    job_type = serializers.CharField(source='job.job_type', read_only=True)
+    job_location = serializers.CharField(source='job.location', read_only=True)
+    job_salary_range = serializers.CharField(source='job.salary_range', read_only=True)
+    applicant_name = serializers.SerializerMethodField()
+    cover_letter = serializers.CharField(source='cover_letter', read_only=True)
+    resume_url = serializers.URLField(source='resume_url', read_only=True)
+    
+    class Meta:
+        model = JobApplication
+        fields = [
+            'id', 'job_title', 'job_category', 'job_type', 'job_location', 'job_salary_range',
+            'applicant_name', 'email', 'phone', 'cover_letter', 'resume_url',
+            'experience_years', 'current_company', 'expected_salary',
+            'status', 'applied_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'applied_at', 'updated_at']
+    
+    def get_applicant_name(self, obj):
+        return f"{obj.first_name} {obj.last_name}"
+
 class TranslationRequestSerializer(serializers.Serializer):
     text = serializers.CharField(max_length=5000)  # Limit text length
     source_language = serializers.CharField(max_length=10, required=False, default='auto')
