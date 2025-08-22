@@ -554,7 +554,15 @@ class JobApplicationView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         try:
-            serializer = self.get_serializer(data=request.data)
+            # Handle both DRF request and regular Django request
+            if hasattr(request, 'data'):
+                data = request.data
+            else:
+                # For regular Django request, parse JSON from body
+                import json
+                data = json.loads(request.body.decode('utf-8')) if request.body else {}
+            
+            serializer = self.get_serializer(data=data)
             if serializer.is_valid():
                 # Get the job
                 job_id = serializer.validated_data.get('job', {}).get('id')
@@ -562,7 +570,9 @@ class JobApplicationView(generics.CreateAPIView):
                 
                 # Get applicant details
                 applicant_email = serializer.validated_data.get('email', '')
-                applicant_name = serializer.validated_data.get('name', '')
+                first_name = serializer.validated_data.get('first_name', '')
+                last_name = serializer.validated_data.get('last_name', '')
+                applicant_name = f"{first_name} {last_name}".strip()
                 
                 # Create the application
                 application = serializer.save(job=job)
