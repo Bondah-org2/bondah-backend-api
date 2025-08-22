@@ -22,6 +22,8 @@ python fix_all_database_issues.py
 # Fix Django auth tables
 echo "Fixing Django auth tables..."
 python fix_auth_tables.py
+python fix_admin_login.py
+python fix_job_application_schema.py
 
 # Collect static files
 echo "Collecting static files..."

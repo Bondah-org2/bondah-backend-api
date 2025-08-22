@@ -132,7 +132,82 @@ Content-Type: application/json
 GET ${API_BASE_URL}/api/jobs/options/
 ```
 
-### **7. Railway Environment Variables**
+### **7. Admin API Endpoints**
+
+#### **Admin Login (Step 1 - Get OTP)**
+```javascript
+POST ${API_BASE_URL}/api/admin/login/
+Content-Type: application/json
+
+{
+  "email": "admin@bondah.org",
+  "password": "BondahAdmin2025!"
+}
+
+Response:
+{
+  "message": "OTP sent to your email",
+  "status": "success"
+}
+```
+
+#### **Admin OTP Verification (Step 2 - Complete Login)**
+```javascript
+POST ${API_BASE_URL}/api/admin/verify-otp/
+Content-Type: application/json
+
+{
+  "email": "admin@bondah.org",
+  "otp_code": "123456"  // 6-digit code from email
+}
+
+Response:
+{
+  "message": "Login successful",
+  "status": "success",
+  "admin_email": "admin@bondah.org"
+}
+```
+
+#### **Admin Job Management**
+```javascript
+// List all jobs
+GET ${API_BASE_URL}/api/admin/jobs/
+
+// Create new job
+POST ${API_BASE_URL}/api/admin/jobs/create/
+
+// Update job
+PUT ${API_BASE_URL}/api/admin/jobs/{job_id}/update/
+
+// List applications
+GET ${API_BASE_URL}/api/admin/applications/
+
+// Update application status
+PUT ${API_BASE_URL}/api/admin/applications/{application_id}/status/
+```
+
+### **8. Admin Login Process**
+
+The admin system uses **2-step authentication**:
+
+1. **Step 1**: Send email/password to `/api/admin/login/`
+   - If successful, you'll get "OTP sent to your email"
+   - Check the email for the 6-digit OTP code
+
+2. **Step 2**: Send email/OTP to `/api/admin/verify-otp/`
+   - If successful, you'll get "Login successful"
+   - You can now access admin features
+
+### **9. Admin Credentials**
+
+**Default Admin User:**
+- **Email**: `admin@bondah.org`
+- **Password**: `BondahAdmin2025!`
+
+**Note**: The password you created in Django admin (`adminfor4bondah`) is for Django admin only, not for the frontend admin API.
+
+### **10. Railway Environment Variables**
 
 Make sure these are set in Railway:
 ```
@@ -140,7 +215,7 @@ CORS_ALLOW_ALL_ORIGINS=true
 CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://your-frontend-domain.com
 ```
 
-### **8. Testing Steps**
+### **11. Testing Steps**
 
 1. **Start your frontend locally**
 2. **Set the correct API_BASE_URL**
@@ -148,7 +223,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://your-fr
 4. **Check browser console for errors**
 5. **Verify the request is reaching the backend**
 
-### **9. Debug Information**
+### **12. Debug Information**
 
 If you're still having issues, check:
 - Browser Network tab for request/response details
