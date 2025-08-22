@@ -19,6 +19,10 @@ python final_railway_fix.py
 echo "Fixing all database issues..."
 python fix_all_database_issues.py
 
+# Fix Django auth tables
+echo "Fixing Django auth tables..."
+python fix_auth_tables.py
+
 # Collect static files
 echo "Collecting static files..."
 python force_collect_static.py
