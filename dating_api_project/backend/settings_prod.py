@@ -16,6 +16,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-k^_77t0rf_n!*ganny4dai5zri9^38*-7g^kdsh6ww@%2dv^)k')
 
+# JWT Settings
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret-key-change-in-production')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
@@ -226,6 +229,14 @@ LOGGING = {
             'propagate': False,
         },
     },
+}
+
+# Cache configuration for JWT token blacklisting
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
 }
 
 # REST Framework settings

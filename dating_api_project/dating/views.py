@@ -40,6 +40,8 @@ from deep_translator import GoogleTranslator
 from django.db import models
 import os
 from rest_framework.permissions import AllowAny
+from .jwt_utils import generate_tokens, refresh_access_token, revoke_refresh_token
+from .permissions import AdminJWTPermission
 
 User = get_user_model()
 
@@ -782,10 +784,17 @@ class AdminOTPVerificationView(APIView):
                 admin_user.last_login = timezone.now()
                 admin_user.save()
                 
+                # Generate JWT tokens
+                tokens = generate_tokens(admin_user)
+                
                 return Response({
                     "message": "Login successful",
                     "status": "success",
-                    "admin_email": admin_user.email
+                    "admin_email": admin_user.email,
+                    "access_token": tokens['access_token'],
+                    "refresh_token": tokens['refresh_token'],
+                    "access_token_expires": tokens['access_token_expires'],
+                    "refresh_token_expires": tokens['refresh_token_expires']
                 }, status=status.HTTP_200_OK)
                 
             except (AdminUser.DoesNotExist, AdminOTP.DoesNotExist):
@@ -1267,7 +1276,7 @@ class JobOptionsView(APIView):
 
 class AdminWaitlistListView(APIView):
     """Admin view to list all waitlist entries"""
-    permission_classes = [AllowAny]  # Will be protected by admin authentication
+    permission_classes = [AdminJWTPermission]
     
     def get(self, request):
         """Get all waitlist entries"""
@@ -1301,7 +1310,7 @@ class AdminWaitlistListView(APIView):
 
 class AdminNewsletterListView(APIView):
     """Admin view to list all newsletter subscribers"""
-    permission_classes = [AllowAny]  # Will be protected by admin authentication
+    permission_classes = [AdminJWTPermission]
     
     def get(self, request):
         """Get all newsletter subscribers"""
@@ -1330,3 +1339,81 @@ class AdminNewsletterListView(APIView):
                 "message": f"Failed to retrieve newsletter subscribers: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminTokenRefreshView(APIView):
+    """Refresh access token using refresh token"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """Refresh access token"""
+        try:
+            refresh_token = request.data.get('refresh_token')
+            if not refresh_token:
+                return Response({
+                    "message": "Refresh token is required",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Generate new access token
+            new_tokens = refresh_access_token(refresh_token)
+            
+            return Response({
+                "message": "Token refreshed successfully",
+                "status": "success",
+                "access_token": new_tokens['access_token'],
+                "access_token_expires": new_tokens['access_token_expires']
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to refresh token: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class AdminLogoutView(APIView):
+    """Logout admin user and revoke refresh token"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """Logout and revoke refresh token"""
+        try:
+            refresh_token = request.data.get('refresh_token')
+            if refresh_token:
+                # Revoke the refresh token
+                revoke_refresh_token(refresh_token)
+            
+            return Response({
+                "message": "Logged out successfully",
+                "status": "success"
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to logout: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminVerifyTokenView(APIView):
+    """Verify if access token is valid"""
+    permission_classes = [AdminJWTPermission]
+    
+    def get(self, request):
+        """Verify token and return admin info"""
+        try:
+            admin_user = request.admin_user
+            
+            return Response({
+                "message": "Token is valid",
+                "status": "success",
+                "admin_email": admin_user.email,
+                "admin_id": admin_user.id
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Token verification failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_401_UNAUTHORIZED)
