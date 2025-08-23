@@ -38,6 +38,7 @@ from .serializers import (
 import time
 from deep_translator import GoogleTranslator
 from django.db import models
+import os
 
 User = get_user_model()
 
@@ -139,53 +140,37 @@ class JoinWaitlistView(generics.CreateAPIView):
     serializer_class = WaitlistSerializer
 
     def create(self, request, *args, **kwargs):
+        """Create a new waitlist entry and send confirmation email"""
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            # Check if email already exists
-            email = serializer.validated_data.get('email')
-            first_name = serializer.validated_data.get('firstName', '')
-            last_name = serializer.validated_data.get('lastName', '')
-            
-            if Waitlist.objects.filter(email=email).exists():
-                return Response({
-                    "message": "Email already registered on waitlist",
-                    "status": "error"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Save the waitlist entry
-            waitlist_entry = serializer.save()
-            
-            # Send automatic confirmation email
-            subject = f"You're on the Bondah Waitlist, {first_name}! ⏳"
-            message = f"""
-Hi {first_name} {last_name},
-
-Great news! You've successfully joined the Bondah Dating waitlist.
-
-Your spot is reserved, and we'll notify you as soon as:
-• Our platform launches
-• Early access becomes available
-• Special features are ready
-• Exclusive beta testing opportunities
-
-We'll keep you updated on our progress and send you exclusive early-bird offers!
-
-Thanks for your patience,
-The Bondah Team
-
-P.S. Share this with friends who might be interested in joining too!
-            """.strip()
-            
-            # Log email attempt
-            email_log = EmailLog.objects.create(
-                email_type='waitlist_confirmation',
-                recipient_email=email,
-                subject=subject,
-                message=message
-            )
-            
+        serializer.is_valid(raise_exception=True)
+        
+        # Save the waitlist entry
+        waitlist_entry = serializer.save()
+        
+        # Check if email is disabled
+        disable_email = os.getenv('DISABLE_EMAIL', 'False').lower() == 'true'
+        
+        if not disable_email:
             try:
-                # Send email using Django's email functionality
+                # Send confirmation email
+                email = serializer.validated_data.get('email', '')
+                first_name = serializer.validated_data.get('first_name', '')
+                last_name = serializer.validated_data.get('last_name', '')
+                
+                # Construct the email message
+                subject = "Welcome to Bondah Dating Waitlist!"
+                message = f"""
+                Hi {first_name} {last_name},
+                
+                Thank you for joining the Bondah Dating waitlist! We're excited to have you on board.
+                
+                We'll notify you as soon as our platform is ready for you to start your dating journey.
+                
+                Best regards,
+                The Bondah Team
+                """
+                
+                # Send the email
                 send_mail(
                     subject=subject,
                     message=message,
@@ -194,26 +179,29 @@ P.S. Share this with friends who might be interested in joining too!
                     fail_silently=False,
                 )
                 
-                email_log.is_sent = True
-                email_log.save()
+                # Log the email
+                EmailLog.objects.create(
+                    recipient_email=email,
+                    subject=subject,
+                    message=message,
+                    status='sent'
+                )
                 
             except Exception as e:
-                email_log.is_sent = False
-                email_log.error_message = str(e)
-                email_log.save()
-                # Don't fail the signup if email fails
-            
-            # Return success response
-            return Response({
-                "message": "You've successfully joined the waitlist! Confirmation email sent.",
-                "status": "success"
-            }, status=status.HTTP_201_CREATED)
+                # Log the error but don't fail the request
+                print(f"Email sending failed: {str(e)}")
+                EmailLog.objects.create(
+                    recipient_email=email if 'email' in locals() else 'unknown',
+                    subject="Waitlist Confirmation (Failed)",
+                    message=f"Failed to send email: {str(e)}",
+                    status='failed'
+                )
         
         return Response({
-            "message": "Invalid data provided",
-            "status": "error",
-            "errors": serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
+            "message": "Successfully joined the waitlist!",
+            "status": "success",
+            "data": serializer.data
+        }, status=status.HTTP_201_CREATED)
 
 
 class GetPuzzleView(APIView):
