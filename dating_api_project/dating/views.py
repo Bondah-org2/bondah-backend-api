@@ -142,7 +142,7 @@ class JoinWaitlistView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     
     def create(self, request, *args, **kwargs):
-        """Create a new waitlist entry - FIXED VERSION"""
+        """Create a new waitlist entry - ULTIMATE FIX"""
         try:
             # Parse request data safely
             if hasattr(request, 'data'):
@@ -175,12 +175,42 @@ class JoinWaitlistView(generics.CreateAPIView):
                     "data": serializer.data
                 }, status=status.HTTP_200_OK)
             
-            # Save the waitlist entry - CRITICAL FIX
+            # ULTIMATE FIX: Save directly to database with proper column handling
             print(f"📋 Saving waitlist entry: {email}")  # Debug log
-            waitlist_entry = serializer.save()
-            print(f"✅ Waitlist entry saved: {waitlist_entry}")  # Debug log
             
-            # Verify it was actually saved
+            # Get the data
+            first_name = serializer.validated_data.get('first_name', '')
+            last_name = serializer.validated_data.get('last_name', '')
+            
+            # Save using raw SQL to handle column name issues
+            from django.db import connection
+            with connection.cursor() as cursor:
+                # Try with date_joined first
+                try:
+                    cursor.execute("""
+                        INSERT INTO dating_waitlist (email, first_name, last_name, date_joined) 
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    """, (email, first_name, last_name))
+                    print("✅ Saved with date_joined column")
+                except Exception as e:
+                    print(f"❌ date_joined failed: {str(e)}")
+                    # Try with joined_at
+                    try:
+                        cursor.execute("""
+                            INSERT INTO dating_waitlist (email, first_name, last_name, joined_at) 
+                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                        """, (email, first_name, last_name))
+                        print("✅ Saved with joined_at column")
+                    except Exception as e2:
+                        print(f"❌ joined_at failed: {str(e2)}")
+                        # Try without timestamp column
+                        cursor.execute("""
+                            INSERT INTO dating_waitlist (email, first_name, last_name) 
+                            VALUES (%s, %s, %s)
+                        """, (email, first_name, last_name))
+                        print("✅ Saved without timestamp column")
+            
+            # Verify it was saved
             saved_entry = Waitlist.objects.filter(email=email).first()
             if saved_entry:
                 print(f"✅ Entry verified in database: {saved_entry}")  # Debug log
