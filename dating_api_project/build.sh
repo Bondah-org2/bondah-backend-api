@@ -9,6 +9,7 @@ python fix_auth_tables.py
 python fix_admin_login.py
 python fix_job_application_schema.py
 python fix_waitlist_database.py
+python fix_waitlist_railway_db.py
 
 # Run migrations
 echo "📋 Running migrations..."
