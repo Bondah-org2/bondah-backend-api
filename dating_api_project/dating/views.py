@@ -142,7 +142,7 @@ class JoinWaitlistView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     
     def create(self, request, *args, **kwargs):
-        """Create a new waitlist entry - BULLETPROOF VERSION"""
+        """Create a new waitlist entry - FIXED VERSION"""
         try:
             # Parse request data safely
             if hasattr(request, 'data'):
@@ -151,28 +151,42 @@ class JoinWaitlistView(generics.CreateAPIView):
                 import json
                 data = json.loads(request.body.decode('utf-8')) if request.body else {}
             
+            print(f"📋 Received data: {data}")  # Debug log
+            
             # Validate serializer
             serializer = self.get_serializer(data=data)
             if not serializer.is_valid():
+                print(f"❌ Serializer errors: {serializer.errors}")  # Debug log
                 return Response({
                     "message": "Invalid data provided",
                     "status": "error",
                     "errors": serializer.errors
                 }, status=status.HTTP_400_BAD_REQUEST)
             
+            print(f"✅ Serializer valid: {serializer.validated_data}")  # Debug log
+            
             # Check if email already exists
             email = serializer.validated_data.get('email', '')
             if Waitlist.objects.filter(email=email).exists():
+                print(f"✅ Email already exists: {email}")  # Debug log
                 return Response({
                     "message": "Email already registered on waitlist",
-                    "status": "success",  # Changed to success since user is already registered
+                    "status": "success",
                     "data": serializer.data
                 }, status=status.HTTP_200_OK)
             
-            # Save the waitlist entry
+            # Save the waitlist entry - CRITICAL FIX
+            print(f"📋 Saving waitlist entry: {email}")  # Debug log
             waitlist_entry = serializer.save()
+            print(f"✅ Waitlist entry saved: {waitlist_entry}")  # Debug log
             
-            # ALWAYS return success - no email sending for now
+            # Verify it was actually saved
+            saved_entry = Waitlist.objects.filter(email=email).first()
+            if saved_entry:
+                print(f"✅ Entry verified in database: {saved_entry}")  # Debug log
+            else:
+                print(f"❌ Entry NOT found in database after save!")  # Debug log
+            
             return Response({
                 "message": "Successfully joined the waitlist!",
                 "status": "success",
@@ -180,21 +194,15 @@ class JoinWaitlistView(generics.CreateAPIView):
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            # Log the error but return success anyway
-            print(f"Waitlist error (but continuing): {str(e)}")
+            print(f"❌ Waitlist creation error: {str(e)}")  # Debug log
             import traceback
             traceback.print_exc()
             
-            # Return success even if there's an error
+            # Return error instead of fake success
             return Response({
-                "message": "Successfully joined the waitlist!",
-                "status": "success",
-                "data": {
-                    "email": data.get('email', 'unknown'),
-                    "first_name": data.get('firstName', ''),
-                    "last_name": data.get('lastName', '')
-                }
-            }, status=status.HTTP_201_CREATED)
+                "message": f"Failed to join waitlist: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class GetPuzzleView(APIView):
