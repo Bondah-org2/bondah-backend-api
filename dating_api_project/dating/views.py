@@ -1263,3 +1263,70 @@ class JobOptionsView(APIView):
                 'message': f'Error fetching job options: {str(e)}',
                 'status': 'error'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminWaitlistListView(APIView):
+    """Admin view to list all waitlist entries"""
+    permission_classes = [AllowAny]  # Will be protected by admin authentication
+    
+    def get(self, request):
+        """Get all waitlist entries"""
+        try:
+            waitlist_entries = Waitlist.objects.all().order_by('-date_joined')
+            
+            # Serialize the data
+            data = []
+            for entry in waitlist_entries:
+                data.append({
+                    'id': entry.id,
+                    'email': entry.email,
+                    'first_name': entry.first_name,
+                    'last_name': entry.last_name,
+                    'date_joined': entry.date_joined.isoformat() if entry.date_joined else None
+                })
+            
+            return Response({
+                "message": "Waitlist entries retrieved successfully",
+                "status": "success",
+                "count": len(data),
+                "entries": data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve waitlist entries: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminNewsletterListView(APIView):
+    """Admin view to list all newsletter subscribers"""
+    permission_classes = [AllowAny]  # Will be protected by admin authentication
+    
+    def get(self, request):
+        """Get all newsletter subscribers"""
+        try:
+            from .models import NewsletterSubscriber
+            subscribers = NewsletterSubscriber.objects.all().order_by('-date_subscribed')
+            
+            # Serialize the data
+            data = []
+            for subscriber in subscribers:
+                data.append({
+                    'id': subscriber.id,
+                    'email': subscriber.email,
+                    'date_subscribed': subscriber.date_subscribed.isoformat() if subscriber.date_subscribed else None
+                })
+            
+            return Response({
+                "message": "Newsletter subscribers retrieved successfully",
+                "status": "success",
+                "count": len(data),
+                "subscribers": data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve newsletter subscribers: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

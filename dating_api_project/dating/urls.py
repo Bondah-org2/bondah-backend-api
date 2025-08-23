@@ -22,6 +22,8 @@ from .views import (
     AdminJobApplicationsView,
     AdminJobApplicationDetailView,
     AdminUpdateApplicationStatusView,
+    AdminWaitlistListView,
+    AdminNewsletterListView,
     TranslationView,
     SupportedLanguagesView,
     TranslationHistoryView,
@@ -61,4 +63,6 @@ urlpatterns = [
     path('admin/applications/', AdminJobApplicationsView.as_view(), name='admin-applications'),
     path('admin/applications/<int:application_id>/', AdminJobApplicationDetailView.as_view(), name='admin-application-detail'),
     path('admin/applications/<int:application_id>/status/', AdminUpdateApplicationStatusView.as_view(), name='admin-update-application-status'),
+    path('admin/waitlist/', AdminWaitlistListView.as_view(), name='admin-waitlist-list'),
+    path('admin/newsletter/', AdminNewsletterListView.as_view(), name='admin-newsletter-list'),
 ]
