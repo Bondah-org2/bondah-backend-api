@@ -141,7 +141,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'dating.User'
 
 # CORS settings for production
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:3001,http://localhost:5173,http://localhost:8080,http://localhost:4173,http://localhost:5174,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173,http://127.0.0.1:8080,http://127.0.0.1:4173,http://127.0.0.1:5174,http://127.0.0.1:3002,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org').split(',')
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:3001,http://localhost:5173,http://localhost:8080,http://localhost:4173,http://localhost:5174,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173,http://127.0.0.1:8080,http://127.0.0.1:4173,http://127.0.0.1:5174,http://127.0.0.1:3002,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org,https://bondah-website-fe-production.up.railway.app').split(',')
 CORS_ALLOW_CREDENTIALS = True
 
 # Additional CORS settings for development and testing
