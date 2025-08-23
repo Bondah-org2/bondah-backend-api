@@ -1,69 +1,41 @@
 #!/bin/bash
 
-# Build script for Railway deployment
+echo "🚀 Starting Bondah Dating API deployment..."
 
-echo "Starting build process..."
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create staticfiles directory
-echo "Creating staticfiles directory..."
-mkdir -p staticfiles
-
-# Run Final Railway fix
-echo "Running Final Railway fix..."
-python final_railway_fix.py
-
-# Fix all database issues comprehensively
-echo "Fixing all database issues..."
+# Run database fixes
+echo "📋 Running database fixes..."
 python fix_all_database_issues.py
-
-# Fix Django auth tables
-echo "Fixing Django auth tables..."
 python fix_auth_tables.py
 python fix_admin_login.py
 python fix_job_application_schema.py
+python fix_waitlist_database.py
+
+# Run migrations
+echo "📋 Running migrations..."
+python manage.py migrate --settings=backend.settings_prod
 
 # Collect static files
-echo "Collecting static files..."
+echo "📋 Collecting static files..."
 python force_collect_static.py
 
-# Verify static files were collected
-echo "Verifying static files..."
+# Verify static files
+echo "📋 Verifying static files..."
 ls -la staticfiles/
-ls -la staticfiles/admin/css/ || echo "Admin CSS directory not found"
-ls -la staticfiles/admin/js/ || echo "Admin JS directory not found"
-
-# Check static files
-echo "Checking static files..."
 python check_static_build.py
 
-# Fallback: Try direct Django command if script failed
+# Fallback if static files are missing
 if [ ! -f "staticfiles/admin/css/base.css" ]; then
-    echo "⚠️  Static files missing, trying fallback..."
-    python manage.py collectstatic --noinput --clear --settings=backend.settings_prod
-    python check_static_build.py
+    echo "⚠️  Static files missing, running collectstatic directly..."
+    python manage.py collectstatic --noinput --settings=backend.settings_prod
+    ls -la staticfiles/
 fi
 
-# Test static files
-echo "Testing static files..."
-python test_static_files.py
-
-# Test static files serving
-echo "Testing static files serving..."
+# Test static serving
+echo "📋 Testing static file serving..."
 python test_static_serving.py
 
-# Debug current status
-echo "Debugging current status..."
-python debug_railway.py
+# Test waitlist functionality
+echo "📋 Testing waitlist functionality..."
+python test_waitlist_bulletproof.py
 
-# Test static files configuration
-echo "Testing static files configuration..."
-python test_static.py
-
-# Test CSRF configuration
-echo "Testing CSRF configuration..."
-python test_csrf.py
-
-echo "Build completed successfully!"
+echo "✅ Deployment setup complete!"
