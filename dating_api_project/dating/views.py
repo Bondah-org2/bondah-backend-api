@@ -1417,3 +1417,44 @@ class AdminVerifyTokenView(APIView):
                 "message": f"Token verification failed: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class AdminDebugAuthView(APIView):
+    """Debug endpoint to check authentication status"""
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """Debug authentication headers and token"""
+        auth_header = request.headers.get('Authorization')
+        
+        debug_info = {
+            "has_authorization_header": bool(auth_header),
+            "authorization_header": auth_header,
+            "all_headers": dict(request.headers),
+        }
+        
+        if auth_header:
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                debug_info["token_length"] = len(token) if token else 0
+                debug_info["token_format"] = "Valid Bearer format"
+                
+                # Try to decode token
+                try:
+                    from .jwt_utils import verify_token
+                    payload = verify_token(token, 'access')
+                    debug_info["token_valid"] = True
+                    debug_info["token_payload"] = payload
+                except Exception as e:
+                    debug_info["token_valid"] = False
+                    debug_info["token_error"] = str(e)
+            else:
+                debug_info["token_format"] = "Invalid format - should start with 'Bearer '"
+        else:
+            debug_info["token_format"] = "No Authorization header"
+        
+        return Response({
+            "message": "Debug authentication info",
+            "status": "success",
+            "debug_info": debug_info
+        }, status=status.HTTP_200_OK)
