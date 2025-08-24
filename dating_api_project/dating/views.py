@@ -1315,7 +1315,14 @@ class AdminNewsletterListView(APIView):
     def get(self, request):
         """Get all newsletter subscribers"""
         try:
-            from .models import NewsletterSubscriber
+            # Debug: Check if we can access the admin user
+            admin_user = getattr(request, 'admin_user', None)
+            if not admin_user:
+                return Response({
+                    "message": "Admin user not found in request",
+                    "status": "error"
+                }, status=status.HTTP_403_FORBIDDEN)
+            
             subscribers = NewsletterSubscriber.objects.all().order_by('-date_subscribed')
             
             # Serialize the data
