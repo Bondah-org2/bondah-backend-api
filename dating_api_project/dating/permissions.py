@@ -18,7 +18,12 @@ class AdminJWTPermission(BasePermission):
             raise AuthenticationFailed('Invalid authorization header format. Use: Bearer <token>')
         
         # Extract token
-        token = auth_header.split(' ')[1]
+        try:
+            token = auth_header.split(' ')[1]
+            if not token or token.strip() == '':
+                raise AuthenticationFailed('Token is empty')
+        except IndexError:
+            raise AuthenticationFailed('Invalid authorization header format. Use: Bearer <token>')
         
         # Verify token and get admin user
         admin_user = get_admin_user_from_token(token)

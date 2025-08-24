@@ -56,6 +56,14 @@ def verify_token(token, token_type='access'):
     Verify and decode JWT token
     """
     try:
+        # Validate token format
+        if not token or not isinstance(token, str):
+            raise jwt.InvalidTokenError('Token is required and must be a string')
+        
+        # Check if token has the right format (should have 3 parts separated by dots)
+        if token.count('.') != 2:
+            raise jwt.InvalidTokenError('Invalid token format')
+        
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         
         # Check token type
@@ -75,6 +83,8 @@ def verify_token(token, token_type='access'):
         raise jwt.ExpiredSignatureError('Token has expired')
     except jwt.InvalidTokenError as e:
         raise jwt.InvalidTokenError(f'Invalid token: {str(e)}')
+    except Exception as e:
+        raise jwt.InvalidTokenError(f'Token verification failed: {str(e)}')
 
 def refresh_access_token(refresh_token):
     """
@@ -103,7 +113,7 @@ def refresh_access_token(refresh_token):
             'access_token': access_token,
             'access_token_expires': access_token_payload['exp'].isoformat()
         }
-    except (jwt.InvalidTokenError, AdminUser.DoesNotExist) as e:
+    except Exception as e:
         raise jwt.InvalidTokenError(f'Invalid refresh token: {str(e)}')
 
 def revoke_refresh_token(refresh_token):
@@ -128,5 +138,5 @@ def get_admin_user_from_token(token):
         payload = verify_token(token, 'access')
         from .models import AdminUser
         return AdminUser.objects.get(id=payload['user_id'], is_active=True)
-    except (jwt.InvalidTokenError, AdminUser.DoesNotExist):
+    except (jwt.InvalidTokenError, Exception):
         return None
