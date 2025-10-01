@@ -32,6 +32,32 @@ from .views import (
     SupportedLanguagesView,
     TranslationHistoryView,
     TranslationStatsView,
+    # Mobile App Authentication Views
+    UserRegisterView,
+    UserLoginView,
+    UserLogoutView,
+    TokenRefreshView,
+    PasswordResetView,
+    PasswordResetConfirmView,
+    UserProfileView,
+    DeviceRegistrationView,
+    # OAuth Views
+    GoogleOAuthView,
+    AppleOAuthView,
+    SocialLoginView,
+    OAuthLinkAccountView,
+    OAuthUnlinkAccountView,
+    SocialAccountsListView,
+    # Location Management Views
+    LocationUpdateView,
+    AddressGeocodeView,
+    LocationPrivacyUpdateView,
+    LocationPermissionsView,
+    LocationHistoryView,
+    NearbyUsersView,
+    MatchPreferencesView,
+    UserLocationProfileView,
+    LocationStatisticsView,
 )
 
 urlpatterns = [
@@ -73,4 +99,33 @@ urlpatterns = [
     path('admin/applications/<int:application_id>/status/', AdminUpdateApplicationStatusView.as_view(), name='admin-update-application-status'),
     path('admin/waitlist/', AdminWaitlistListView.as_view(), name='admin-waitlist-list'),
     path('admin/newsletter/', AdminNewsletterListView.as_view(), name='admin-newsletter-list'),
+    
+    # Mobile App Authentication Endpoints
+    path('auth/register/', UserRegisterView.as_view(), name='user-register'),
+    path('auth/login/', UserLoginView.as_view(), name='user-login'),
+    path('auth/logout/', UserLogoutView.as_view(), name='user-logout'),
+    path('auth/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+    path('auth/password-reset/', PasswordResetView.as_view(), name='password-reset'),
+    path('auth/password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
+    path('auth/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('auth/device-register/', DeviceRegistrationView.as_view(), name='device-register'),
+    
+    # OAuth Authentication Endpoints
+    path('oauth/google/', GoogleOAuthView.as_view(), name='google-oauth'),
+    path('oauth/apple/', AppleOAuthView.as_view(), name='apple-oauth'),
+    path('oauth/social-login/', SocialLoginView.as_view(), name='social-login'),
+    path('oauth/link-account/', OAuthLinkAccountView.as_view(), name='oauth-link-account'),
+    path('oauth/unlink-account/<str:provider>/', OAuthUnlinkAccountView.as_view(), name='oauth-unlink-account'),
+    path('oauth/social-accounts/', SocialAccountsListView.as_view(), name='social-accounts-list'),
+    
+    # Location Management Endpoints
+    path('location/update/', LocationUpdateView.as_view(), name='location-update'),
+    path('location/geocode/', AddressGeocodeView.as_view(), name='address-geocode'),
+    path('location/privacy/', LocationPrivacyUpdateView.as_view(), name='location-privacy'),
+    path('location/permissions/', LocationPermissionsView.as_view(), name='location-permissions'),
+    path('location/history/', LocationHistoryView.as_view(), name='location-history'),
+    path('location/nearby-users/', NearbyUsersView.as_view(), name='nearby-users'),
+    path('location/match-preferences/', MatchPreferencesView.as_view(), name='match-preferences'),
+    path('location/profile/', UserLocationProfileView.as_view(), name='user-location-profile'),
+    path('location/statistics/', LocationStatisticsView.as_view(), name='location-statistics'),
 ]

@@ -9,7 +9,7 @@ import string
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.hashers import make_password, check_password
-from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog
+from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
@@ -33,13 +33,39 @@ from .serializers import (
     AdminJobApplicationSerializer,
     TranslationRequestSerializer,
     TranslationResponseSerializer,
-    SupportedLanguagesSerializer
+    SupportedLanguagesSerializer,
+    # Mobile App Authentication Serializers
+    CustomRegisterSerializer,
+    CustomLoginSerializer,
+    PasswordResetSerializer,
+    PasswordResetConfirmSerializer,
+    UserProfileSerializer,
+    UserProfileUpdateSerializer,
+    SocialLoginSerializer,
+    DeviceRegistrationSerializer,
+    # OAuth Serializers
+    GoogleOAuthSerializer,
+    AppleOAuthSerializer,
+    OAuthLoginSerializer,
+    SocialAccountSerializer,
+    UserProfileWithSocialSerializer,
+    OAuthLinkSerializer,
+    # Location Serializers
+    LocationUpdateSerializer,
+    AddressGeocodeSerializer,
+    LocationPrivacyUpdateSerializer,
+    LocationPermissionSerializer,
+    LocationHistorySerializer,
+    UserMatchSerializer,
+    UserProfileWithLocationSerializer,
+    NearbyUserSerializer,
+    MatchPreferencesSerializer
 )
 import time
 from deep_translator import GoogleTranslator
 from django.db import models
 import os
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from .jwt_utils import generate_tokens, refresh_access_token, revoke_refresh_token
 from .permissions import AdminJWTPermission
 
@@ -1469,3 +1495,925 @@ class AdminDebugAuthView(APIView):
             "status": "success",
             "debug_info": debug_info
         }, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# MOBILE APP AUTHENTICATION VIEWS
+# =============================================================================
+
+class UserRegisterView(APIView):
+    """User registration for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = CustomRegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            
+            # Generate JWT tokens
+            from rest_framework_simplejwt.tokens import RefreshToken
+            refresh = RefreshToken.for_user(user)
+            
+            return Response({
+                "message": "User registered successfully",
+                "status": "success",
+                "user": UserProfileSerializer(user).data,
+                "tokens": {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh)
+                }
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response({
+            "message": "Registration failed",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserLoginView(APIView):
+    """User login for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = CustomLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            
+            # Generate JWT tokens
+            from rest_framework_simplejwt.tokens import RefreshToken
+            refresh = RefreshToken.for_user(user)
+            
+            return Response({
+                "message": "Login successful",
+                "status": "success",
+                "user": UserProfileSerializer(user).data,
+                "tokens": {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh)
+                }
+            }, status=status.HTTP_200_OK)
+        
+        return Response({
+            "message": "Login failed",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserLogoutView(APIView):
+    """User logout for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        try:
+            refresh_token = request.data.get('refresh_token')
+            if refresh_token:
+                from rest_framework_simplejwt.tokens import RefreshToken
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            
+            return Response({
+                "message": "Logout successful",
+                "status": "success"
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "message": f"Logout failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TokenRefreshView(APIView):
+    """Refresh JWT token for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        try:
+            refresh_token = request.data.get('refresh_token')
+            if not refresh_token:
+                return Response({
+                    "message": "Refresh token is required",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            from rest_framework_simplejwt.tokens import RefreshToken
+            token = RefreshToken(refresh_token)
+            
+            return Response({
+                "message": "Token refreshed successfully",
+                "status": "success",
+                "tokens": {
+                    "access": str(token.access_token),
+                    "refresh": str(token)
+                }
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "message": f"Token refresh failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class PasswordResetView(APIView):
+    """Password reset request for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = PasswordResetSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            user = User.objects.get(email=email)
+            
+            # Generate reset token
+            from django.contrib.auth.tokens import default_token_generator
+            from django.utils.http import urlsafe_base64_encode
+            from django.utils.encoding import force_bytes
+            
+            token = default_token_generator.make_token(user)
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            
+            # Send reset email
+            reset_url = f"https://bondah.org/reset-password/{uid}/{token}/"
+            subject = "Password Reset - Bondah Dating"
+            message = f"""
+Hi {user.name},
+
+You requested a password reset for your Bondah Dating account.
+
+Click the link below to reset your password:
+{reset_url}
+
+If you didn't request this, please ignore this email.
+
+Best regards,
+The Bondah Team
+            """.strip()
+            
+            try:
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+                
+                return Response({
+                    "message": "Password reset email sent",
+                    "status": "success"
+                }, status=status.HTTP_200_OK)
+            except Exception as e:
+                return Response({
+                    "message": f"Failed to send reset email: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid email",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PasswordResetConfirmView(APIView):
+    """Password reset confirmation for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            new_password = serializer.validated_data['new_password']
+            
+            user.set_password(new_password)
+            user.save()
+            
+            return Response({
+                "message": "Password reset successfully",
+                "status": "success"
+            }, status=status.HTTP_200_OK)
+        
+        return Response({
+            "message": "Password reset failed",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserProfileView(APIView):
+    """Get and update user profile for mobile app"""
+    
+    def get(self, request):
+        """Get user profile"""
+        try:
+            user = request.user
+            serializer = UserProfileSerializer(user)
+            return Response({
+                "message": "Profile retrieved successfully",
+                "status": "success",
+                "user": serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve profile: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request):
+        """Update user profile"""
+        try:
+            user = request.user
+            serializer = UserProfileUpdateSerializer(user, data=request.data, partial=True)
+            if serializer.is_valid():
+                updated_user = serializer.save()
+                return Response({
+                    "message": "Profile updated successfully",
+                    "status": "success",
+                    "user": UserProfileSerializer(updated_user).data
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                "message": "Profile update failed",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to update profile: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GoogleOAuthView(APIView):
+    """Google OAuth login for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = GoogleOAuthSerializer(data=request.data)
+        if serializer.is_valid():
+            access_token = serializer.validated_data['access_token']
+            
+            try:
+                # Import OAuth utilities
+                from .oauth_utils import GoogleOAuthVerifier, OAuthUserManager, OAuthTokenGenerator
+                
+                # Verify Google token and get user info
+                oauth_data, error = GoogleOAuthVerifier.verify_access_token(access_token)
+                
+                if error:
+                    return Response({
+                        "message": f"Google OAuth verification failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Get or create user from OAuth data
+                user, error = OAuthUserManager.get_or_create_user_from_oauth(oauth_data, 'google')
+                
+                if error:
+                    return Response({
+                        "message": f"User creation failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Generate JWT tokens
+                tokens, error = OAuthTokenGenerator.generate_tokens(user)
+                
+                if error:
+                    return Response({
+                        "message": f"Token generation failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+                return Response({
+                    "message": "Google login successful",
+                    "status": "success",
+                    "user": UserProfileWithSocialSerializer(user).data,
+                    "tokens": tokens
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": f"Google login failed: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid Google OAuth data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AppleOAuthView(APIView):
+    """Apple Sign-In for mobile app"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = AppleOAuthSerializer(data=request.data)
+        if serializer.is_valid():
+            identity_token = serializer.validated_data['identity_token']
+            
+            try:
+                # Import OAuth utilities
+                from .oauth_utils import AppleOAuthVerifier, OAuthUserManager, OAuthTokenGenerator
+                
+                # Verify Apple identity token and get user info
+                oauth_data, error = AppleOAuthVerifier.verify_identity_token(identity_token)
+                
+                if error:
+                    return Response({
+                        "message": f"Apple OAuth verification failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Get or create user from OAuth data
+                user, error = OAuthUserManager.get_or_create_user_from_oauth(oauth_data, 'apple')
+                
+                if error:
+                    return Response({
+                        "message": f"User creation failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Generate JWT tokens
+                tokens, error = OAuthTokenGenerator.generate_tokens(user)
+                
+                if error:
+                    return Response({
+                        "message": f"Token generation failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+                return Response({
+                    "message": "Apple login successful",
+                    "status": "success",
+                    "user": UserProfileWithSocialSerializer(user).data,
+                    "tokens": tokens
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": f"Apple login failed: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid Apple OAuth data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SocialLoginView(APIView):
+    """Unified social login endpoint (Google/Apple)"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = OAuthLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            provider = serializer.validated_data['provider']
+            
+            try:
+                if provider == 'google':
+                    # Handle Google OAuth
+                    google_data = serializer.validated_data['google_data']
+                    access_token = google_data['access_token']
+                    
+                    # Import OAuth utilities
+                    from .oauth_utils import GoogleOAuthVerifier, OAuthUserManager, OAuthTokenGenerator
+                    
+                    # Verify Google token
+                    oauth_data, error = GoogleOAuthVerifier.verify_access_token(access_token)
+                    
+                elif provider == 'apple':
+                    # Handle Apple OAuth
+                    apple_data = serializer.validated_data['apple_data']
+                    identity_token = apple_data['identity_token']
+                    
+                    # Import OAuth utilities
+                    from .oauth_utils import AppleOAuthVerifier, OAuthUserManager, OAuthTokenGenerator
+                    
+                    # Verify Apple token
+                    oauth_data, error = AppleOAuthVerifier.verify_identity_token(identity_token)
+                
+                if error:
+                    return Response({
+                        "message": f"{provider.title()} OAuth verification failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Get or create user
+                user, error = OAuthUserManager.get_or_create_user_from_oauth(oauth_data, provider)
+                
+                if error:
+                    return Response({
+                        "message": f"User creation failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Generate tokens
+                tokens, error = OAuthTokenGenerator.generate_tokens(user)
+                
+                if error:
+                    return Response({
+                        "message": f"Token generation failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+                return Response({
+                    "message": f"{provider.title()} login successful",
+                    "status": "success",
+                    "user": UserProfileWithSocialSerializer(user).data,
+                    "tokens": tokens
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": f"Social login failed: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid social login data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DeviceRegistrationView(APIView):
+    """Register device for push notifications"""
+    
+    def post(self, request):
+        serializer = DeviceRegistrationSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                # Create or update device registration
+                device, created = DeviceRegistration.objects.get_or_create(
+                    device_id=serializer.validated_data['device_id'],
+                    defaults={
+                        'user': request.user,
+                        'device_type': serializer.validated_data['device_type'],
+                        'push_token': serializer.validated_data['push_token'],
+                        'is_active': True
+                    }
+                )
+                
+                if not created:
+                    # Update existing device
+                    device.device_type = serializer.validated_data['device_type']
+                    device.push_token = serializer.validated_data['push_token']
+                    device.is_active = True
+                    device.save()
+                
+                return Response({
+                    "message": "Device registered successfully",
+                    "status": "success",
+                    "device_id": device.device_id,
+                    "created": created
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": f"Device registration failed: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Device registration failed",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class OAuthLinkAccountView(APIView):
+    """Link social account to existing user"""
+    
+    def post(self, request):
+        serializer = OAuthLinkSerializer(data=request.data)
+        if serializer.is_valid():
+            provider = serializer.validated_data['provider']
+            
+            try:
+                # Import OAuth utilities
+                from .oauth_utils import GoogleOAuthVerifier, AppleOAuthVerifier, OAuthUserManager
+                
+                # Verify token based on provider
+                if provider == 'google':
+                    access_token = serializer.validated_data['access_token']
+                    oauth_data, error = GoogleOAuthVerifier.verify_access_token(access_token)
+                elif provider == 'apple':
+                    identity_token = serializer.validated_data['identity_token']
+                    oauth_data, error = AppleOAuthVerifier.verify_identity_token(identity_token)
+                
+                if error:
+                    return Response({
+                        "message": f"OAuth verification failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Link social account to current user
+                social_account, error = OAuthUserManager.link_social_account(
+                    request.user, oauth_data, provider
+                )
+                
+                if error:
+                    return Response({
+                        "message": f"Account linking failed: {error}",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                return Response({
+                    "message": f"{provider.title()} account linked successfully",
+                    "status": "success",
+                    "social_account": SocialAccountSerializer(social_account).data
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": f"Account linking failed: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid OAuth data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class OAuthUnlinkAccountView(APIView):
+    """Unlink social account from user"""
+    
+    def delete(self, request, provider):
+        try:
+            # Find and deactivate social account
+            social_account = SocialAccount.objects.get(
+                user=request.user,
+                provider=provider,
+                is_active=True
+            )
+            
+            social_account.is_active = False
+            social_account.save()
+            
+            return Response({
+                "message": f"{provider.title()} account unlinked successfully",
+                "status": "success"
+            }, status=status.HTTP_200_OK)
+            
+        except SocialAccount.DoesNotExist:
+            return Response({
+                "message": f"No active {provider} account found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                "message": f"Account unlinking failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class SocialAccountsListView(APIView):
+    """List user's linked social accounts"""
+    
+    def get(self, request):
+        try:
+            social_accounts = SocialAccount.objects.filter(
+                user=request.user,
+                is_active=True
+            )
+            
+            serializer = SocialAccountSerializer(social_accounts, many=True)
+            
+            return Response({
+                "message": "Social accounts retrieved successfully",
+                "status": "success",
+                "social_accounts": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve social accounts: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Location Management Views
+class LocationUpdateView(APIView):
+    """Update user's current location"""
+    
+    def post(self, request):
+        serializer = LocationUpdateSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                from .location_utils import update_user_location
+                
+                latitude = serializer.validated_data['latitude']
+                longitude = serializer.validated_data['longitude']
+                accuracy = serializer.validated_data.get('accuracy')
+                source = serializer.validated_data.get('source', 'gps')
+                
+                success = update_user_location(
+                    request.user, latitude, longitude, accuracy, source
+                )
+                
+                if success:
+                    return Response({
+                        "message": "Location updated successfully",
+                        "status": "success",
+                        "location": {
+                            "latitude": float(latitude),
+                            "longitude": float(longitude),
+                            "city": request.user.city,
+                            "state": request.user.state,
+                            "country": request.user.country
+                        }
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({
+                        "message": "Failed to update location",
+                        "status": "error"
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    
+            except Exception as e:
+                return Response({
+                    "message": f"Location update failed: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid location data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AddressGeocodeView(APIView):
+    """Convert address to GPS coordinates"""
+    
+    def post(self, request):
+        serializer = AddressGeocodeSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                from .location_utils import geocode_address
+                
+                address = serializer.validated_data['address']
+                result = geocode_address(address)
+                
+                if result:
+                    return Response({
+                        "message": "Address geocoded successfully",
+                        "status": "success",
+                        "coordinates": {
+                            "latitude": result['latitude'],
+                            "longitude": result['longitude'],
+                            "formatted_address": result['formatted_address'],
+                            "accuracy": result.get('accuracy', 'UNKNOWN')
+                        }
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({
+                        "message": "Could not geocode address",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+            except Exception as e:
+                return Response({
+                    "message": f"Geocoding failed: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid address data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LocationPrivacyUpdateView(APIView):
+    """Update user's location privacy settings"""
+    
+    def put(self, request):
+        serializer = LocationPrivacyUpdateSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            try:
+                serializer.save()
+                
+                return Response({
+                    "message": "Location privacy settings updated successfully",
+                    "status": "success",
+                    "settings": serializer.data
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": f"Failed to update privacy settings: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid privacy settings data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LocationPermissionsView(APIView):
+    """Manage user's location permissions"""
+    
+    def get(self, request):
+        try:
+            permissions, created = LocationPermission.objects.get_or_create(user=request.user)
+            serializer = LocationPermissionSerializer(permissions)
+            
+            return Response({
+                "message": "Location permissions retrieved successfully",
+                "status": "success",
+                "permissions": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve permissions: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request):
+        try:
+            permissions, created = LocationPermission.objects.get_or_create(user=request.user)
+            serializer = LocationPermissionSerializer(permissions, data=request.data, partial=True)
+            
+            if serializer.is_valid():
+                serializer.save()
+                
+                return Response({
+                    "message": "Location permissions updated successfully",
+                    "status": "success",
+                    "permissions": serializer.data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    "message": "Invalid permissions data",
+                    "status": "error",
+                    "errors": serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                "message": f"Failed to update permissions: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LocationHistoryView(APIView):
+    """Get user's location history"""
+    
+    def get(self, request):
+        try:
+            # Get recent location history (last 30 entries)
+            history = LocationHistory.objects.filter(user=request.user)[:30]
+            serializer = LocationHistorySerializer(history, many=True)
+            
+            return Response({
+                "message": "Location history retrieved successfully",
+                "status": "success",
+                "history": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve location history: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NearbyUsersView(APIView):
+    """Find nearby users for matching"""
+    
+    def get(self, request):
+        try:
+            from .location_utils import find_nearby_users
+            
+            max_distance = request.GET.get('max_distance')
+            if max_distance:
+                max_distance = int(max_distance)
+            
+            nearby_users = find_nearby_users(request.user, max_distance)
+            
+            # Serialize results
+            results = []
+            for user_data in nearby_users:
+                user = user_data['user']
+                serializer = NearbyUserSerializer(user)
+                result = serializer.data
+                result['distance'] = user_data['distance']
+                result['coordinates'] = user_data['coordinates']
+                results.append(result)
+            
+            return Response({
+                "message": "Nearby users retrieved successfully",
+                "status": "success",
+                "nearby_users": results,
+                "count": len(results)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to find nearby users: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MatchPreferencesView(APIView):
+    """Update user's matching preferences"""
+    
+    def get(self, request):
+        try:
+            serializer = MatchPreferencesSerializer(request.user)
+            
+            return Response({
+                "message": "Match preferences retrieved successfully",
+                "status": "success",
+                "preferences": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve preferences: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request):
+        serializer = MatchPreferencesSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            try:
+                serializer.save()
+                
+                return Response({
+                    "message": "Match preferences updated successfully",
+                    "status": "success",
+                    "preferences": serializer.data
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": f"Failed to update preferences: {str(e)}",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid preferences data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserLocationProfileView(APIView):
+    """Get user profile with location information"""
+    
+    def get(self, request):
+        try:
+            serializer = UserProfileWithLocationSerializer(request.user)
+            
+            return Response({
+                "message": "User profile retrieved successfully",
+                "status": "success",
+                "user": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve profile: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LocationStatisticsView(APIView):
+    """Get location-related statistics (admin only)"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Check if user is admin
+            if not request.user.is_staff:
+                return Response({
+                    "message": "Admin access required",
+                    "status": "error"
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            from .location_utils import get_location_statistics
+            
+            stats = get_location_statistics()
+            
+            return Response({
+                "message": "Location statistics retrieved successfully",
+                "status": "success",
+                "statistics": stats
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve statistics: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
