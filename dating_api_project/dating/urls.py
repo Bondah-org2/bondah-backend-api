@@ -1,4 +1,5 @@
 from django.urls import path
+from . import liveness_views
 from .views import (
     UserCreateView, 
     NewsletterSignupView, 
@@ -117,6 +118,14 @@ urlpatterns = [
     path('oauth/link-account/', OAuthLinkAccountView.as_view(), name='oauth-link-account'),
     path('oauth/unlink-account/<str:provider>/', OAuthUnlinkAccountView.as_view(), name='oauth-unlink-account'),
     path('oauth/social-accounts/', SocialAccountsListView.as_view(), name='social-accounts-list'),
+    
+    # Liveness Check / Facial Verification Endpoints
+    path('liveness/start/', liveness_views.StartLivenessCheckView.as_view(), name='liveness-start'),
+    path('liveness/submit/video/', liveness_views.SubmitLivenessVideoView.as_view(), name='liveness-submit-video'),
+    path('liveness/submit/images/', liveness_views.SubmitLivenessImagesView.as_view(), name='liveness-submit-images'),
+    path('liveness/status/<str:session_id>/', liveness_views.LivenessCheckStatusView.as_view(), name='liveness-status'),
+    path('liveness/retry/', liveness_views.RetryLivenessCheckView.as_view(), name='liveness-retry'),
+    path('verification/status/', liveness_views.UserVerificationStatusView.as_view(), name='verification-status'),
     
     # Location Management Endpoints
     path('location/update/', LocationUpdateView.as_view(), name='location-update'),

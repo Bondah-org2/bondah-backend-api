@@ -410,3 +410,140 @@ class LocationPermission(models.Model):
     
     class Meta:
         ordering = ['-updated_at']
+
+
+class LivenessVerification(models.Model):
+    """Store liveness check verification data for user identity verification"""
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('passed', 'Passed'),
+        ('failed', 'Failed'),
+        ('expired', 'Expired'),
+    )
+    
+    ACTION_CHOICES = (
+        ('turn_left', 'Turn Head Left'),
+        ('turn_right', 'Turn Head Right'),
+        ('open_mouth', 'Open Mouth'),
+        ('smile', 'Smile'),
+        ('blink', 'Blink'),
+        ('nod', 'Nod Head'),
+    )
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='liveness_checks')
+    session_id = models.CharField(max_length=100, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # Verification data
+    actions_required = models.JSONField(default=list, help_text="List of actions user must perform")
+    actions_completed = models.JSONField(default=list, help_text="List of actions user completed")
+    confidence_score = models.FloatField(default=0.0, help_text="Confidence score (0-100)")
+    face_quality_score = models.FloatField(default=0.0, help_text="Face quality score (0-100)")
+    
+    # Detection results
+    is_live_person = models.BooleanField(default=False)
+    spoof_detected = models.BooleanField(default=False)
+    spoof_type = models.CharField(max_length=50, blank=True, null=True, help_text="Type of spoof detected")
+    
+    # Media storage
+    video_url = models.URLField(blank=True, null=True, help_text="URL to verification video")
+    images_data = models.JSONField(default=dict, help_text="URLs or data for verification images")
+    
+    # Metadata
+    verification_method = models.CharField(max_length=50, default='video', help_text="video, images, or session")
+    provider = models.CharField(max_length=50, default='internal', help_text="AWS, FacePlusPlus, Azure, internal")
+    provider_response = models.JSONField(default=dict, help_text="Full response from verification provider")
+    
+    # Timestamps
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    expires_at = models.DateTimeField(blank=True, null=True)
+    
+    # Retry tracking
+    attempts_count = models.PositiveIntegerField(default=1)
+    max_attempts = models.PositiveIntegerField(default=3)
+    
+    def __str__(self):
+        return f"{self.user.email} - Liveness Check ({self.status})"
+    
+    def is_expired(self):
+        """Check if verification session has expired"""
+        from django.utils import timezone
+        if self.expires_at:
+            return timezone.now() > self.expires_at
+        return False
+    
+    def can_retry(self):
+        """Check if user can retry verification"""
+        return self.attempts_count < self.max_attempts
+    
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['session_id']),
+            models.Index(fields=['started_at']),
+        ]
+
+
+class UserVerificationStatus(models.Model):
+    """Track overall user verification status"""
+    VERIFICATION_LEVEL_CHOICES = (
+        ('none', 'Not Verified'),
+        ('email', 'Email Verified'),
+        ('phone', 'Phone Verified'),
+        ('liveness', 'Liveness Verified'),
+        ('full', 'Fully Verified'),
+    )
+    
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='verification_status')
+    
+    # Verification flags
+    email_verified = models.BooleanField(default=False)
+    phone_verified = models.BooleanField(default=False)
+    liveness_verified = models.BooleanField(default=False)
+    identity_verified = models.BooleanField(default=False)
+    
+    # Verification level
+    verification_level = models.CharField(max_length=20, choices=VERIFICATION_LEVEL_CHOICES, default='none')
+    
+    # Last verification dates
+    email_verified_at = models.DateTimeField(blank=True, null=True)
+    phone_verified_at = models.DateTimeField(blank=True, null=True)
+    liveness_verified_at = models.DateTimeField(blank=True, null=True)
+    
+    # Verification badges
+    verified_badge = models.BooleanField(default=False, help_text="Show verified badge on profile")
+    trusted_member = models.BooleanField(default=False, help_text="Trusted member status")
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.verification_level}"
+    
+    def update_verification_level(self):
+        """Update verification level based on completed verifications"""
+        if self.liveness_verified and self.email_verified and self.phone_verified:
+            self.verification_level = 'full'
+            self.verified_badge = True
+            self.identity_verified = True
+        elif self.liveness_verified:
+            self.verification_level = 'liveness'
+            self.verified_badge = True
+        elif self.phone_verified:
+            self.verification_level = 'phone'
+        elif self.email_verified:
+            self.verification_level = 'email'
+        else:
+            self.verification_level = 'none'
+            self.verified_badge = False
+        
+        self.save()
+    
+    class Meta:
+        verbose_name = "User Verification Status"
+        verbose_name_plural = "User Verification Statuses"
+        ordering = ['-updated_at']

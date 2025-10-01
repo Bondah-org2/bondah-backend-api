@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -724,3 +724,70 @@ class MatchPreferencesSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Minimum age cannot be greater than maximum age.')
         
         return attrs
+
+
+class LivenessVerificationSerializer(serializers.ModelSerializer):
+    """Serializer for Liveness Verification records"""
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    is_expired = serializers.SerializerMethodField()
+    can_retry = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = LivenessVerification
+        fields = [
+            'id', 'user', 'user_email', 'session_id', 'status',
+            'actions_required', 'actions_completed',
+            'confidence_score', 'face_quality_score',
+            'is_live_person', 'spoof_detected', 'spoof_type',
+            'verification_method', 'provider',
+            'started_at', 'completed_at', 'expires_at',
+            'attempts_count', 'max_attempts',
+            'is_expired', 'can_retry'
+        ]
+        read_only_fields = [
+            'user', 'started_at', 'completed_at',
+            'confidence_score', 'face_quality_score',
+            'is_live_person', 'spoof_detected', 'provider'
+        ]
+    
+    def get_is_expired(self, obj):
+        return obj.is_expired()
+    
+    def get_can_retry(self, obj):
+        return obj.can_retry()
+
+
+class UserVerificationStatusSerializer(serializers.ModelSerializer):
+    """Serializer for User Verification Status"""
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    verification_badges = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UserVerificationStatus
+        fields = [
+            'id', 'user', 'user_email',
+            'email_verified', 'phone_verified', 'liveness_verified', 'identity_verified',
+            'verification_level', 'verified_badge', 'trusted_member',
+            'email_verified_at', 'phone_verified_at', 'liveness_verified_at',
+            'created_at', 'updated_at',
+            'verification_badges'
+        ]
+        read_only_fields = [
+            'user', 'verification_level', 'verified_badge',
+            'created_at', 'updated_at'
+        ]
+    
+    def get_verification_badges(self, obj):
+        """Return user's verification badges for display"""
+        badges = []
+        if obj.email_verified:
+            badges.append({'type': 'email', 'name': 'Email Verified', 'icon': '📧'})
+        if obj.phone_verified:
+            badges.append({'type': 'phone', 'name': 'Phone Verified', 'icon': '📱'})
+        if obj.liveness_verified:
+            badges.append({'type': 'liveness', 'name': 'Identity Verified', 'icon': '✅'})
+        if obj.identity_verified:
+            badges.append({'type': 'full', 'name': 'Fully Verified', 'icon': '🏆'})
+        if obj.trusted_member:
+            badges.append({'type': 'trusted', 'name': 'Trusted Member', 'icon': '⭐'})
+        return badges
