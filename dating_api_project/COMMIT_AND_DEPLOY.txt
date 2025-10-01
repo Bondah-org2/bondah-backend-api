@@ -1,0 +1,53 @@
+═══════════════════════════════════════════════════════════════
+🚨 URGENT: COMMIT AND DEPLOY TO FIX RAILWAY ERROR
+═══════════════════════════════════════════════════════════════
+
+ISSUE: Railway is using OLD CODE with 'rest_auth'
+FIX: We updated to 'dj_rest_auth' but need to PUSH to Railway
+
+═══════════════════════════════════════════════════════════════
+RUN THESE COMMANDS NOW:
+═══════════════════════════════════════════════════════════════
+
+1. ADD ALL CHANGES:
+   git add .
+
+2. COMMIT:
+   git commit -m "Fix: Update OAuth packages for Railway deployment - replace rest_auth with dj-rest-auth"
+
+3. PUSH TO GITHUB:
+   git push origin main
+
+4. WAIT for Railway to auto-deploy (2-5 minutes)
+
+5. CHECK Railway logs for success:
+   ✅ "Booting worker with pid: X" (NO rest_auth error!)
+
+6. RUN MIGRATIONS on Railway (via Railway Shell):
+   python manage.py migrate
+   python manage.py collectstatic --noinput
+
+═══════════════════════════════════════════════════════════════
+WHAT WE FIXED:
+═══════════════════════════════════════════════════════════════
+
+✅ backend/settings_prod.py → Changed rest_auth to dj_rest_auth
+✅ backend/settings.py → Already updated
+✅ requirements.txt → Already updated  
+✅ dating/views.py → Already updated
+✅ Added rest_framework.authtoken to INSTALLED_APPS
+
+═══════════════════════════════════════════════════════════════
+AFTER SUCCESSFUL DEPLOY:
+═══════════════════════════════════════════════════════════════
+
+Your Railway app will work! No more "ModuleNotFoundError: No module named 'rest_auth'"
+
+Test with:
+curl https://your-app.railway.app/health/
+
+Should return:
+{"status": "healthy", "message": "Bondah Dating API is running"}
+
+═══════════════════════════════════════════════════════════════
+

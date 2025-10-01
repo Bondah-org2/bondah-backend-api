@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sites',
     'rest_framework',
+    'rest_framework.authtoken',
     'dating',
     'corsheaders',
     # OAuth and Social Authentication
@@ -42,8 +43,8 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
     'allauth.socialaccount.providers.apple',
-    'rest_auth',
-    'rest_auth.registration',
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
 ]
 
 MIDDLEWARE = [
