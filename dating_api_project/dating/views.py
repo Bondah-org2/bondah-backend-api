@@ -9,7 +9,7 @@ import string
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.hashers import make_password, check_password
-from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission
+from .models import NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, EmailVerification, PhoneVerification, UserRoleSelection
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
@@ -2417,3 +2417,435 @@ class LocationStatisticsView(APIView):
                 "message": f"Failed to retrieve statistics: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# EMAIL AND PHONE VERIFICATION VIEWS
+# =============================================================================
+
+class EmailOTPRequestView(APIView):
+    """Request email OTP for verification"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        from .serializers import EmailOTPRequestSerializer
+        serializer = EmailOTPRequestSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            
+            try:
+                # Get or create user
+                User = get_user_model()
+                user, created = User.objects.get_or_create(
+                    email=email,
+                    defaults={'username': email, 'is_active': False}
+                )
+                
+                # Check rate limiting
+                if not EmailVerification.can_resend_for_email(email):
+                    return Response({
+                        "message": "Too many OTP requests. Please wait 1 minute.",
+                        "status": "error"
+                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                
+                # Create verification
+                verification = EmailVerification.create_verification(user, email)
+                
+                # Send OTP email
+                subject = "🔐 Verify Your Email - Bondah Dating"
+                message = f"""
+Hi there,
+
+Your email verification code is: {verification.otp_code}
+
+This code will expire in 10 minutes.
+Enter this code in the app to verify your email address.
+
+If you didn't request this verification, please ignore this email.
+
+Best regards,
+The Bondah Team
+                """.strip()
+                
+                try:
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[email],
+                        fail_silently=False,
+                    )
+                    
+                    return Response({
+                        "message": "OTP sent to your email",
+                        "status": "success",
+                        "email": email,
+                        "expires_in": 600  # 10 minutes
+                    }, status=status.HTTP_200_OK)
+                    
+                except Exception as e:
+                    return Response({
+                        "message": "OTP generated but email delivery failed. Please try again.",
+                        "status": "error"
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    
+            except Exception as e:
+                return Response({
+                    "message": "Failed to process email verification request",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid email address",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class EmailOTPVerifyView(APIView):
+    """Verify email OTP"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        from .serializers import EmailOTPVerifySerializer
+        serializer = EmailOTPVerifySerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            otp_code = serializer.validated_data['otp_code']
+            
+            try:
+                verification = EmailVerification.objects.filter(
+                    email=email,
+                    otp_code=otp_code,
+                    is_used=False
+                ).latest('created_at')
+                
+                if verification.is_expired():
+                    return Response({
+                        "message": "OTP has expired. Please request a new one.",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Mark as verified and used
+                verification.is_verified = True
+                verification.is_used = True
+                verification.verified_at = timezone.now()
+                verification.save()
+                
+                # Activate user
+                user = verification.user
+                user.is_active = True
+                user.save()
+                
+                # Update user verification status
+                user_status, created = UserVerificationStatus.objects.get_or_create(user=user)
+                user_status.email_verified = True
+                user_status.email_verified_at = timezone.now()
+                user_status.update_verification_level()
+                
+                return Response({
+                    "message": "Email verified successfully",
+                    "status": "success",
+                    "user": {
+                        "id": user.id,
+                        "email": user.email,
+                        "is_active": user.is_active
+                    }
+                }, status=status.HTTP_200_OK)
+                
+            except EmailVerification.DoesNotExist:
+                return Response({
+                    "message": "Invalid OTP code. Please try again.",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        return Response({
+            "message": "Invalid verification data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PhoneOTPRequestView(APIView):
+    """Request phone OTP for verification"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        from .serializers import PhoneOTPRequestSerializer
+        serializer = PhoneOTPRequestSerializer(data=request.data)
+        if serializer.is_valid():
+            phone_number = serializer.validated_data['phone_number']
+            country_code = serializer.validated_data.get('country_code', '+1')
+            
+            try:
+                # Get user from session or create temporary user
+                user_id = request.data.get('user_id')
+                if user_id:
+                    User = get_user_model()
+                    user = User.objects.get(id=user_id)
+                else:
+                    return Response({
+                        "message": "User ID required for phone verification",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Check rate limiting
+                if not PhoneVerification.can_resend_for_phone(phone_number, country_code):
+                    return Response({
+                        "message": "Too many OTP requests. Please wait 1 minute.",
+                        "status": "error"
+                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                
+                # Create verification
+                verification = PhoneVerification.create_verification(user, phone_number, country_code)
+                
+                # In a real app, you would send SMS here using Twilio, AWS SNS, etc.
+                # For now, we'll simulate SMS sending
+                print(f"SMS OTP for {country_code}{phone_number}: {verification.otp_code}")
+                
+                return Response({
+                    "message": "OTP sent to your phone",
+                    "status": "success",
+                    "phone_number": f"{country_code}{phone_number}",
+                    "expires_in": 600  # 10 minutes
+                }, status=status.HTTP_200_OK)
+                
+            except User.DoesNotExist:
+                return Response({
+                    "message": "User not found",
+                    "status": "error"
+                }, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                return Response({
+                    "message": "Failed to process phone verification request",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid phone number",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PhoneOTPVerifyView(APIView):
+    """Verify phone OTP"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        from .serializers import PhoneOTPVerifySerializer
+        serializer = PhoneOTPVerifySerializer(data=request.data)
+        if serializer.is_valid():
+            phone_number = serializer.validated_data['phone_number']
+            country_code = serializer.validated_data.get('country_code', '+1')
+            otp_code = serializer.validated_data['otp_code']
+            
+            try:
+                verification = PhoneVerification.objects.filter(
+                    phone_number=phone_number,
+                    country_code=country_code,
+                    otp_code=otp_code,
+                    is_used=False
+                ).latest('created_at')
+                
+                if verification.is_expired():
+                    return Response({
+                        "message": "OTP has expired. Please request a new one.",
+                        "status": "error"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Mark as verified and used
+                verification.is_verified = True
+                verification.is_used = True
+                verification.verified_at = timezone.now()
+                verification.save()
+                
+                # Update user verification status
+                user_status, created = UserVerificationStatus.objects.get_or_create(user=verification.user)
+                user_status.phone_verified = True
+                user_status.phone_verified_at = timezone.now()
+                user_status.update_verification_level()
+                
+                return Response({
+                    "message": "Phone number verified successfully",
+                    "status": "success",
+                    "user": {
+                        "id": verification.user.id,
+                        "email": verification.user.email,
+                        "phone_verified": True
+                    }
+                }, status=status.HTTP_200_OK)
+                
+            except PhoneVerification.DoesNotExist:
+                return Response({
+                    "message": "Invalid OTP code. Please try again.",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        return Response({
+            "message": "Invalid verification data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserRoleSelectionView(APIView):
+    """Handle user role selection during onboarding"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        from .serializers import UserRoleSelectionSerializer
+        serializer = UserRoleSelectionSerializer(data=request.data)
+        if serializer.is_valid():
+            try:
+                # Create or update role selection
+                role_selection, created = UserRoleSelection.objects.get_or_create(
+                    user=request.user,
+                    defaults={'selected_role': serializer.validated_data['selected_role']}
+                )
+                
+                if not created:
+                    role_selection.selected_role = serializer.validated_data['selected_role']
+                    role_selection.save()
+                
+                # Update user's matchmaker status
+                request.user.is_matchmaker = (serializer.validated_data['selected_role'] == 'bondmaker')
+                request.user.save()
+                
+                return Response({
+                    "message": "Role selection saved successfully",
+                    "status": "success",
+                    "selected_role": role_selection.selected_role,
+                    "is_matchmaker": request.user.is_matchmaker
+                }, status=status.HTTP_200_OK)
+                
+            except Exception as e:
+                return Response({
+                    "message": "Failed to save role selection",
+                    "status": "error"
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            "message": "Invalid role selection data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get(self, request):
+        """Get user's current role selection"""
+        try:
+            role_selection = UserRoleSelection.objects.get(user=request.user)
+            from .serializers import UserRoleSelectionSerializer
+            serializer = UserRoleSelectionSerializer(role_selection)
+            return Response({
+                "message": "Role selection retrieved successfully",
+                "status": "success",
+                "role_selection": serializer.data
+            }, status=status.HTTP_200_OK)
+        except UserRoleSelection.DoesNotExist:
+            return Response({
+                "message": "No role selection found",
+                "status": "success",
+                "role_selection": None
+            }, status=status.HTTP_200_OK)
+
+
+class ResendOTPView(APIView):
+    """Resend OTP for email or phone verification"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        verification_type = request.data.get('type')  # 'email' or 'phone'
+        identifier = request.data.get('identifier')  # email or phone number
+        
+        if verification_type == 'email':
+            try:
+                verification = EmailVerification.objects.filter(
+                    email=identifier,
+                    is_used=False
+                ).latest('created_at')
+                
+                if not verification.can_resend():
+                    return Response({
+                        "message": "Too many resend requests. Please wait 1 minute.",
+                        "status": "error"
+                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                
+                # Create new verification
+                new_verification = EmailVerification.create_verification(
+                    verification.user, identifier
+                )
+                
+                # Send new OTP email
+                subject = "🔐 New Verification Code - Bondah Dating"
+                message = f"""
+Hi there,
+
+Your new email verification code is: {new_verification.otp_code}
+
+This code will expire in 10 minutes.
+Enter this code in the app to verify your email address.
+
+Best regards,
+The Bondah Team
+                """.strip()
+                
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[identifier],
+                    fail_silently=False,
+                )
+                
+                return Response({
+                    "message": "New OTP sent to your email",
+                    "status": "success"
+                }, status=status.HTTP_200_OK)
+                
+            except EmailVerification.DoesNotExist:
+                return Response({
+                    "message": "No pending verification found for this email",
+                    "status": "error"
+                }, status=status.HTTP_404_NOT_FOUND)
+                
+        elif verification_type == 'phone':
+            try:
+                phone_number = request.data.get('phone_number')
+                country_code = request.data.get('country_code', '+1')
+                
+                verification = PhoneVerification.objects.filter(
+                    phone_number=phone_number,
+                    country_code=country_code,
+                    is_used=False
+                ).latest('created_at')
+                
+                if not verification.can_resend():
+                    return Response({
+                        "message": "Too many resend requests. Please wait 1 minute.",
+                        "status": "error"
+                    }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                
+                # Create new verification
+                new_verification = PhoneVerification.create_verification(
+                    verification.user, phone_number, country_code
+                )
+                
+                # In a real app, send SMS here
+                print(f"New SMS OTP for {country_code}{phone_number}: {new_verification.otp_code}")
+                
+                return Response({
+                    "message": "New OTP sent to your phone",
+                    "status": "success"
+                }, status=status.HTTP_200_OK)
+                
+            except PhoneVerification.DoesNotExist:
+                return Response({
+                    "message": "No pending verification found for this phone number",
+                    "status": "error"
+                }, status=status.HTTP_404_NOT_FOUND)
+        
+        return Response({
+            "message": "Invalid resend request",
+            "status": "error"
+        }, status=status.HTTP_400_BAD_REQUEST)

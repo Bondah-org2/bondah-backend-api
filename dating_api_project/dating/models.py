@@ -547,3 +547,166 @@ class UserVerificationStatus(models.Model):
         verbose_name = "User Verification Status"
         verbose_name_plural = "User Verification Statuses"
         ordering = ['-updated_at']
+
+
+# Email and Phone Verification Models
+class EmailVerification(models.Model):
+    """Email OTP verification for user registration"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='email_verifications')
+    email = models.EmailField()
+    otp_code = models.CharField(max_length=4)
+    is_verified = models.BooleanField(default=False)
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(blank=True, null=True)
+    
+    def __str__(self):
+        return f"Email OTP for {self.email} - {self.otp_code}"
+    
+    def is_expired(self):
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+    
+    def can_resend(self):
+        """Check if user can request a new OTP (rate limiting)"""
+        from django.utils import timezone
+        from datetime import timedelta
+        recent_attempts = EmailVerification.objects.filter(
+            email=self.email,
+            created_at__gte=timezone.now() - timedelta(minutes=1)
+        ).count()
+        return recent_attempts < 3
+    
+    @classmethod
+    def generate_otp(cls):
+        """Generate 4-digit OTP"""
+        import random
+        import string
+        return ''.join(random.choices(string.digits, k=4))
+    
+    @classmethod
+    def create_verification(cls, user, email):
+        """Create new email verification"""
+        from django.utils import timezone
+        from datetime import timedelta
+        # Deactivate previous verifications for this email
+        cls.objects.filter(email=email, is_used=False).update(is_used=True)
+        
+        otp_code = cls.generate_otp()
+        expires_at = timezone.now() + timedelta(minutes=10)
+        
+        return cls.objects.create(
+            user=user,
+            email=email,
+            otp_code=otp_code,
+            expires_at=expires_at
+        )
+    
+    @classmethod
+    def can_resend_for_email(cls, email):
+        """Check if email can request new OTP"""
+        from django.utils import timezone
+        from datetime import timedelta
+        recent_attempts = cls.objects.filter(
+            email=email,
+            created_at__gte=timezone.now() - timedelta(minutes=1)
+        ).count()
+        return recent_attempts < 3
+    
+    class Meta:
+        ordering = ['-created_at']
+
+
+class PhoneVerification(models.Model):
+    """Phone number OTP verification for user registration"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='phone_verifications')
+    phone_number = models.CharField(max_length=20)
+    country_code = models.CharField(max_length=5, default='+1')
+    otp_code = models.CharField(max_length=4)
+    is_verified = models.BooleanField(default=False)
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(blank=True, null=True)
+    
+    def __str__(self):
+        return f"Phone OTP for {self.country_code}{self.phone_number} - {self.otp_code}"
+    
+    def is_expired(self):
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+    
+    def can_resend(self):
+        """Check if user can request a new OTP (rate limiting)"""
+        from django.utils import timezone
+        from datetime import timedelta
+        recent_attempts = PhoneVerification.objects.filter(
+            phone_number=self.phone_number,
+            country_code=self.country_code,
+            created_at__gte=timezone.now() - timedelta(minutes=1)
+        ).count()
+        return recent_attempts < 3
+    
+    @classmethod
+    def generate_otp(cls):
+        """Generate 4-digit OTP"""
+        import random
+        import string
+        return ''.join(random.choices(string.digits, k=4))
+    
+    @classmethod
+    def create_verification(cls, user, phone_number, country_code='+1'):
+        """Create new phone verification"""
+        from django.utils import timezone
+        from datetime import timedelta
+        # Deactivate previous verifications for this phone number
+        cls.objects.filter(
+            phone_number=phone_number, 
+            country_code=country_code, 
+            is_used=False
+        ).update(is_used=True)
+        
+        otp_code = cls.generate_otp()
+        expires_at = timezone.now() + timedelta(minutes=10)
+        
+        return cls.objects.create(
+            user=user,
+            phone_number=phone_number,
+            country_code=country_code,
+            otp_code=otp_code,
+            expires_at=expires_at
+        )
+    
+    @classmethod
+    def can_resend_for_phone(cls, phone_number, country_code):
+        """Check if phone can request new OTP"""
+        from django.utils import timezone
+        from datetime import timedelta
+        recent_attempts = cls.objects.filter(
+            phone_number=phone_number,
+            country_code=country_code,
+            created_at__gte=timezone.now() - timedelta(minutes=1)
+        ).count()
+        return recent_attempts < 3
+    
+    class Meta:
+        ordering = ['-created_at']
+
+
+class UserRoleSelection(models.Model):
+    """Track user role selection during onboarding"""
+    ROLE_CHOICES = (
+        ('looking_for_love', 'Looking for Love'),
+        ('bondmaker', 'Become a Bondmaker'),
+    )
+    
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='role_selection')
+    selected_role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    selected_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.get_selected_role_display()}"
+    
+    class Meta:
+        ordering = ['-selected_at']

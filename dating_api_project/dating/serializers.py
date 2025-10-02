@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -791,3 +791,88 @@ class UserVerificationStatusSerializer(serializers.ModelSerializer):
         if obj.trusted_member:
             badges.append({'type': 'trusted', 'name': 'Trusted Member', 'icon': '⭐'})
         return badges
+
+
+# Email and Phone Verification Serializers
+class EmailOTPRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    
+    def validate_email(self, value):
+        if not value:
+            raise serializers.ValidationError("Email is required")
+        return value.lower()
+
+class EmailOTPVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp_code = serializers.CharField(max_length=4, min_length=4)
+    
+    def validate_otp_code(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP code must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("OTP code must be 4 digits")
+        return value
+
+class PhoneOTPRequestSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(max_length=15)
+    country_code = serializers.CharField(max_length=5, default='+1')
+    user_id = serializers.IntegerField(required=False)
+    
+    def validate_phone_number(self, value):
+        import re
+        # Remove all non-digit characters
+        cleaned = re.sub(r'\D', '', value)
+        if len(cleaned) < 10:
+            raise serializers.ValidationError("Phone number must be at least 10 digits")
+        return cleaned
+    
+    def validate_country_code(self, value):
+        if not value.startswith('+'):
+            value = '+' + value
+        return value
+
+class PhoneOTPVerifySerializer(serializers.Serializer):
+    phone_number = serializers.CharField(max_length=15)
+    country_code = serializers.CharField(max_length=5, default='+1')
+    otp_code = serializers.CharField(max_length=4, min_length=4)
+    
+    def validate_otp_code(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP code must contain only digits")
+        if len(value) != 4:
+            raise serializers.ValidationError("OTP code must be 4 digits")
+        return value
+
+class UserRoleSelectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserRoleSelection
+        fields = ['selected_role']
+    
+    def validate_selected_role(self, value):
+        valid_roles = ['looking_for_love', 'bondmaker']
+        if value not in valid_roles:
+            raise serializers.ValidationError(
+                f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+            )
+        return value
+
+class EmailVerificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmailVerification
+        fields = ['id', 'email', 'is_verified', 'created_at', 'expires_at']
+        read_only_fields = ['id', 'created_at', 'expires_at']
+
+class PhoneVerificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PhoneVerification
+        fields = ['id', 'phone_number', 'country_code', 'is_verified', 'created_at', 'expires_at']
+        read_only_fields = ['id', 'created_at', 'expires_at']
+
+class ResendOTPSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=['email', 'phone'])
+    identifier = serializers.CharField()  # email or phone number
+    
+    def validate_type(self, value):
+        if value not in ['email', 'phone']:
+            raise serializers.ValidationError("Type must be 'email' or 'phone'")
+        return value

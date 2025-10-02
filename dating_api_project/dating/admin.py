@@ -3,7 +3,7 @@ from .models import (
     User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, 
     EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog,
     SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission,
-    LivenessVerification, UserVerificationStatus
+    LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection
 )
 
 # Register your models here.
@@ -73,33 +73,33 @@ admin.site.register(CoinTransaction)
 # OAuth and Social Authentication Models
 @admin.register(SocialAccount)
 class SocialAccountAdmin(admin.ModelAdmin):
-    list_display = ('user', 'provider', 'provider_id', 'created_at')
-    list_filter = ('provider', 'created_at')
-    search_fields = ('user__email', 'provider_id')
+    list_display = ('user', 'provider', 'provider_user_id', 'is_active', 'created_at')
+    list_filter = ('provider', 'is_active', 'created_at')
+    search_fields = ('user__email', 'provider_user_id')
 
 # Device and Location Models
 @admin.register(DeviceRegistration)
 class DeviceRegistrationAdmin(admin.ModelAdmin):
-    list_display = ('user', 'device_id', 'device_type', 'is_active', 'last_seen')
-    list_filter = ('device_type', 'is_active', 'last_seen')
+    list_display = ('user', 'device_id', 'device_type', 'is_active', 'created_at')
+    list_filter = ('device_type', 'is_active', 'created_at')
     search_fields = ('user__email', 'device_id')
 
 @admin.register(LocationHistory)
 class LocationHistoryAdmin(admin.ModelAdmin):
-    list_display = ('user', 'latitude', 'longitude', 'address', 'created_at')
-    list_filter = ('created_at',)
+    list_display = ('user', 'latitude', 'longitude', 'address', 'timestamp')
+    list_filter = ('timestamp', 'source')
     search_fields = ('user__email', 'address')
 
 @admin.register(UserMatch)
 class UserMatchAdmin(admin.ModelAdmin):
-    list_display = ('user1', 'user2', 'match_type', 'created_at')
-    list_filter = ('match_type', 'created_at')
+    list_display = ('user1', 'user2', 'status', 'distance', 'created_at')
+    list_filter = ('status', 'created_at')
     search_fields = ('user1__email', 'user2__email')
 
 @admin.register(LocationPermission)
 class LocationPermissionAdmin(admin.ModelAdmin):
-    list_display = ('user', 'permission_type', 'is_granted', 'created_at')
-    list_filter = ('permission_type', 'is_granted', 'created_at')
+    list_display = ('user', 'location_enabled', 'precise_location_enabled', 'location_data_sharing', 'created_at')
+    list_filter = ('location_enabled', 'precise_location_enabled', 'location_data_sharing', 'created_at')
     search_fields = ('user__email',)
 
 # Liveness Verification Models
@@ -151,5 +151,60 @@ class UserVerificationStatusAdmin(admin.ModelAdmin):
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at')
+        })
+    )
+
+# Email and Phone Verification Models
+@admin.register(EmailVerification)
+class EmailVerificationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'email', 'otp_code', 'is_verified', 'is_used', 'created_at', 'expires_at')
+    list_filter = ('is_verified', 'is_used', 'created_at')
+    search_fields = ('user__email', 'email', 'otp_code')
+    readonly_fields = ('otp_code', 'created_at', 'expires_at', 'verified_at')
+    
+    fieldsets = (
+        ('Verification Info', {
+            'fields': ('user', 'email', 'otp_code')
+        }),
+        ('Status', {
+            'fields': ('is_verified', 'is_used')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'expires_at', 'verified_at')
+        })
+    )
+
+@admin.register(PhoneVerification)
+class PhoneVerificationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'phone_number', 'country_code', 'otp_code', 'is_verified', 'is_used', 'created_at', 'expires_at')
+    list_filter = ('is_verified', 'is_used', 'country_code', 'created_at')
+    search_fields = ('user__email', 'phone_number', 'otp_code')
+    readonly_fields = ('otp_code', 'created_at', 'expires_at', 'verified_at')
+    
+    fieldsets = (
+        ('Verification Info', {
+            'fields': ('user', 'phone_number', 'country_code', 'otp_code')
+        }),
+        ('Status', {
+            'fields': ('is_verified', 'is_used')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'expires_at', 'verified_at')
+        })
+    )
+
+@admin.register(UserRoleSelection)
+class UserRoleSelectionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'selected_role', 'selected_at')
+    list_filter = ('selected_role', 'selected_at')
+    search_fields = ('user__email',)
+    readonly_fields = ('selected_at',)
+    
+    fieldsets = (
+        ('User', {
+            'fields': ('user',)
+        }),
+        ('Role Selection', {
+            'fields': ('selected_role', 'selected_at')
         })
     )

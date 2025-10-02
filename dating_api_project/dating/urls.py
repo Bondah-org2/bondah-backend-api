@@ -59,6 +59,13 @@ from .views import (
     MatchPreferencesView,
     UserLocationProfileView,
     LocationStatisticsView,
+    # Email and Phone Verification Views
+    EmailOTPRequestView,
+    EmailOTPVerifyView,
+    PhoneOTPRequestView,
+    PhoneOTPVerifyView,
+    ResendOTPView,
+    UserRoleSelectionView,
 )
 
 urlpatterns = [
@@ -126,6 +133,14 @@ urlpatterns = [
     path('liveness/status/<str:session_id>/', liveness_views.LivenessCheckStatusView.as_view(), name='liveness-status'),
     path('liveness/retry/', liveness_views.RetryLivenessCheckView.as_view(), name='liveness-retry'),
     path('verification/status/', liveness_views.UserVerificationStatusView.as_view(), name='verification-status'),
+    
+    # Email and Phone Verification Endpoints
+    path('verification/email/request/', EmailOTPRequestView.as_view(), name='email-otp-request'),
+    path('verification/email/verify/', EmailOTPVerifyView.as_view(), name='email-otp-verify'),
+    path('verification/phone/request/', PhoneOTPRequestView.as_view(), name='phone-otp-request'),
+    path('verification/phone/verify/', PhoneOTPVerifyView.as_view(), name='phone-otp-verify'),
+    path('verification/resend/', ResendOTPView.as_view(), name='resend-otp'),
+    path('onboarding/role/', UserRoleSelectionView.as_view(), name='user-role-selection'),
     
     # Location Management Endpoints
     path('location/update/', LocationUpdateView.as_view(), name='location-update'),
