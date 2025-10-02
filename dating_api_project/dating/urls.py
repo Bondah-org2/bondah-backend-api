@@ -66,6 +66,13 @@ from .views import (
     PhoneOTPVerifyView,
     ResendOTPView,
     UserRoleSelectionView,
+    # Advanced Search and Discovery Views
+    UserSearchView,
+    UserProfileDetailView,
+    UserInteractionView,
+    UserRecommendationsView,
+    CategoryFilterView,
+    UserInterestsView,
 )
 
 urlpatterns = [
@@ -141,6 +148,14 @@ urlpatterns = [
     path('verification/phone/verify/', PhoneOTPVerifyView.as_view(), name='phone-otp-verify'),
     path('verification/resend/', ResendOTPView.as_view(), name='resend-otp'),
     path('onboarding/role/', UserRoleSelectionView.as_view(), name='user-role-selection'),
+    
+    # Advanced Search and Discovery Endpoints
+    path('search/users/', UserSearchView.as_view(), name='user-search'),
+    path('users/<int:user_id>/profile/', UserProfileDetailView.as_view(), name='user-profile-detail'),
+    path('users/interact/', UserInteractionView.as_view(), name='user-interaction'),
+    path('users/recommendations/', UserRecommendationsView.as_view(), name='user-recommendations'),
+    path('users/category/', CategoryFilterView.as_view(), name='category-filter'),
+    path('users/interests/', UserInterestsView.as_view(), name='user-interests'),
     
     # Location Management Endpoints
     path('location/update/', LocationUpdateView.as_view(), name='location-update'),

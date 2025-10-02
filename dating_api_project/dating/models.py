@@ -42,6 +42,127 @@ class User(AbstractUser):
     bio = models.TextField(blank=True)
     last_location_update = models.DateTimeField(blank=True, null=True)
     
+    # Profile Pictures
+    profile_picture = models.URLField(blank=True, null=True, help_text="Main profile picture URL")
+    profile_gallery = models.JSONField(default=list, help_text="Array of additional profile picture URLs")
+    
+    # Personal Information (From Figma Designs)
+    # Basic Info
+    education_level = models.CharField(max_length=50, blank=True, null=True, choices=[
+        ('high_school', 'High School'),
+        ('undergrad', 'Undergraduate'),
+        ('bachelors', 'Bachelor\'s Degree'),
+        ('masters', 'Master\'s Degree'),
+        ('phd', 'PhD'),
+        ('other', 'Other')
+    ])
+    height = models.CharField(max_length=10, blank=True, null=True, help_text="Height in feet/inches or cm")
+    zodiac_sign = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('aries', 'Aries'), ('taurus', 'Taurus'), ('gemini', 'Gemini'), ('cancer', 'Cancer'),
+        ('leo', 'Leo'), ('virgo', 'Virgo'), ('libra', 'Libra'), ('scorpio', 'Scorpio'),
+        ('sagittarius', 'Sagittarius'), ('capricorn', 'Capricorn'), ('aquarius', 'Aquarius'), ('pisces', 'Pisces')
+    ])
+    languages = models.JSONField(default=list, help_text="Languages spoken (e.g., ['English', 'French'])")
+    relationship_status = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('single', 'Single'),
+        ('divorced', 'Divorced'),
+        ('widowed', 'Widowed'),
+        ('separated', 'Separated')
+    ])
+    
+    # Lifestyle & Preferences
+    smoking_preference = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('never', 'Never'),
+        ('occasionally', 'Occasionally'),
+        ('regularly', 'Regularly'),
+        ('quit', 'Quit')
+    ])
+    drinking_preference = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('never', 'Never'),
+        ('occasionally', 'Occasionally'),
+        ('regularly', 'Regularly'),
+        ('quit', 'Quit')
+    ])
+    pet_preference = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('dog', 'Dog'),
+        ('cat', 'Cat'),
+        ('both', 'Both'),
+        ('none', 'None'),
+        ('other', 'Other')
+    ])
+    exercise_frequency = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('never', 'Never'),
+        ('1x_week', '1x/week'),
+        ('2x_week', '2x/week'),
+        ('3x_week', '3x/week'),
+        ('4x_week', '4x/week'),
+        ('5x_week', '5x/week'),
+        ('daily', 'Daily')
+    ])
+    kids_preference = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('want', 'Want Kids'),
+        ('dont_want', 'Don\'t Want Kids'),
+        ('have_kids', 'Have Kids'),
+        ('open', 'Open to Kids')
+    ])
+    
+    # Personality & Communication
+    personality_type = models.CharField(max_length=10, blank=True, null=True, choices=[
+        ('INTJ', 'INTJ'), ('INTP', 'INTP'), ('ENTJ', 'ENTJ'), ('ENTP', 'ENTP'),
+        ('INFJ', 'INFJ'), ('INFP', 'INFP'), ('ENFJ', 'ENFJ'), ('ENFP', 'ENFP'),
+        ('ISTJ', 'ISTJ'), ('ISFJ', 'ISFJ'), ('ESTJ', 'ESTJ'), ('ESFJ', 'ESFJ'),
+        ('ISTP', 'ISTP'), ('ISFP', 'ISFP'), ('ESTP', 'ESTP'), ('ESFP', 'ESFP')
+    ])
+    love_language = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('physical_touch', 'Physical Touch'),
+        ('gifts', 'Gifts'),
+        ('quality_time', 'Quality Time'),
+        ('words_of_affirmation', 'Words of Affirmation'),
+        ('acts_of_service', 'Acts of Service')
+    ])
+    communication_style = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('direct', 'Direct'),
+        ('romantic', 'Romantic'),
+        ('playful', 'Playful'),
+        ('reserved', 'Reserved')
+    ])
+    
+    # Interests & Hobbies
+    hobbies = models.JSONField(default=list, help_text="List of hobbies and interests")
+    interests = models.JSONField(default=list, help_text="List of general interests")
+    
+    # Future Plans & Values
+    marriage_plans = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('yes', 'Yes'),
+        ('no', 'No'),
+        ('maybe', 'Maybe')
+    ])
+    kids_plans = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('yes', 'Yes'),
+        ('no', 'No'),
+        ('maybe', 'Maybe')
+    ])
+    religion_importance = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('very', 'Very Important'),
+        ('somewhat', 'Somewhat Important'),
+        ('not_important', 'Not Important')
+    ])
+    religion = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Dating Preferences
+    dating_type = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('casual', 'Casual Dating'),
+        ('serious', 'Serious Relationship'),
+        ('marriage', 'Marriage'),
+        ('sugar', 'Sugar Relationship'),
+        ('friends', 'Friends First')
+    ])
+    open_to_long_distance = models.CharField(max_length=20, blank=True, null=True, choices=[
+        ('yes', 'Yes'),
+        ('no', 'No'),
+        ('maybe', 'Maybe')
+    ])
+    
     # Matching Preferences
     max_distance = models.PositiveIntegerField(default=50, help_text="Maximum distance in kilometers")
     age_range_min = models.PositiveIntegerField(default=18)
@@ -392,6 +513,119 @@ class UserMatch(models.Model):
             models.Index(fields=['user2', 'status']),
             models.Index(fields=['distance']),
         ]
+
+
+class UserInterest(models.Model):
+    """Store user interests and hobbies for better matching"""
+    name = models.CharField(max_length=100, unique=True)
+    category = models.CharField(max_length=50, choices=[
+        ('sports', 'Sports'),
+        ('music', 'Music'),
+        ('travel', 'Travel'),
+        ('food', 'Food'),
+        ('art', 'Art'),
+        ('technology', 'Technology'),
+        ('fitness', 'Fitness'),
+        ('reading', 'Reading'),
+        ('movies', 'Movies'),
+        ('gaming', 'Gaming'),
+        ('outdoor', 'Outdoor Activities'),
+        ('other', 'Other')
+    ])
+    icon = models.CharField(max_length=50, blank=True, null=True, help_text="Icon name for UI")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return self.name
+    
+    class Meta:
+        ordering = ['name']
+
+
+class UserProfileView(models.Model):
+    """Track profile views for analytics and recommendations"""
+    viewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_views_made')
+    viewed_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_views_received')
+    viewed_at = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(max_length=20, choices=[
+        ('search', 'Search Results'),
+        ('discover', 'Discover Feed'),
+        ('nearby', 'Nearby Users'),
+        ('recommended', 'Recommended'),
+        ('direct', 'Direct Link')
+    ], default='search')
+    
+    def __str__(self):
+        return f"{self.viewer.email} viewed {self.viewed_user.email}"
+    
+    class Meta:
+        unique_together = ['viewer', 'viewed_user']
+        ordering = ['-viewed_at']
+
+
+class UserInteraction(models.Model):
+    """Track user interactions (likes, dislikes, super likes, etc.)"""
+    INTERACTION_TYPES = [
+        ('like', 'Like'),
+        ('dislike', 'Dislike'),
+        ('super_like', 'Super Like'),
+        ('pass', 'Pass'),
+        ('block', 'Block'),
+        ('report', 'Report'),
+        ('request_live', 'Request Live'),
+        ('share_profile', 'Share Profile')
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='interactions_made')
+    target_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='interactions_received')
+    interaction_type = models.CharField(max_length=20, choices=INTERACTION_TYPES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    metadata = models.JSONField(default=dict, help_text="Additional interaction data")
+    
+    def __str__(self):
+        return f"{self.user.email} {self.interaction_type} {self.target_user.email}"
+    
+    class Meta:
+        unique_together = ['user', 'target_user', 'interaction_type']
+        ordering = ['-created_at']
+
+
+class SearchQuery(models.Model):
+    """Store search queries for analytics and suggestions"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='search_queries')
+    query = models.CharField(max_length=255)
+    filters = models.JSONField(default=dict, help_text="Applied filters")
+    results_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.email}: {self.query}"
+    
+    class Meta:
+        ordering = ['-created_at']
+
+
+class RecommendationEngine(models.Model):
+    """Store recommendation algorithm data"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='recommendations')
+    recommended_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='recommended_to')
+    score = models.FloatField(help_text="Recommendation score (0-100)")
+    algorithm = models.CharField(max_length=50, choices=[
+        ('location_based', 'Location Based'),
+        ('interest_based', 'Interest Based'),
+        ('compatibility', 'Compatibility'),
+        ('hybrid', 'Hybrid')
+    ])
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+    
+    def __str__(self):
+        return f"{self.user.email} -> {self.recommended_user.email} ({self.score})"
+    
+    class Meta:
+        unique_together = ['user', 'recommended_user']
+        ordering = ['-score']
 
 
 class LocationPermission(models.Model):

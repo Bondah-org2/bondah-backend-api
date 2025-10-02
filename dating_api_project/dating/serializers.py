@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection, UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -12,7 +12,12 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'name', 'email', 'password', 'gender', 'age', 'location', 'is_matchmaker', 'bio'
+            'id', 'name', 'email', 'password', 'gender', 'age', 'location', 'is_matchmaker', 'bio',
+            'profile_picture', 'profile_gallery', 'education_level', 'height', 'zodiac_sign',
+            'languages', 'relationship_status', 'smoking_preference', 'drinking_preference',
+            'pet_preference', 'exercise_frequency', 'kids_preference', 'personality_type',
+            'love_language', 'communication_style', 'hobbies', 'interests', 'marriage_plans',
+            'kids_plans', 'religion_importance', 'religion', 'dating_type', 'open_to_long_distance'
         ]
 
     def create(self, validated_data):
@@ -876,3 +881,168 @@ class ResendOTPSerializer(serializers.Serializer):
         if value not in ['email', 'phone']:
             raise serializers.ValidationError("Type must be 'email' or 'phone'")
         return value
+
+
+# =============================================================================
+# ADVANCED USER PROFILE SERIALIZERS
+# =============================================================================
+
+class UserProfileDetailSerializer(serializers.ModelSerializer):
+    """Detailed user profile serializer for viewing other users"""
+    profile_views_count = serializers.SerializerMethodField()
+    is_online = serializers.SerializerMethodField()
+    distance = serializers.SerializerMethodField()
+    compatibility_score = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'name', 'age', 'gender', 'bio', 'profile_picture', 'profile_gallery',
+            'education_level', 'height', 'zodiac_sign', 'languages', 'relationship_status',
+            'smoking_preference', 'drinking_preference', 'pet_preference', 'exercise_frequency',
+            'kids_preference', 'personality_type', 'love_language', 'communication_style',
+            'hobbies', 'interests', 'marriage_plans', 'kids_plans', 'religion_importance',
+            'religion', 'dating_type', 'open_to_long_distance', 'city', 'state', 'country',
+            'profile_views_count', 'is_online', 'distance', 'compatibility_score'
+        ]
+        read_only_fields = ['id', 'profile_views_count', 'is_online', 'distance', 'compatibility_score']
+    
+    def get_profile_views_count(self, obj):
+        return UserProfileView.objects.filter(viewed_user=obj).count()
+    
+    def get_is_online(self, obj):
+        # Simple online status - can be enhanced with last_seen tracking
+        return False
+    
+    def get_distance(self, obj):
+        request = self.context.get('request')
+        if request and request.user.has_location and obj.has_location:
+            return request.user.get_distance_to(obj)
+        return None
+    
+    def get_compatibility_score(self, obj):
+        request = self.context.get('request')
+        if request and request.user != obj:
+            from .location_utils import calculate_match_score
+            return calculate_match_score(request.user, obj)
+        return None
+
+
+class UserSearchSerializer(serializers.ModelSerializer):
+    """Serializer for user search results"""
+    distance = serializers.SerializerMethodField()
+    match_score = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'name', 'age', 'gender', 'bio', 'profile_picture', 'city', 'state', 'country',
+            'education_level', 'height', 'zodiac_sign', 'relationship_status', 'dating_type',
+            'distance', 'match_score'
+        ]
+    
+    def get_distance(self, obj):
+        request = self.context.get('request')
+        if request and request.user.has_location and obj.has_location:
+            return request.user.get_distance_to(obj)
+        return None
+    
+    def get_match_score(self, obj):
+        request = self.context.get('request')
+        if request and request.user != obj:
+            from .location_utils import calculate_match_score
+            return calculate_match_score(request.user, obj)
+        return None
+
+
+class UserInterestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserInterest
+        fields = ['id', 'name', 'category', 'icon']
+
+
+class UserInteractionSerializer(serializers.ModelSerializer):
+    target_user_name = serializers.CharField(source='target_user.name', read_only=True)
+    target_user_photo = serializers.URLField(source='target_user.profile_picture', read_only=True)
+    
+    class Meta:
+        model = UserInteraction
+        fields = [
+            'id', 'target_user', 'target_user_name', 'target_user_photo',
+            'interaction_type', 'created_at', 'metadata'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+class SearchQuerySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SearchQuery
+        fields = ['id', 'query', 'filters', 'results_count', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class RecommendationSerializer(serializers.ModelSerializer):
+    recommended_user = UserSearchSerializer(read_only=True)
+    
+    class Meta:
+        model = RecommendationEngine
+        fields = ['id', 'recommended_user', 'score', 'algorithm', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+# =============================================================================
+# SEARCH AND FILTER SERIALIZERS
+# =============================================================================
+
+class UserSearchFilterSerializer(serializers.Serializer):
+    """Serializer for advanced user search filters"""
+    query = serializers.CharField(required=False, allow_blank=True)
+    gender = serializers.CharField(required=False)
+    age_min = serializers.IntegerField(required=False, min_value=18, max_value=100)
+    age_max = serializers.IntegerField(required=False, min_value=18, max_value=100)
+    max_distance = serializers.IntegerField(required=False, min_value=1, max_value=500)
+    education_level = serializers.CharField(required=False)
+    relationship_status = serializers.CharField(required=False)
+    smoking_preference = serializers.CharField(required=False)
+    drinking_preference = serializers.CharField(required=False)
+    pet_preference = serializers.CharField(required=False)
+    exercise_frequency = serializers.CharField(required=False)
+    kids_preference = serializers.CharField(required=False)
+    personality_type = serializers.CharField(required=False)
+    love_language = serializers.CharField(required=False)
+    dating_type = serializers.CharField(required=False)
+    religion = serializers.CharField(required=False)
+    interests = serializers.ListField(
+        child=serializers.CharField(),
+        required=False
+    )
+    hobbies = serializers.ListField(
+        child=serializers.CharField(),
+        required=False
+    )
+    is_matchmaker = serializers.BooleanField(required=False)
+    has_photos = serializers.BooleanField(required=False)
+    online_only = serializers.BooleanField(required=False)
+    
+    def validate(self, attrs):
+        age_min = attrs.get('age_min')
+        age_max = attrs.get('age_max')
+        
+        if age_min and age_max and age_min > age_max:
+            raise serializers.ValidationError('age_min cannot be greater than age_max')
+        
+        return attrs
+
+
+class CategoryFilterSerializer(serializers.Serializer):
+    """Serializer for category-based filtering"""
+    category = serializers.ChoiceField(choices=[
+        ('all', 'All'),
+        ('casual_dating', 'Casual Dating'),
+        ('lgbtq', 'LGBTQ+'),
+        ('sugar', 'Sugar Relationship'),
+        ('serious', 'Serious Relationship'),
+        ('friends', 'Friends First'),
+        ('matchmakers', 'Matchmakers Only')
+    ])
+    subcategory = serializers.CharField(required=False, allow_blank=True)

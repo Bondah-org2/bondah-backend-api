@@ -3,7 +3,8 @@ from .models import (
     User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, 
     EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog,
     SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission,
-    LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection
+    LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection,
+    UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine
 )
 
 # Register your models here.
@@ -208,3 +209,40 @@ class UserRoleSelectionAdmin(admin.ModelAdmin):
             'fields': ('selected_role', 'selected_at')
         })
     )
+
+
+# Advanced Search and Discovery Models
+@admin.register(UserInterest)
+class UserInterestAdmin(admin.ModelAdmin):
+    list_display = ('name', 'category', 'is_active', 'created_at')
+    list_filter = ('category', 'is_active', 'created_at')
+    search_fields = ('name',)
+    ordering = ('name',)
+
+@admin.register(UserProfileView)
+class UserProfileViewAdmin(admin.ModelAdmin):
+    list_display = ('viewer', 'viewed_user', 'source', 'viewed_at')
+    list_filter = ('source', 'viewed_at')
+    search_fields = ('viewer__email', 'viewed_user__email')
+    ordering = ('-viewed_at',)
+
+@admin.register(UserInteraction)
+class UserInteractionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'target_user', 'interaction_type', 'created_at')
+    list_filter = ('interaction_type', 'created_at')
+    search_fields = ('user__email', 'target_user__email')
+    ordering = ('-created_at',)
+
+@admin.register(SearchQuery)
+class SearchQueryAdmin(admin.ModelAdmin):
+    list_display = ('user', 'query', 'results_count', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('user__email', 'query')
+    ordering = ('-created_at',)
+
+@admin.register(RecommendationEngine)
+class RecommendationEngineAdmin(admin.ModelAdmin):
+    list_display = ('user', 'recommended_user', 'score', 'algorithm', 'is_active', 'created_at')
+    list_filter = ('algorithm', 'is_active', 'created_at')
+    search_fields = ('user__email', 'recommended_user__email')
+    ordering = ('-score',)

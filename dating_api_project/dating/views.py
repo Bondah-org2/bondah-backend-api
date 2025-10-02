@@ -2849,3 +2849,388 @@ The Bondah Team
             "message": "Invalid resend request",
             "status": "error"
         }, status=status.HTTP_400_BAD_REQUEST)
+
+
+# =============================================================================
+# ADVANCED USER SEARCH AND DISCOVERY VIEWS
+# =============================================================================
+
+class UserSearchView(APIView):
+    """Advanced user search with filtering capabilities"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .serializers import UserSearchFilterSerializer, UserSearchSerializer
+        
+        # Validate search parameters
+        filter_serializer = UserSearchFilterSerializer(data=request.GET)
+        if not filter_serializer.is_valid():
+            return Response({
+                "message": "Invalid search parameters",
+                "status": "error",
+                "errors": filter_serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        filters = filter_serializer.validated_data
+        
+        # Start with all active users except current user
+        queryset = User.objects.filter(is_active=True).exclude(id=request.user.id)
+        
+        # Apply filters
+        if filters.get('gender'):
+            queryset = queryset.filter(gender=filters['gender'])
+        
+        if filters.get('age_min'):
+            queryset = queryset.filter(age__gte=filters['age_min'])
+        
+        if filters.get('age_max'):
+            queryset = queryset.filter(age__lte=filters['age_max'])
+        
+        if filters.get('education_level'):
+            queryset = queryset.filter(education_level=filters['education_level'])
+        
+        if filters.get('relationship_status'):
+            queryset = queryset.filter(relationship_status=filters['relationship_status'])
+        
+        if filters.get('smoking_preference'):
+            queryset = queryset.filter(smoking_preference=filters['smoking_preference'])
+        
+        if filters.get('drinking_preference'):
+            queryset = queryset.filter(drinking_preference=filters['drinking_preference'])
+        
+        if filters.get('pet_preference'):
+            queryset = queryset.filter(pet_preference=filters['pet_preference'])
+        
+        if filters.get('exercise_frequency'):
+            queryset = queryset.filter(exercise_frequency=filters['exercise_frequency'])
+        
+        if filters.get('kids_preference'):
+            queryset = queryset.filter(kids_preference=filters['kids_preference'])
+        
+        if filters.get('personality_type'):
+            queryset = queryset.filter(personality_type=filters['personality_type'])
+        
+        if filters.get('love_language'):
+            queryset = queryset.filter(love_language=filters['love_language'])
+        
+        if filters.get('dating_type'):
+            queryset = queryset.filter(dating_type=filters['dating_type'])
+        
+        if filters.get('religion'):
+            queryset = queryset.filter(religion__icontains=filters['religion'])
+        
+        if filters.get('is_matchmaker') is not None:
+            queryset = queryset.filter(is_matchmaker=filters['is_matchmaker'])
+        
+        if filters.get('has_photos'):
+            queryset = queryset.exclude(profile_picture__isnull=True).exclude(profile_picture='')
+        
+        # Text search
+        if filters.get('query'):
+            query = filters['query']
+            queryset = queryset.filter(
+                models.Q(name__icontains=query) |
+                models.Q(bio__icontains=query) |
+                models.Q(city__icontains=query) |
+                models.Q(state__icontains=query) |
+                models.Q(country__icontains=query)
+            )
+        
+        # Interest and hobby filtering
+        if filters.get('interests'):
+            for interest in filters['interests']:
+                queryset = queryset.filter(interests__icontains=interest)
+        
+        if filters.get('hobbies'):
+            for hobby in filters['hobbies']:
+                queryset = queryset.filter(hobbies__icontains=hobby)
+        
+        # Distance filtering
+        if filters.get('max_distance') and request.user.has_location:
+            max_distance = filters['max_distance']
+            nearby_users = []
+            for user in queryset:
+                if user.has_location:
+                    distance = request.user.get_distance_to(user)
+                    if distance and distance <= max_distance:
+                        nearby_users.append(user)
+            queryset = User.objects.filter(id__in=[u.id for u in nearby_users])
+        
+        # Order by relevance (can be enhanced with ML)
+        queryset = queryset.order_by('-date_joined')
+        
+        # Pagination
+        page_size = int(request.GET.get('page_size', 20))
+        page = int(request.GET.get('page', 1))
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        users = queryset[start:end]
+        
+        # Serialize results
+        serializer = UserSearchSerializer(users, many=True, context={'request': request})
+        
+        # Store search query for analytics
+        SearchQuery.objects.create(
+            user=request.user,
+            query=filters.get('query', ''),
+            filters=filters,
+            results_count=queryset.count()
+        )
+        
+        return Response({
+            "message": "Search completed successfully",
+            "status": "success",
+            "results": serializer.data,
+            "total_count": queryset.count(),
+            "page": page,
+            "page_size": page_size
+        }, status=status.HTTP_200_OK)
+
+
+class UserProfileDetailView(APIView):
+    """Get detailed user profile for viewing"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id, is_active=True)
+            
+            # Track profile view
+            UserProfileView.objects.get_or_create(
+                viewer=request.user,
+                viewed_user=user,
+                defaults={'source': 'direct'}
+            )
+            
+            serializer = UserProfileDetailSerializer(user, context={'request': request})
+            
+            return Response({
+                "message": "Profile retrieved successfully",
+                "status": "success",
+                "profile": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except User.DoesNotExist:
+            return Response({
+                "message": "User not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class UserInteractionView(APIView):
+    """Handle user interactions (like, dislike, super like, etc.)"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        from .serializers import UserInteractionSerializer
+        
+        serializer = UserInteractionSerializer(data=request.data)
+        if serializer.is_valid():
+            target_user_id = serializer.validated_data['target_user']
+            interaction_type = serializer.validated_data['interaction_type']
+            
+            try:
+                target_user = User.objects.get(id=target_user_id, is_active=True)
+                
+                # Create or update interaction
+                interaction, created = UserInteraction.objects.get_or_create(
+                    user=request.user,
+                    target_user=target_user,
+                    interaction_type=interaction_type,
+                    defaults={'metadata': serializer.validated_data.get('metadata', {})}
+                )
+                
+                if not created:
+                    interaction.metadata = serializer.validated_data.get('metadata', {})
+                    interaction.save()
+                
+                # Handle mutual matches
+                if interaction_type == 'like':
+                    mutual_like = UserInteraction.objects.filter(
+                        user=target_user,
+                        target_user=request.user,
+                        interaction_type='like'
+                    ).exists()
+                    
+                    if mutual_like:
+                        # Create a match
+                        UserMatch.objects.get_or_create(
+                            user1=request.user,
+                            user2=target_user,
+                            defaults={
+                                'distance': request.user.get_distance_to(target_user) or 0,
+                                'status': 'matched'
+                            }
+                        )
+                
+                return Response({
+                    "message": f"Interaction recorded successfully",
+                    "status": "success",
+                    "interaction": UserInteractionSerializer(interaction).data
+                }, status=status.HTTP_200_OK)
+                
+            except User.DoesNotExist:
+                return Response({
+                    "message": "Target user not found",
+                    "status": "error"
+                }, status=status.HTTP_404_NOT_FOUND)
+        
+        return Response({
+            "message": "Invalid interaction data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserRecommendationsView(APIView):
+    """Get personalized user recommendations"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .serializers import RecommendationSerializer
+        
+        # Get user's preferences
+        user = request.user
+        
+        # Simple recommendation algorithm (can be enhanced with ML)
+        recommendations = []
+        
+        # Location-based recommendations
+        if user.has_location:
+            nearby_users = User.objects.filter(
+                is_active=True,
+                latitude__isnull=False,
+                longitude__isnull=False
+            ).exclude(id=user.id)
+            
+            for nearby_user in nearby_users:
+                distance = user.get_distance_to(nearby_user)
+                if distance and distance <= user.max_distance:
+                    # Calculate compatibility score
+                    from .location_utils import calculate_match_score
+                    score = calculate_match_score(user, nearby_user)
+                    
+                    if score > 50:  # Only recommend users with >50% compatibility
+                        RecommendationEngine.objects.get_or_create(
+                            user=user,
+                            recommended_user=nearby_user,
+                            defaults={
+                                'score': score,
+                                'algorithm': 'location_based'
+                            }
+                        )
+        
+        # Get active recommendations
+        recommendations = RecommendationEngine.objects.filter(
+            user=user,
+            is_active=True
+        ).order_by('-score')[:20]
+        
+        serializer = RecommendationSerializer(recommendations, many=True)
+        
+        return Response({
+            "message": "Recommendations retrieved successfully",
+            "status": "success",
+            "recommendations": serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+class CategoryFilterView(APIView):
+    """Get users by category (Casual Dating, LGBTQ+, Sugar, etc.)"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .serializers import CategoryFilterSerializer, UserSearchSerializer
+        
+        filter_serializer = CategoryFilterSerializer(data=request.GET)
+        if not filter_serializer.is_valid():
+            return Response({
+                "message": "Invalid category filter",
+                "status": "error",
+                "errors": filter_serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        category = filter_serializer.validated_data['category']
+        
+        # Start with all active users except current user
+        queryset = User.objects.filter(is_active=True).exclude(id=request.user.id)
+        
+        # Apply category filters
+        if category == 'casual_dating':
+            queryset = queryset.filter(dating_type='casual')
+        elif category == 'lgbtq':
+            # This would need more sophisticated filtering based on sexual orientation
+            queryset = queryset.filter(gender__in=['non_binary', 'other'])
+        elif category == 'sugar':
+            queryset = queryset.filter(dating_type='sugar')
+        elif category == 'serious':
+            queryset = queryset.filter(dating_type='serious')
+        elif category == 'friends':
+            queryset = queryset.filter(dating_type='friends')
+        elif category == 'matchmakers':
+            queryset = queryset.filter(is_matchmaker=True)
+        # 'all' category shows all users
+        
+        # Order by relevance
+        queryset = queryset.order_by('-date_joined')
+        
+        # Pagination
+        page_size = int(request.GET.get('page_size', 20))
+        page = int(request.GET.get('page', 1))
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        users = queryset[start:end]
+        
+        # Serialize results
+        serializer = UserSearchSerializer(users, many=True, context={'request': request})
+        
+        return Response({
+            "message": f"Category '{category}' results retrieved successfully",
+            "status": "success",
+            "results": serializer.data,
+            "total_count": queryset.count(),
+            "page": page,
+            "page_size": page_size
+        }, status=status.HTTP_200_OK)
+
+
+class UserInterestsView(APIView):
+    """Manage user interests and hobbies"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .serializers import UserInterestSerializer
+        
+        interests = UserInterest.objects.filter(is_active=True).order_by('name')
+        serializer = UserInterestSerializer(interests, many=True)
+        
+        return Response({
+            "message": "Interests retrieved successfully",
+            "status": "success",
+            "interests": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    def post(self, request):
+        """Update user's interests"""
+        interests = request.data.get('interests', [])
+        hobbies = request.data.get('hobbies', [])
+        
+        if not isinstance(interests, list) or not isinstance(hobbies, list):
+            return Response({
+                "message": "Interests and hobbies must be arrays",
+                "status": "error"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update user's interests and hobbies
+        request.user.interests = interests
+        request.user.hobbies = hobbies
+        request.user.save()
+        
+        return Response({
+            "message": "Interests updated successfully",
+            "status": "success",
+            "interests": request.user.interests,
+            "hobbies": request.user.hobbies
+        }, status=status.HTTP_200_OK)
