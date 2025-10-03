@@ -66,6 +66,8 @@ from deep_translator import GoogleTranslator
 from django.db import models
 import os
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.db.models import Q
 from .jwt_utils import generate_tokens, refresh_access_token, revoke_refresh_token
 from .permissions import AdminJWTPermission
 
@@ -3234,3 +3236,1058 @@ class UserInterestsView(APIView):
             "interests": request.user.interests,
             "hobbies": request.user.hobbies
         }, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# CHAT AND MESSAGING VIEWS (NEW)
+# =============================================================================
+
+class ChatListView(generics.ListCreateAPIView):
+    """
+    List all chats for the authenticated user or create a new chat
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import ChatCreateSerializer
+            return ChatCreateSerializer
+        from .serializers import ChatSerializer
+        return ChatSerializer
+    
+    def get_queryset(self):
+        user = self.request.user
+        return Chat.objects.filter(participants=user, is_active=True).annotate(
+            last_message_at=models.Max('messages__timestamp')
+        ).order_by('-last_message_at')
+    
+    def perform_create(self, serializer):
+        """Create chat with current user as creator"""
+        chat = serializer.save(created_by=self.request.user)
+        # Add current user to participants
+        chat.participants.add(self.request.user)
+
+
+class ChatDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific chat
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            from .serializers import ChatSettingsSerializer
+            return ChatSettingsSerializer
+        from .serializers import ChatDetailSerializer
+        return ChatDetailSerializer
+    
+    def get_queryset(self):
+        # Ensure the user is a participant of the chat
+        return Chat.objects.filter(participants=self.request.user, is_active=True)
+    
+    def perform_destroy(self, instance):
+        """Soft delete chat by deactivating it"""
+        instance.is_active = False
+        instance.save()
+
+
+class MessageListView(generics.ListCreateAPIView):
+    """
+    List messages for a specific chat or send a new message
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import MessageCreateSerializer
+            return MessageCreateSerializer
+        from .serializers import MessageSerializer
+        return MessageSerializer
+    
+    def get_queryset(self):
+        chat_id = self.kwargs['chat_id']
+        user = self.request.user
+        
+        # Ensure the user is a participant of the chat
+        chat = get_object_or_404(Chat, id=chat_id, participants=user, is_active=True)
+        
+        # Mark messages as read when retrieved by the recipient
+        Message.objects.filter(chat=chat, is_read=False).exclude(sender=user).update(
+            is_read=True, read_at=timezone.now()
+        )
+        
+        return Message.objects.filter(chat=chat).order_by('timestamp')
+    
+    def perform_create(self, serializer):
+        """Create message with current user as sender"""
+        chat_id = self.kwargs['chat_id']
+        user = self.request.user
+        
+        chat = get_object_or_404(Chat, id=chat_id, participants=user, is_active=True)
+        
+        # Handle file uploads for voice notes and media
+        voice_note_file = self.request.FILES.get('voice_note_file')
+        image_file = self.request.FILES.get('image_file')
+        video_file = self.request.FILES.get('video_file')
+        document_file = self.request.FILES.get('document_file')
+        
+        # Save uploaded files and get URLs
+        voice_note_url = None
+        image_url = None
+        video_url = None
+        document_url = None
+        
+        if voice_note_file:
+            voice_note_url = self._save_uploaded_file(voice_note_file, 'voice_notes')
+            serializer.validated_data['message_type'] = 'voice_note'
+        
+        if image_file:
+            image_url = self._save_uploaded_file(image_file, 'chat_images')
+            serializer.validated_data['message_type'] = 'image'
+        
+        if video_file:
+            video_url = self._save_uploaded_file(video_file, 'chat_videos')
+            serializer.validated_data['message_type'] = 'video'
+        
+        if document_file:
+            document_url = self._save_uploaded_file(document_file, 'chat_documents')
+            serializer.validated_data['message_type'] = 'document'
+            serializer.validated_data['document_name'] = document_file.name
+        
+        serializer.save(
+            chat=chat,
+            sender=user,
+            voice_note_url=voice_note_url,
+            image_url=image_url,
+            video_url=video_url,
+            document_url=document_url
+        )
+    
+    def _save_uploaded_file(self, file, folder):
+        """Save uploaded file and return URL"""
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+        import os
+        import uuid
+        
+        # Generate unique filename
+        file_extension = os.path.splitext(file.name)[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        file_path = os.path.join(folder, unique_filename)
+        
+        # Save file
+        default_storage.save(file_path, ContentFile(file.read()))
+        return default_storage.url(file_path)
+
+
+class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific message
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import MessageSerializer
+        return MessageSerializer
+    
+    def get_queryset(self):
+        chat_id = self.kwargs['chat_id']
+        user = self.request.user
+        
+        # Ensure the user is a participant of the chat
+        chat = get_object_or_404(Chat, id=chat_id, participants=user, is_active=True)
+        return Message.objects.filter(chat=chat)
+    
+    def perform_update(self, serializer):
+        """Mark message as edited"""
+        serializer.save(is_edited=True, edited_at=timezone.now())
+    
+    def perform_destroy(self, instance):
+        """Soft delete message by clearing content"""
+        instance.content = "[Message deleted]"
+        instance.message_type = 'system'
+        instance.save()
+
+
+class CallInitiateView(APIView):
+    """
+    Initiate a voice or video call
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        from .serializers import CallInitiateSerializer
+        import uuid
+        
+        serializer = CallInitiateSerializer(data=request.data)
+        if serializer.is_valid():
+            callee_id = serializer.validated_data['callee_id']
+            call_type = serializer.validated_data['call_type']
+            
+            try:
+                callee = User.objects.get(id=callee_id, is_active=True)
+                
+                # Find or create chat between users
+                chat = Chat.objects.filter(
+                    participants=request.user,
+                    chat_type='direct'
+                ).filter(
+                    participants=callee
+                ).annotate(
+                    participant_count=models.Count('participants')
+                ).filter(
+                    participant_count=2
+                ).first()
+                
+                if not chat:
+                    # Create new chat
+                    chat = Chat.objects.create(
+                        chat_type='direct',
+                        created_by=request.user
+                    )
+                    chat.participants.set([request.user, callee])
+                
+                # Generate unique call ID
+                call_id = str(uuid.uuid4())
+                room_id = f"room_{call_id}"
+                
+                # Create call record
+                call = Call.objects.create(
+                    chat=chat,
+                    caller=request.user,
+                    callee=callee,
+                    call_type=call_type,
+                    call_id=call_id,
+                    room_id=room_id,
+                    status='initiated'
+                )
+                
+                # Create system message for call initiation
+                Message.objects.create(
+                    chat=chat,
+                    sender=None,  # System message
+                    message_type='call_start',
+                    content=f"{request.user.name} started a {call_type}"
+                )
+                
+                from .serializers import CallSerializer
+                return Response({
+                    "message": "Call initiated successfully",
+                    "status": "success",
+                    "call": CallSerializer(call, context={'request': request}).data
+                }, status=status.HTTP_201_CREATED)
+                
+            except User.DoesNotExist:
+                return Response({
+                    "message": "User not found",
+                    "status": "error"
+                }, status=status.HTTP_404_NOT_FOUND)
+                
+        return Response({
+            "message": "Invalid call data",
+            "status": "error",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CallAnswerView(APIView):
+    """
+    Answer an incoming call
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, call_id):
+        try:
+            call = Call.objects.get(
+                call_id=call_id,
+                callee=request.user,
+                status__in=['initiated', 'ringing']
+            )
+            
+            action = request.data.get('action')  # 'answer', 'decline', 'busy'
+            
+            if action == 'answer':
+                call.status = 'active'
+                call.answered_at = timezone.now()
+                call.save()
+                
+                # Create system message
+                Message.objects.create(
+                    chat=call.chat,
+                    sender=None,
+                    message_type='call_start',
+                    content=f"{request.user.name} answered the call"
+                )
+                
+            elif action == 'decline':
+                call.status = 'declined'
+                call.ended_at = timezone.now()
+                call.save()
+                
+                # Create system message
+                Message.objects.create(
+                    chat=call.chat,
+                    sender=None,
+                    message_type='call_end',
+                    content=f"{request.user.name} declined the call"
+                )
+                
+            elif action == 'busy':
+                call.status = 'busy'
+                call.ended_at = timezone.now()
+                call.save()
+                
+                # Create system message
+                Message.objects.create(
+                    chat=call.chat,
+                    sender=None,
+                    message_type='call_end',
+                    content=f"{request.user.name} is busy"
+                )
+            
+            from .serializers import CallSerializer
+            return Response({
+                "message": f"Call {action}ed successfully",
+                "status": "success",
+                "call": CallSerializer(call, context={'request': request}).data
+            }, status=status.HTTP_200_OK)
+            
+        except Call.DoesNotExist:
+            return Response({
+                "message": "Call not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class CallEndView(APIView):
+    """
+    End an active call
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, call_id):
+        try:
+            call = Call.objects.get(
+                call_id=call_id,
+                status='active',
+                participants=request.user
+            )
+            
+            call.status = 'ended'
+            call.ended_at = timezone.now()
+            
+            # Calculate duration
+            if call.answered_at:
+                duration = (call.ended_at - call.answered_at).total_seconds()
+                call.duration = int(duration)
+            
+            call.save()
+            
+            # Create system message
+            Message.objects.create(
+                chat=call.chat,
+                sender=None,
+                message_type='call_end',
+                content=f"Call ended. Duration: {call.get_duration_display()}"
+            )
+            
+            from .serializers import CallSerializer
+            return Response({
+                "message": "Call ended successfully",
+                "status": "success",
+                "call": CallSerializer(call, context={'request': request}).data
+            }, status=status.HTTP_200_OK)
+            
+        except Call.DoesNotExist:
+            return Response({
+                "message": "Call not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class ChatReportView(generics.CreateAPIView):
+    """
+    Report a chat, message, or user
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import ChatReportSerializer
+        return ChatReportSerializer
+    
+    def perform_create(self, serializer):
+        """Create report with current user as reporter"""
+        chat_id = self.kwargs.get('chat_id')
+        message_id = self.kwargs.get('message_id')
+        
+        if chat_id:
+            chat = get_object_or_404(Chat, id=chat_id, participants=self.request.user)
+            serializer.validated_data['chat'] = chat
+        
+        if message_id:
+            message = get_object_or_404(Message, id=message_id)
+            serializer.validated_data['message'] = message
+        
+        serializer.save(reporter=self.request.user)
+
+
+class MatchmakerIntroView(APIView):
+    """
+    Create a matchmaker introduction chat between two users
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        if not request.user.is_matchmaker:
+            return Response({
+                "message": "Only matchmakers can create introductions",
+                "status": "error"
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        user1_id = request.data.get('user1_id')
+        user2_id = request.data.get('user2_id')
+        intro_message = request.data.get('intro_message', '')
+        
+        if not user1_id or not user2_id:
+            return Response({
+                "message": "Both user1_id and user2_id are required",
+                "status": "error"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user1 = User.objects.get(id=user1_id, is_active=True)
+            user2 = User.objects.get(id=user2_id, is_active=True)
+            
+            # Check if chat already exists
+            existing_chat = Chat.objects.filter(
+                participants=user1,
+                chat_type='matchmaker_intro'
+            ).filter(
+                participants=user2
+            ).annotate(
+                participant_count=models.Count('participants')
+            ).filter(
+                participant_count=2
+            ).first()
+            
+            if existing_chat:
+                return Response({
+                    "message": "Introduction chat already exists",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create matchmaker introduction chat
+            chat = Chat.objects.create(
+                chat_type='matchmaker_intro',
+                created_by=request.user,
+                chat_name=f"Introduction: {user1.name} & {user2.name}"
+            )
+            chat.participants.set([user1, user2, request.user])
+            
+            # Create system messages
+            Message.objects.create(
+                chat=chat,
+                sender=None,
+                message_type='system',
+                content=f"{request.user.name} (moderator) made the match"
+            )
+            
+            Message.objects.create(
+                chat=chat,
+                sender=None,
+                message_type='system',
+                content=f"{user1.name} was matched"
+            )
+            
+            Message.objects.create(
+                chat=chat,
+                sender=None,
+                message_type='system',
+                content=f"{user2.name} was added"
+            )
+            
+            # Create matchmaker introduction message
+            intro_content = intro_message or f"Hi {user1.name} & {user2.name} 👋, I've matched you because I see a good fit. Please introduce yourselves and get to know each other."
+            
+            Message.objects.create(
+                chat=chat,
+                sender=request.user,
+                message_type='matchmaker_intro',
+                content=intro_content
+            )
+            
+            from .serializers import ChatDetailSerializer
+            return Response({
+                "message": "Matchmaker introduction created successfully",
+                "status": "success",
+                "chat": ChatDetailSerializer(chat, context={'request': request}).data
+            }, status=status.HTTP_201_CREATED)
+            
+        except User.DoesNotExist:
+            return Response({
+                "message": "One or both users not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+# =============================================================================
+# SOCIAL FEED AND STORY VIEWS (NEW)
+# =============================================================================
+
+class FeedListView(generics.ListCreateAPIView):
+    """
+    List posts in the Bond Story feed or create a new post
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import PostCreateSerializer
+            return PostCreateSerializer
+        from .serializers import PostSerializer
+        return PostSerializer
+    
+    def get_queryset(self):
+        from .models import Post
+        user = self.request.user
+        
+        # Get posts from users the current user follows or is connected with
+        # For now, return all public posts (can be enhanced with follow relationships)
+        return Post.objects.filter(
+            is_active=True,
+            visibility='public'
+        ).select_related('author').prefetch_related('comments__author').order_by('-created_at')
+    
+    def perform_create(self, serializer):
+        """Create post with current user as author"""
+        # Handle file uploads for images and videos
+        image_files = self.request.FILES.getlist('image_files')
+        video_file = self.request.FILES.get('video_file')
+        
+        # Save uploaded files and get URLs
+        image_urls = []
+        video_url = None
+        video_thumbnail = None
+        
+        if image_files:
+            for image_file in image_files:
+                image_url = self._save_uploaded_file(image_file, 'post_images')
+                image_urls.append(image_url)
+        
+        if video_file:
+            video_url = self._save_uploaded_file(video_file, 'post_videos')
+            # Generate thumbnail URL (placeholder)
+            video_thumbnail = video_url.replace('.mp4', '_thumb.jpg')
+        
+        serializer.save(
+            author=self.request.user,
+            image_urls=image_urls,
+            video_url=video_url,
+            video_thumbnail=video_thumbnail
+        )
+    
+    def _save_uploaded_file(self, file, folder):
+        """Save uploaded file and return URL"""
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+        import os
+        import uuid
+        
+        # Generate unique filename
+        file_extension = os.path.splitext(file.name)[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        file_path = os.path.join(folder, unique_filename)
+        
+        # Save file
+        default_storage.save(file_path, ContentFile(file.read()))
+        return default_storage.url(file_path)
+
+
+class PostDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific post
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            from .serializers import PostCreateSerializer
+            return PostCreateSerializer
+        from .serializers import PostSerializer
+        return PostSerializer
+    
+    def get_queryset(self):
+        from .models import Post
+        return Post.objects.filter(is_active=True).select_related('author').prefetch_related('comments__author')
+    
+    def perform_destroy(self, instance):
+        """Soft delete post by deactivating it"""
+        instance.is_active = False
+        instance.save()
+
+
+class PostCommentListView(generics.ListCreateAPIView):
+    """
+    List comments for a specific post or add a new comment
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import PostCommentSerializer
+            return PostCommentSerializer
+        from .serializers import PostCommentSerializer
+        return PostCommentSerializer
+    
+    def get_queryset(self):
+        from .models import PostComment
+        post_id = self.kwargs['post_id']
+        
+        # Ensure the post exists and is active
+        post = get_object_or_404(Post, id=post_id, is_active=True)
+        
+        return PostComment.objects.filter(
+            post=post,
+            is_active=True,
+            parent_comment__isnull=True  # Only top-level comments
+        ).select_related('author').prefetch_related('replies__author').order_by('created_at')
+    
+    def perform_create(self, serializer):
+        """Create comment with current user as author"""
+        post_id = self.kwargs['post_id']
+        post = get_object_or_404(Post, id=post_id, is_active=True)
+        
+        serializer.save(
+            post=post,
+            author=self.request.user
+        )
+        
+        # Update post comments count
+        post.comments_count = post.comments.filter(is_active=True).count()
+        post.save(update_fields=['comments_count'])
+
+
+class PostInteractionView(APIView):
+    """
+    Handle post interactions (like, share, bond)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, post_id):
+        from .models import Post, PostInteraction
+        
+        try:
+            post = Post.objects.get(id=post_id, is_active=True)
+            interaction_type = request.data.get('interaction_type')
+            
+            if interaction_type not in ['like', 'share', 'bond', 'save']:
+                return Response({
+                    "message": "Invalid interaction type",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if interaction already exists
+            interaction, created = PostInteraction.objects.get_or_create(
+                user=request.user,
+                post=post,
+                interaction_type=interaction_type
+            )
+            
+            if not created:
+                # Remove interaction (toggle)
+                interaction.delete()
+                action = 'removed'
+                
+                # Update post counts
+                if interaction_type == 'like':
+                    post.likes_count = max(0, post.likes_count - 1)
+                elif interaction_type == 'share':
+                    post.shares_count = max(0, post.shares_count - 1)
+                elif interaction_type == 'bond':
+                    post.bonds_count = max(0, post.bonds_count - 1)
+            else:
+                # Add interaction
+                action = 'added'
+                
+                # Update post counts
+                if interaction_type == 'like':
+                    post.likes_count += 1
+                elif interaction_type == 'share':
+                    post.shares_count += 1
+                elif interaction_type == 'bond':
+                    post.bonds_count += 1
+            
+            post.save(update_fields=['likes_count', 'shares_count', 'bonds_count'])
+            
+            return Response({
+                "message": f"Interaction {action} successfully",
+                "status": "success",
+                "interaction_type": interaction_type,
+                "action": action
+            }, status=status.HTTP_200_OK)
+            
+        except Post.DoesNotExist:
+            return Response({
+                "message": "Post not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class CommentInteractionView(APIView):
+    """
+    Handle comment interactions (like)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, comment_id):
+        from .models import PostComment, CommentInteraction
+        
+        try:
+            comment = PostComment.objects.get(id=comment_id, is_active=True)
+            interaction_type = request.data.get('interaction_type', 'like')
+            
+            # Check if interaction already exists
+            interaction, created = CommentInteraction.objects.get_or_create(
+                user=request.user,
+                comment=comment,
+                interaction_type=interaction_type
+            )
+            
+            if not created:
+                # Remove interaction (toggle)
+                interaction.delete()
+                action = 'removed'
+                comment.likes_count = max(0, comment.likes_count - 1)
+            else:
+                # Add interaction
+                action = 'added'
+                comment.likes_count += 1
+            
+            comment.save(update_fields=['likes_count'])
+            
+            return Response({
+                "message": f"Comment interaction {action} successfully",
+                "status": "success",
+                "interaction_type": interaction_type,
+                "action": action
+            }, status=status.HTTP_200_OK)
+            
+        except PostComment.DoesNotExist:
+            return Response({
+                "message": "Comment not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class PostReportView(generics.CreateAPIView):
+    """
+    Report a post or comment
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import PostReportSerializer
+        return PostReportSerializer
+    
+    def perform_create(self, serializer):
+        """Create report with current user as reporter"""
+        post_id = self.kwargs.get('post_id')
+        comment_id = self.kwargs.get('comment_id')
+        
+        if post_id:
+            from .models import Post
+            post = get_object_or_404(Post, id=post_id, is_active=True)
+            serializer.validated_data['post'] = post
+            serializer.validated_data['reported_user'] = post.author
+        
+        if comment_id:
+            from .models import PostComment
+            comment = get_object_or_404(PostComment, id=comment_id, is_active=True)
+            serializer.validated_data['comment'] = comment
+            serializer.validated_data['reported_user'] = comment.author
+        
+        serializer.save(reporter=self.request.user)
+
+
+class PostShareView(generics.CreateAPIView):
+    """
+    Share a post to external platforms
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import PostShareSerializer
+        return PostShareSerializer
+    
+    def perform_create(self, serializer):
+        """Create share with current user and post"""
+        post_id = self.kwargs['post_id']
+        from .models import Post, PostShare
+        
+        post = get_object_or_404(Post, id=post_id, is_active=True)
+        
+        serializer.save(
+            user=self.request.user,
+            post=post
+        )
+        
+        # Update post shares count
+        post.shares_count += 1
+        post.save(update_fields=['shares_count'])
+
+
+class StoryListView(generics.ListCreateAPIView):
+    """
+    List active stories or create a new story
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import StoryCreateSerializer
+            return StoryCreateSerializer
+        from .serializers import StorySerializer
+        return StorySerializer
+    
+    def get_queryset(self):
+        from .models import Story
+        from django.utils import timezone
+        
+        # Get active, non-expired stories
+        return Story.objects.filter(
+            is_active=True,
+            expires_at__gt=timezone.now()
+        ).select_related('author').order_by('-created_at')
+    
+    def perform_create(self, serializer):
+        """Create story with current user as author"""
+        # Handle file uploads for images and videos
+        image_file = self.request.FILES.get('image_file')
+        video_file = self.request.FILES.get('video_file')
+        
+        # Save uploaded files and get URLs
+        image_url = None
+        video_url = None
+        
+        if image_file:
+            image_url = self._save_uploaded_file(image_file, 'story_images')
+        
+        if video_file:
+            video_url = self._save_uploaded_file(video_file, 'story_videos')
+        
+        serializer.save(
+            author=self.request.user,
+            image_url=image_url,
+            video_url=video_url
+        )
+    
+    def _save_uploaded_file(self, file, folder):
+        """Save uploaded file and return URL"""
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+        import os
+        import uuid
+        
+        # Generate unique filename
+        file_extension = os.path.splitext(file.name)[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        file_path = os.path.join(folder, unique_filename)
+        
+        # Save file
+        default_storage.save(file_path, ContentFile(file.read()))
+        return default_storage.url(file_path)
+
+
+class StoryDetailView(generics.RetrieveAPIView):
+    """
+    Retrieve a specific story and mark as viewed
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import StorySerializer
+        return StorySerializer
+    
+    def get_queryset(self):
+        from .models import Story
+        from django.utils import timezone
+        
+        return Story.objects.filter(
+            is_active=True,
+            expires_at__gt=timezone.now()
+        ).select_related('author')
+    
+    def retrieve(self, request, *args, **kwargs):
+        """Mark story as viewed by current user"""
+        from .models import StoryView
+        
+        story = self.get_object()
+        
+        # Mark as viewed if not already viewed
+        StoryView.objects.get_or_create(
+            story=story,
+            viewer=request.user
+        )
+        
+        # Update views count
+        story.views_count = story.views.count()
+        story.save(update_fields=['views_count'])
+        
+        serializer = self.get_serializer(story)
+        return Response(serializer.data)
+
+
+class StoryReactionView(APIView):
+    """
+    Handle story reactions
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, story_id):
+        from .models import Story, StoryReaction
+        
+        try:
+            story = Story.objects.get(id=story_id, is_active=True)
+            reaction_type = request.data.get('reaction_type', 'like')
+            
+            if reaction_type not in ['like', 'love', 'laugh', 'wow', 'sad', 'angry']:
+                return Response({
+                    "message": "Invalid reaction type",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if reaction already exists
+            reaction, created = StoryReaction.objects.get_or_create(
+                user=request.user,
+                story=story,
+                reaction_type=reaction_type
+            )
+            
+            if not created:
+                # Remove reaction (toggle)
+                reaction.delete()
+                action = 'removed'
+                story.reactions_count = max(0, story.reactions_count - 1)
+            else:
+                # Add reaction
+                action = 'added'
+                story.reactions_count += 1
+            
+            story.save(update_fields=['reactions_count'])
+            
+            return Response({
+                "message": f"Story reaction {action} successfully",
+                "status": "success",
+                "reaction_type": reaction_type,
+                "action": action
+            }, status=status.HTTP_200_OK)
+            
+        except Story.DoesNotExist:
+            return Response({
+                "message": "Story not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class FeedSearchView(APIView):
+    """
+    Search posts in the Bond Story feed
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .models import Post, FeedSearch
+        from django.db.models import Q
+        
+        query = request.GET.get('q', '').strip()
+        if not query:
+            return Response({
+                "message": "Search query is required",
+                "status": "error"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Search posts by content, hashtags, and author name
+        posts = Post.objects.filter(
+            Q(content__icontains=query) |
+            Q(hashtags__icontains=query) |
+            Q(author__name__icontains=query) |
+            Q(location__icontains=query),
+            is_active=True,
+            visibility='public'
+        ).select_related('author').prefetch_related('comments__author').order_by('-created_at')
+        
+        # Store search query for analytics
+        FeedSearch.objects.create(
+            user=request.user,
+            query=query,
+            results_count=posts.count()
+        )
+        
+        # Serialize results
+        from .serializers import PostSerializer
+        serializer = PostSerializer(posts, many=True, context={'request': request})
+        
+        return Response({
+            "message": "Search completed successfully",
+            "status": "success",
+            "query": query,
+            "results_count": posts.count(),
+            "posts": serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+class FeedSuggestionsView(APIView):
+    """
+    Get search suggestions for the Bond Story feed
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .models import FeedSearch, Post
+        from django.db.models import Count
+        
+        query = request.GET.get('q', '').strip()
+        
+        if query:
+            # Get suggestions based on partial query
+            suggestions = FeedSearch.objects.filter(
+                query__icontains=query
+            ).values('query').annotate(
+                count=Count('query')
+            ).order_by('-count')[:5]
+            
+            # Also get hashtag suggestions from posts
+            hashtag_suggestions = Post.objects.filter(
+                hashtags__icontains=query,
+                is_active=True
+            ).values_list('hashtags', flat=True)
+            
+            # Flatten and deduplicate hashtags
+            all_hashtags = []
+            for hashtags in hashtag_suggestions:
+                if hashtags:
+                    all_hashtags.extend(hashtags)
+            
+            # Filter hashtags that contain the query
+            filtered_hashtags = [tag for tag in set(all_hashtags) if query.lower() in tag.lower()]
+            
+            return Response({
+                "message": "Suggestions retrieved successfully",
+                "status": "success",
+                "suggestions": [s['query'] for s in suggestions],
+                "hashtags": filtered_hashtags[:5]
+            }, status=status.HTTP_200_OK)
+        else:
+            # Get popular searches
+            popular_searches = FeedSearch.objects.values('query').annotate(
+                count=Count('query')
+            ).order_by('-count')[:10]
+            
+            return Response({
+                "message": "Popular searches retrieved successfully",
+                "status": "success",
+                "popular_searches": [s['query'] for s in popular_searches]
+            }, status=status.HTTP_200_OK)

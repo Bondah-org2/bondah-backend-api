@@ -73,6 +73,29 @@ from .views import (
     UserRecommendationsView,
     CategoryFilterView,
     UserInterestsView,
+    # Chat and Messaging Views (NEW)
+    ChatListView,
+    ChatDetailView,
+    MessageListView,
+    MessageDetailView,
+    CallInitiateView,
+    CallAnswerView,
+    CallEndView,
+    ChatReportView,
+    MatchmakerIntroView,
+    # Social Feed and Story Views (NEW)
+    FeedListView,
+    PostDetailView,
+    PostCommentListView,
+    PostInteractionView,
+    CommentInteractionView,
+    PostReportView,
+    PostShareView,
+    StoryListView,
+    StoryDetailView,
+    StoryReactionView,
+    FeedSearchView,
+    FeedSuggestionsView,
 )
 
 urlpatterns = [
@@ -167,4 +190,33 @@ urlpatterns = [
     path('location/match-preferences/', MatchPreferencesView.as_view(), name='match-preferences'),
     path('location/profile/', UserLocationProfileView.as_view(), name='user-location-profile'),
     path('location/statistics/', LocationStatisticsView.as_view(), name='location-statistics'),
+    
+    # Chat and Messaging Endpoints (NEW)
+    path('chat/', ChatListView.as_view(), name='chat-list'),
+    path('chat/<int:pk>/', ChatDetailView.as_view(), name='chat-detail'),
+    path('chat/<int:chat_id>/messages/', MessageListView.as_view(), name='message-list'),
+    path('chat/<int:chat_id>/messages/<int:pk>/', MessageDetailView.as_view(), name='message-detail'),
+    path('chat/<int:chat_id>/report/', ChatReportView.as_view(), name='chat-report'),
+    path('chat/<int:chat_id>/messages/<int:message_id>/report/', ChatReportView.as_view(), name='message-report'),
+    path('chat/matchmaker-intro/', MatchmakerIntroView.as_view(), name='matchmaker-intro'),
+    
+    # Voice/Video Call Endpoints (NEW)
+    path('calls/initiate/', CallInitiateView.as_view(), name='call-initiate'),
+    path('calls/<str:call_id>/answer/', CallAnswerView.as_view(), name='call-answer'),
+    path('calls/<str:call_id>/end/', CallEndView.as_view(), name='call-end'),
+    
+    # Social Feed and Story Endpoints (NEW)
+    path('feed/', FeedListView.as_view(), name='feed-list'),
+    path('feed/posts/<int:pk>/', PostDetailView.as_view(), name='post-detail'),
+    path('feed/posts/<int:post_id>/comments/', PostCommentListView.as_view(), name='post-comments'),
+    path('feed/posts/<int:post_id>/interact/', PostInteractionView.as_view(), name='post-interaction'),
+    path('feed/comments/<int:comment_id>/interact/', CommentInteractionView.as_view(), name='comment-interaction'),
+    path('feed/posts/<int:post_id>/report/', PostReportView.as_view(), name='post-report'),
+    path('feed/comments/<int:comment_id>/report/', PostReportView.as_view(), name='comment-report'),
+    path('feed/posts/<int:post_id>/share/', PostShareView.as_view(), name='post-share'),
+    path('feed/stories/', StoryListView.as_view(), name='story-list'),
+    path('feed/stories/<int:pk>/', StoryDetailView.as_view(), name='story-detail'),
+    path('feed/stories/<int:story_id>/react/', StoryReactionView.as_view(), name='story-reaction'),
+    path('feed/search/', FeedSearchView.as_view(), name='feed-search'),
+    path('feed/suggestions/', FeedSuggestionsView.as_view(), name='feed-suggestions'),
 ]

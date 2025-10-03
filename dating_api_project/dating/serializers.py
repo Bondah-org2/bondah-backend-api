@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection, UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection, UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine, Chat, Message, VoiceNote, Call, ChatParticipant, ChatReport, Post, PostComment, PostInteraction, CommentInteraction, PostReport, Story, StoryView, StoryReaction, PostShare, FeedSearch
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -1046,3 +1046,647 @@ class CategoryFilterSerializer(serializers.Serializer):
         ('matchmakers', 'Matchmakers Only')
     ])
     subcategory = serializers.CharField(required=False, allow_blank=True)
+
+
+# =============================================================================
+# CHAT AND MESSAGING SERIALIZERS (NEW)
+# =============================================================================
+
+class ChatParticipantSerializer(serializers.ModelSerializer):
+    """Serializer for chat participants (simplified user info)"""
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    name = serializers.CharField(source='user.name', read_only=True)
+    profile_picture = serializers.URLField(source='user.profile_picture', read_only=True)
+    is_online = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ChatParticipant
+        fields = [
+            'user_id', 'name', 'profile_picture', 'is_online',
+            'joined_at', 'last_seen_at', 'is_active', 'custom_nickname',
+            'notifications_enabled', 'is_muted'
+        ]
+        read_only_fields = ['user_id', 'name', 'profile_picture', 'is_online', 'joined_at', 'last_seen_at']
+    
+    def get_is_online(self, obj):
+        """Check if user is online (placeholder - implement with real-time status)"""
+        # This would typically check last activity or WebSocket connection
+        return False
+
+
+class MessageSerializer(serializers.ModelSerializer):
+    """Serializer for individual messages"""
+    sender_id = serializers.IntegerField(source='sender.id', read_only=True)
+    sender_name = serializers.CharField(source='sender.name', read_only=True)
+    sender_profile_picture = serializers.URLField(source='sender.profile_picture', read_only=True)
+    is_from_current_user = serializers.SerializerMethodField()
+    reply_to_message = serializers.SerializerMethodField()
+    formatted_timestamp = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Message
+        fields = [
+            'id', 'chat', 'sender_id', 'sender_name', 'sender_profile_picture',
+            'message_type', 'content', 'voice_note_url', 'voice_note_duration',
+            'image_url', 'video_url', 'document_url', 'document_name',
+            'timestamp', 'formatted_timestamp', 'is_read', 'read_at',
+            'is_edited', 'edited_at', 'reply_to', 'reply_to_message',
+            'reactions', 'is_from_current_user'
+        ]
+        read_only_fields = [
+            'id', 'chat', 'sender_id', 'sender_name', 'sender_profile_picture',
+            'timestamp', 'formatted_timestamp', 'is_read', 'read_at',
+            'is_edited', 'edited_at', 'reactions', 'is_from_current_user'
+        ]
+    
+    def get_is_from_current_user(self, obj):
+        """Check if message is from the current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.sender == request.user
+        return False
+    
+    def get_reply_to_message(self, obj):
+        """Get the message being replied to"""
+        if obj.reply_to:
+            return {
+                'id': obj.reply_to.id,
+                'content': obj.reply_to.content[:100] + '...' if len(obj.reply_to.content or '') > 100 else obj.reply_to.content,
+                'sender_name': obj.reply_to.sender.name if obj.reply_to.sender else 'System',
+                'message_type': obj.reply_to.message_type,
+                'timestamp': obj.reply_to.timestamp
+            }
+        return None
+    
+    def get_formatted_timestamp(self, obj):
+        """Get formatted timestamp for display"""
+        from django.utils import timezone
+        now = timezone.now()
+        diff = now - obj.timestamp
+        
+        if diff.days == 0:
+            return obj.timestamp.strftime('%H:%M')
+        elif diff.days == 1:
+            return 'Yesterday'
+        elif diff.days < 7:
+            return obj.timestamp.strftime('%A')
+        else:
+            return obj.timestamp.strftime('%m/%d/%Y')
+
+
+class ChatSerializer(serializers.ModelSerializer):
+    """Serializer for chat list view"""
+    participants = ChatParticipantSerializer(many=True, read_only=True)
+    last_message = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    other_participant = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Chat
+        fields = [
+            'id', 'chat_type', 'participants', 'other_participant',
+            'created_at', 'updated_at', 'last_message_at', 'last_message',
+            'unread_count', 'is_active', 'chat_name', 'chat_theme'
+        ]
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'last_message_at',
+            'last_message', 'unread_count', 'other_participant'
+        ]
+    
+    def get_last_message(self, obj):
+        """Get the last message in the chat"""
+        last_msg = obj.messages.order_by('-timestamp').first()
+        if last_msg:
+            return {
+                'id': last_msg.id,
+                'content': last_msg.content[:100] + '...' if len(last_msg.content or '') > 100 else last_msg.content,
+                'message_type': last_msg.message_type,
+                'sender_name': last_msg.sender.name if last_msg.sender else 'System',
+                'timestamp': last_msg.timestamp,
+                'is_read': last_msg.is_read
+            }
+        return None
+    
+    def get_unread_count(self, obj):
+        """Get unread message count for current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.get_unread_count(request.user)
+        return 0
+    
+    def get_other_participant(self, obj):
+        """Get the other participant in direct message chats"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and obj.chat_type == 'direct':
+            other_user = obj.get_other_participant(request.user)
+            if other_user:
+                return {
+                    'id': other_user.id,
+                    'name': other_user.name,
+                    'profile_picture': other_user.profile_picture,
+                    'is_online': False  # Placeholder
+                }
+        return None
+
+
+class ChatDetailSerializer(serializers.ModelSerializer):
+    """Serializer for a single chat with all its messages"""
+    participants = ChatParticipantSerializer(many=True, read_only=True)
+    messages = MessageSerializer(many=True, read_only=True)
+    other_participant = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Chat
+        fields = [
+            'id', 'chat_type', 'participants', 'other_participant',
+            'created_at', 'updated_at', 'last_message_at', 'messages',
+            'is_active', 'chat_name', 'chat_theme'
+        ]
+        read_only_fields = [
+            'id', 'participants', 'other_participant', 'created_at',
+            'updated_at', 'last_message_at', 'messages'
+        ]
+    
+    def get_other_participant(self, obj):
+        """Get the other participant in direct message chats"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and obj.chat_type == 'direct':
+            other_user = obj.get_other_participant(request.user)
+            if other_user:
+                return {
+                    'id': other_user.id,
+                    'name': other_user.name,
+                    'profile_picture': other_user.profile_picture,
+                    'is_online': False  # Placeholder
+                }
+        return None
+
+
+class ChatCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new chats"""
+    participant_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        help_text="List of user IDs to include in the chat"
+    )
+    
+    class Meta:
+        model = Chat
+        fields = ['chat_type', 'participant_ids', 'chat_name']
+    
+    def validate_participant_ids(self, value):
+        """Validate participant IDs"""
+        if len(value) < 1:
+            raise serializers.ValidationError("At least one participant is required")
+        
+        # Ensure users exist
+        existing_users = User.objects.filter(id__in=value).values_list('id', flat=True)
+        missing_ids = set(value) - set(existing_users)
+        if missing_ids:
+            raise serializers.ValidationError(f"Users not found: {list(missing_ids)}")
+        
+        return value
+    
+    def create(self, validated_data):
+        """Create chat with participants"""
+        participant_ids = validated_data.pop('participant_ids')
+        chat = Chat.objects.create(**validated_data)
+        chat.participants.set(participant_ids)
+        return chat
+
+
+class MessageCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new messages"""
+    
+    class Meta:
+        model = Message
+        fields = [
+            'message_type', 'content', 'voice_note_url', 'voice_note_duration',
+            'image_url', 'video_url', 'document_url', 'document_name', 'reply_to'
+        ]
+    
+    def validate(self, attrs):
+        """Validate message content"""
+        message_type = attrs.get('message_type', 'text')
+        content = attrs.get('content')
+        
+        # For text messages, content is required
+        if message_type == 'text' and not content:
+            raise serializers.ValidationError("Content is required for text messages")
+        
+        # For media messages, at least one media URL is required
+        if message_type in ['voice_note', 'image', 'video', 'document']:
+            media_fields = ['voice_note_url', 'image_url', 'video_url', 'document_url']
+            if not any(attrs.get(field) for field in media_fields):
+                raise serializers.ValidationError(f"Media URL is required for {message_type} messages")
+        
+        return attrs
+
+
+class VoiceNoteSerializer(serializers.ModelSerializer):
+    """Serializer for voice notes"""
+    message_id = serializers.IntegerField(source='message.id', read_only=True)
+    
+    class Meta:
+        model = VoiceNote
+        fields = [
+            'id', 'message_id', 'audio_url', 'duration', 'file_size',
+            'transcription', 'transcription_confidence', 'created_at'
+        ]
+        read_only_fields = ['id', 'message_id', 'created_at']
+
+
+class CallSerializer(serializers.ModelSerializer):
+    """Serializer for voice/video calls"""
+    caller_name = serializers.CharField(source='caller.name', read_only=True)
+    caller_profile_picture = serializers.URLField(source='caller.profile_picture', read_only=True)
+    callee_name = serializers.CharField(source='callee.name', read_only=True)
+    callee_profile_picture = serializers.URLField(source='callee.profile_picture', read_only=True)
+    duration_display = serializers.CharField(source='get_duration_display', read_only=True)
+    
+    class Meta:
+        model = Call
+        fields = [
+            'id', 'chat', 'caller', 'caller_name', 'caller_profile_picture',
+            'callee', 'callee_name', 'callee_profile_picture',
+            'call_type', 'status', 'started_at', 'answered_at', 'ended_at',
+            'duration', 'duration_display', 'call_id', 'room_id',
+            'quality_score', 'is_recorded', 'recording_url'
+        ]
+        read_only_fields = [
+            'id', 'chat', 'caller', 'caller_name', 'caller_profile_picture',
+            'callee', 'callee_name', 'callee_profile_picture',
+            'started_at', 'answered_at', 'ended_at', 'duration',
+            'duration_display', 'quality_score'
+        ]
+
+
+class CallInitiateSerializer(serializers.Serializer):
+    """Serializer for initiating calls"""
+    callee_id = serializers.IntegerField()
+    call_type = serializers.ChoiceField(choices=[('voice', 'Voice Call'), ('video', 'Video Call')])
+    
+    def validate_callee_id(self, value):
+        """Validate callee exists"""
+        if not User.objects.filter(id=value, is_active=True).exists():
+            raise serializers.ValidationError("User not found or inactive")
+        return value
+
+
+class ChatReportSerializer(serializers.ModelSerializer):
+    """Serializer for chat reports"""
+    reporter_name = serializers.CharField(source='reporter.name', read_only=True)
+    reported_user_name = serializers.CharField(source='reported_user.name', read_only=True)
+    
+    class Meta:
+        model = ChatReport
+        fields = [
+            'id', 'reporter', 'reporter_name', 'reported_user', 'reported_user_name',
+            'chat', 'message', 'report_type', 'description', 'status',
+            'moderator_notes', 'action_taken', 'resolved_by', 'resolved_at',
+            'created_at'
+        ]
+        read_only_fields = [
+            'id', 'reporter', 'reporter_name', 'reported_user_name',
+            'status', 'moderator_notes', 'action_taken', 'resolved_by',
+            'resolved_at', 'created_at'
+        ]
+    
+    def create(self, validated_data):
+        """Create report with current user as reporter"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['reporter'] = request.user
+        return super().create(validated_data)
+
+
+class ChatSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for chat settings"""
+    
+    class Meta:
+        model = Chat
+        fields = ['chat_name', 'chat_theme']
+    
+    def update(self, instance, validated_data):
+        """Update chat settings"""
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+
+# =============================================================================
+# SOCIAL FEED AND STORY SERIALIZERS (NEW)
+# =============================================================================
+
+class PostCommentSerializer(serializers.ModelSerializer):
+    """Serializer for post comments"""
+    author_id = serializers.IntegerField(source='author.id', read_only=True)
+    author_name = serializers.CharField(source='author.name', read_only=True)
+    author_profile_picture = serializers.URLField(source='author.profile_picture', read_only=True)
+    author_location = serializers.CharField(source='author.location', read_only=True)
+    is_from_current_user = serializers.SerializerMethodField()
+    formatted_timestamp = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PostComment
+        fields = [
+            'id', 'post', 'author_id', 'author_name', 'author_profile_picture', 'author_location',
+            'content', 'parent_comment', 'likes_count', 'replies_count', 'is_active', 'is_edited',
+            'created_at', 'updated_at', 'formatted_timestamp', 'is_from_current_user'
+        ]
+        read_only_fields = [
+            'id', 'author_id', 'author_name', 'author_profile_picture', 'author_location',
+            'likes_count', 'replies_count', 'is_active', 'is_edited', 'created_at', 'updated_at',
+            'formatted_timestamp', 'is_from_current_user'
+        ]
+    
+    def get_is_from_current_user(self, obj):
+        """Check if comment is from the current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.author == request.user
+        return False
+    
+    def get_formatted_timestamp(self, obj):
+        """Get formatted timestamp for display"""
+        from django.utils import timezone
+        now = timezone.now()
+        diff = now - obj.created_at
+        
+        if diff.days == 0:
+            return obj.created_at.strftime('%H:%M')
+        elif diff.days == 1:
+            return 'Yesterday'
+        elif diff.days < 7:
+            return obj.created_at.strftime('%A')
+        else:
+            return obj.created_at.strftime('%m/%d/%Y')
+
+
+class PostSerializer(serializers.ModelSerializer):
+    """Serializer for posts in the Bond Story feed"""
+    author_id = serializers.IntegerField(source='author.id', read_only=True)
+    author_name = serializers.CharField(source='author.name', read_only=True)
+    author_profile_picture = serializers.URLField(source='author.profile_picture', read_only=True)
+    author_location = serializers.CharField(source='author.location', read_only=True)
+    is_from_current_user = serializers.SerializerMethodField()
+    formatted_timestamp = serializers.SerializerMethodField()
+    engagement_score = serializers.IntegerField(source='get_engagement_score', read_only=True)
+    comments = PostCommentSerializer(many=True, read_only=True)
+    user_interactions = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Post
+        fields = [
+            'id', 'author_id', 'author_name', 'author_profile_picture', 'author_location',
+            'post_type', 'content', 'image_urls', 'video_url', 'video_thumbnail',
+            'visibility', 'location', 'hashtags', 'mentions', 'likes_count', 'comments_count',
+            'shares_count', 'bonds_count', 'engagement_score', 'is_active', 'is_featured',
+            'created_at', 'updated_at', 'formatted_timestamp', 'is_from_current_user',
+            'comments', 'user_interactions'
+        ]
+        read_only_fields = [
+            'id', 'author_id', 'author_name', 'author_profile_picture', 'author_location',
+            'likes_count', 'comments_count', 'shares_count', 'bonds_count', 'engagement_score',
+            'is_active', 'is_featured', 'created_at', 'updated_at', 'formatted_timestamp',
+            'is_from_current_user', 'comments', 'user_interactions'
+        ]
+    
+    def get_is_from_current_user(self, obj):
+        """Check if post is from the current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.author == request.user
+        return False
+    
+    def get_formatted_timestamp(self, obj):
+        """Get formatted timestamp for display"""
+        from django.utils import timezone
+        now = timezone.now()
+        diff = now - obj.created_at
+        
+        if diff.days == 0:
+            if diff.seconds < 3600:  # Less than 1 hour
+                minutes = diff.seconds // 60
+                return f"{minutes}m" if minutes > 0 else "now"
+            else:
+                return obj.created_at.strftime('%H:%M')
+        elif diff.days == 1:
+            return 'Yesterday'
+        elif diff.days < 7:
+            return obj.created_at.strftime('%A')
+        else:
+            return obj.created_at.strftime('%m/%d/%Y')
+    
+    def get_user_interactions(self, obj):
+        """Get current user's interactions with this post"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            interactions = obj.interactions.filter(user=request.user).values_list('interaction_type', flat=True)
+            return list(interactions)
+        return []
+
+
+class PostCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new posts"""
+    
+    class Meta:
+        model = Post
+        fields = [
+            'post_type', 'content', 'image_urls', 'video_url', 'video_thumbnail',
+            'visibility', 'location', 'hashtags', 'mentions'
+        ]
+    
+    def validate_content(self, value):
+        """Validate post content"""
+        if not value or len(value.strip()) == 0:
+            raise serializers.ValidationError("Post content cannot be empty")
+        if len(value) > 2000:
+            raise serializers.ValidationError("Post content cannot exceed 2000 characters")
+        return value
+    
+    def validate_image_urls(self, value):
+        """Validate image URLs"""
+        if value and len(value) > 10:
+            raise serializers.ValidationError("Cannot attach more than 10 images")
+        return value
+    
+    def create(self, validated_data):
+        """Create post with current user as author"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['author'] = request.user
+        return super().create(validated_data)
+
+
+class StorySerializer(serializers.ModelSerializer):
+    """Serializer for user stories"""
+    author_id = serializers.IntegerField(source='author.id', read_only=True)
+    author_name = serializers.CharField(source='author.name', read_only=True)
+    author_profile_picture = serializers.URLField(source='author.profile_picture', read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    user_has_viewed = serializers.SerializerMethodField()
+    user_reaction = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Story
+        fields = [
+            'id', 'author_id', 'author_name', 'author_profile_picture', 'story_type',
+            'content', 'image_url', 'video_url', 'video_duration', 'background_color',
+            'text_color', 'font_size', 'views_count', 'reactions_count', 'is_active',
+            'expires_at', 'created_at', 'is_expired', 'user_has_viewed', 'user_reaction'
+        ]
+        read_only_fields = [
+            'id', 'author_id', 'author_name', 'author_profile_picture', 'views_count',
+            'reactions_count', 'is_active', 'expires_at', 'created_at', 'is_expired',
+            'user_has_viewed', 'user_reaction'
+        ]
+    
+    def get_user_has_viewed(self, obj):
+        """Check if current user has viewed this story"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.views.filter(viewer=request.user).exists()
+        return False
+    
+    def get_user_reaction(self, obj):
+        """Get current user's reaction to this story"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            reaction = obj.reactions.filter(user=request.user).first()
+            return reaction.reaction_type if reaction else None
+        return None
+
+
+class StoryCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new stories"""
+    
+    class Meta:
+        model = Story
+        fields = [
+            'story_type', 'content', 'image_url', 'video_url', 'video_duration',
+            'background_color', 'text_color', 'font_size'
+        ]
+    
+    def validate(self, attrs):
+        """Validate story content"""
+        story_type = attrs.get('story_type')
+        content = attrs.get('content')
+        image_url = attrs.get('image_url')
+        video_url = attrs.get('video_url')
+        
+        # For text stories, content is required
+        if story_type == 'text' and not content:
+            raise serializers.ValidationError("Content is required for text stories")
+        
+        # For image stories, image_url is required
+        if story_type == 'image' and not image_url:
+            raise serializers.ValidationError("Image URL is required for image stories")
+        
+        # For video stories, video_url is required
+        if story_type == 'video' and not video_url:
+            raise serializers.ValidationError("Video URL is required for video stories")
+        
+        return attrs
+    
+    def create(self, validated_data):
+        """Create story with current user as author and set expiration"""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['author'] = request.user
+        
+        # Set expiration to 24 hours from now
+        validated_data['expires_at'] = timezone.now() + timedelta(hours=24)
+        
+        return super().create(validated_data)
+
+
+class PostInteractionSerializer(serializers.ModelSerializer):
+    """Serializer for post interactions"""
+    
+    class Meta:
+        model = PostInteraction
+        fields = ['interaction_type']
+    
+    def create(self, validated_data):
+        """Create interaction with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+class CommentInteractionSerializer(serializers.ModelSerializer):
+    """Serializer for comment interactions"""
+    
+    class Meta:
+        model = CommentInteraction
+        fields = ['interaction_type']
+    
+    def create(self, validated_data):
+        """Create interaction with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+class PostReportSerializer(serializers.ModelSerializer):
+    """Serializer for post/comment reports"""
+    reporter_name = serializers.CharField(source='reporter.name', read_only=True)
+    reported_user_name = serializers.CharField(source='reported_user.name', read_only=True)
+    
+    class Meta:
+        model = PostReport
+        fields = [
+            'id', 'reporter', 'reporter_name', 'reported_user', 'reported_user_name',
+            'post', 'comment', 'report_type', 'description', 'status',
+            'moderator_notes', 'action_taken', 'resolved_by', 'resolved_at',
+            'created_at'
+        ]
+        read_only_fields = [
+            'id', 'reporter', 'reporter_name', 'reported_user_name',
+            'status', 'moderator_notes', 'action_taken', 'resolved_by',
+            'resolved_at', 'created_at'
+        ]
+    
+    def create(self, validated_data):
+        """Create report with current user as reporter"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['reporter'] = request.user
+        return super().create(validated_data)
+
+
+class PostShareSerializer(serializers.ModelSerializer):
+    """Serializer for post shares"""
+    
+    class Meta:
+        model = PostShare
+        fields = ['platform']
+    
+    def create(self, validated_data):
+        """Create share with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+class FeedSearchSerializer(serializers.ModelSerializer):
+    """Serializer for feed search queries"""
+    
+    class Meta:
+        model = FeedSearch
+        fields = ['query', 'filters_applied']
+    
+    def create(self, validated_data):
+        """Create search with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)

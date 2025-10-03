@@ -4,7 +4,12 @@ from .models import (
     EmailLog, Job, JobApplication, AdminUser, AdminOTP, TranslationLog,
     SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission,
     LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection,
-    UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine
+    UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine,
+    # Chat and Messaging Models (NEW)
+    Chat, Message, VoiceNote, Call, ChatParticipant, ChatReport,
+    # Social Feed and Story Models (NEW)
+    Post, PostComment, PostInteraction, CommentInteraction, PostReport,
+    Story, StoryView, StoryReaction, PostShare, FeedSearch
 )
 
 # Register your models here.
@@ -246,3 +251,367 @@ class RecommendationEngineAdmin(admin.ModelAdmin):
     list_filter = ('algorithm', 'is_active', 'created_at')
     search_fields = ('user__email', 'recommended_user__email')
     ordering = ('-score',)
+
+
+# =============================================================================
+# CHAT AND MESSAGING ADMIN (NEW)
+# =============================================================================
+
+@admin.register(Chat)
+class ChatAdmin(admin.ModelAdmin):
+    list_display = ('id', 'chat_type', 'chat_name', 'created_by', 'is_active', 'created_at', 'last_message_at')
+    list_filter = ('chat_type', 'is_active', 'created_at')
+    search_fields = ('chat_name', 'created_by__email')
+    ordering = ('-last_message_at',)
+    readonly_fields = ('created_at', 'updated_at', 'last_message_at')
+    
+    fieldsets = (
+        ('Chat Info', {
+            'fields': ('chat_type', 'chat_name', 'created_by', 'is_active')
+        }),
+        ('Participants', {
+            'fields': ('participants',)
+        }),
+        ('Settings', {
+            'fields': ('chat_theme',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at', 'last_message_at')
+        })
+    )
+    
+    filter_horizontal = ('participants',)
+
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'chat', 'sender', 'message_type', 'content_preview', 'is_read', 'timestamp')
+    list_filter = ('message_type', 'is_read', 'is_edited', 'timestamp')
+    search_fields = ('content', 'sender__email', 'chat__chat_name')
+    ordering = ('-timestamp',)
+    readonly_fields = ('timestamp', 'read_at', 'edited_at')
+    
+    def content_preview(self, obj):
+        return obj.content[:50] + '...' if obj.content and len(obj.content) > 50 else obj.content
+    content_preview.short_description = 'Content Preview'
+    
+    fieldsets = (
+        ('Message Info', {
+            'fields': ('chat', 'sender', 'message_type', 'content')
+        }),
+        ('Media Attachments', {
+            'fields': ('voice_note_url', 'voice_note_duration', 'image_url', 'video_url', 'document_url', 'document_name'),
+            'classes': ('collapse',)
+        }),
+        ('Status', {
+            'fields': ('is_read', 'read_at', 'is_edited', 'edited_at')
+        }),
+        ('Reply', {
+            'fields': ('reply_to',)
+        }),
+        ('Reactions', {
+            'fields': ('reactions',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('timestamp',)
+        })
+    )
+
+
+@admin.register(VoiceNote)
+class VoiceNoteAdmin(admin.ModelAdmin):
+    list_display = ('id', 'message', 'duration', 'file_size', 'has_transcription', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('message__content', 'transcription')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+    
+    def has_transcription(self, obj):
+        return bool(obj.transcription)
+    has_transcription.boolean = True
+    has_transcription.short_description = 'Has Transcription'
+    
+    fieldsets = (
+        ('Voice Note Info', {
+            'fields': ('message', 'audio_url', 'duration', 'file_size')
+        }),
+        ('Transcription', {
+            'fields': ('transcription', 'transcription_confidence')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        })
+    )
+
+
+@admin.register(Call)
+class CallAdmin(admin.ModelAdmin):
+    list_display = ('id', 'caller', 'callee', 'call_type', 'status', 'duration_display', 'started_at', 'ended_at')
+    list_filter = ('call_type', 'status', 'started_at')
+    search_fields = ('caller__email', 'callee__email', 'call_id')
+    ordering = ('-started_at',)
+    readonly_fields = ('started_at', 'answered_at', 'ended_at', 'duration', 'duration_display')
+    
+    def duration_display(self, obj):
+        return obj.get_duration_display()
+    duration_display.short_description = 'Duration'
+    
+    fieldsets = (
+        ('Call Info', {
+            'fields': ('chat', 'caller', 'callee', 'call_type', 'status')
+        }),
+        ('Call Details', {
+            'fields': ('call_id', 'room_id', 'quality_score')
+        }),
+        ('Timing', {
+            'fields': ('started_at', 'answered_at', 'ended_at', 'duration', 'duration_display')
+        }),
+        ('Recording', {
+            'fields': ('is_recorded', 'recording_url'),
+            'classes': ('collapse',)
+        })
+    )
+
+
+@admin.register(ChatParticipant)
+class ChatParticipantAdmin(admin.ModelAdmin):
+    list_display = ('id', 'chat', 'user', 'is_active', 'notifications_enabled', 'joined_at', 'last_seen_at')
+    list_filter = ('is_active', 'notifications_enabled', 'joined_at')
+    search_fields = ('user__email', 'chat__chat_name')
+    ordering = ('-joined_at',)
+    readonly_fields = ('joined_at', 'left_at', 'last_seen_at')
+    
+    fieldsets = (
+        ('Participant Info', {
+            'fields': ('chat', 'user', 'is_active')
+        }),
+        ('Settings', {
+            'fields': ('notifications_enabled', 'mute_until', 'custom_nickname')
+        }),
+        ('Activity', {
+            'fields': ('last_seen_at', 'last_read_message')
+        }),
+        ('Timestamps', {
+            'fields': ('joined_at', 'left_at')
+        })
+    )
+
+
+@admin.register(ChatReport)
+class ChatReportAdmin(admin.ModelAdmin):
+    list_display = ('id', 'reporter', 'reported_user', 'report_type', 'status', 'created_at')
+    list_filter = ('report_type', 'status', 'created_at')
+    search_fields = ('reporter__email', 'reported_user__email', 'description')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'resolved_at')
+    
+    fieldsets = (
+        ('Report Info', {
+            'fields': ('reporter', 'reported_user', 'chat', 'message')
+        }),
+        ('Report Details', {
+            'fields': ('report_type', 'description', 'status')
+        }),
+        ('Moderation', {
+            'fields': ('moderator_notes', 'action_taken', 'resolved_by', 'resolved_at')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        })
+    )
+
+
+# =============================================================================
+# SOCIAL FEED AND STORY ADMIN (NEW)
+# =============================================================================
+
+@admin.register(Post)
+class PostAdmin(admin.ModelAdmin):
+    list_display = ('id', 'author', 'post_type', 'content_preview', 'likes_count', 'comments_count', 'is_active', 'created_at')
+    list_filter = ('post_type', 'visibility', 'is_active', 'is_featured', 'created_at')
+    search_fields = ('content', 'author__email', 'location', 'hashtags')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at', 'likes_count', 'comments_count', 'shares_count', 'bonds_count')
+    
+    def content_preview(self, obj):
+        return obj.content[:100] + '...' if obj.content and len(obj.content) > 100 else obj.content
+    content_preview.short_description = 'Content Preview'
+    
+    fieldsets = (
+        ('Post Info', {
+            'fields': ('author', 'post_type', 'content', 'visibility', 'location')
+        }),
+        ('Media', {
+            'fields': ('image_urls', 'video_url', 'video_thumbnail'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('hashtags', 'mentions'),
+            'classes': ('collapse',)
+        }),
+        ('Engagement', {
+            'fields': ('likes_count', 'comments_count', 'shares_count', 'bonds_count')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'is_featured', 'is_reported')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(PostComment)
+class PostCommentAdmin(admin.ModelAdmin):
+    list_display = ('id', 'post', 'author', 'content_preview', 'likes_count', 'replies_count', 'is_active', 'created_at')
+    list_filter = ('is_active', 'is_edited', 'created_at')
+    search_fields = ('content', 'author__email', 'post__content')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at', 'likes_count', 'replies_count')
+    
+    def content_preview(self, obj):
+        return obj.content[:50] + '...' if obj.content and len(obj.content) > 50 else obj.content
+    content_preview.short_description = 'Content Preview'
+    
+    fieldsets = (
+        ('Comment Info', {
+            'fields': ('post', 'author', 'content', 'parent_comment')
+        }),
+        ('Engagement', {
+            'fields': ('likes_count', 'replies_count')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'is_edited')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(PostInteraction)
+class PostInteractionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'post', 'interaction_type', 'created_at')
+    list_filter = ('interaction_type', 'created_at')
+    search_fields = ('user__email', 'post__content')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+
+
+@admin.register(CommentInteraction)
+class CommentInteractionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'comment', 'interaction_type', 'created_at')
+    list_filter = ('interaction_type', 'created_at')
+    search_fields = ('user__email', 'comment__content')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+
+
+@admin.register(PostReport)
+class PostReportAdmin(admin.ModelAdmin):
+    list_display = ('id', 'reporter', 'reported_user', 'report_type', 'status', 'created_at')
+    list_filter = ('report_type', 'status', 'created_at')
+    search_fields = ('reporter__email', 'reported_user__email', 'description')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'resolved_at')
+    
+    fieldsets = (
+        ('Report Info', {
+            'fields': ('reporter', 'reported_user', 'post', 'comment')
+        }),
+        ('Report Details', {
+            'fields': ('report_type', 'description', 'status')
+        }),
+        ('Moderation', {
+            'fields': ('moderator_notes', 'action_taken', 'resolved_by', 'resolved_at')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        })
+    )
+
+
+@admin.register(Story)
+class StoryAdmin(admin.ModelAdmin):
+    list_display = ('id', 'author', 'story_type', 'content_preview', 'views_count', 'reactions_count', 'is_active', 'expires_at')
+    list_filter = ('story_type', 'is_active', 'created_at', 'expires_at')
+    search_fields = ('content', 'author__email')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'views_count', 'reactions_count', 'expires_at')
+    
+    def content_preview(self, obj):
+        return obj.content[:50] + '...' if obj.content and len(obj.content) > 50 else obj.content
+    content_preview.short_description = 'Content Preview'
+    
+    fieldsets = (
+        ('Story Info', {
+            'fields': ('author', 'story_type', 'content')
+        }),
+        ('Media', {
+            'fields': ('image_url', 'video_url', 'video_duration'),
+            'classes': ('collapse',)
+        }),
+        ('Text Story Settings', {
+            'fields': ('background_color', 'text_color', 'font_size'),
+            'classes': ('collapse',)
+        }),
+        ('Engagement', {
+            'fields': ('views_count', 'reactions_count')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'expires_at')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        })
+    )
+
+
+@admin.register(StoryView)
+class StoryViewAdmin(admin.ModelAdmin):
+    list_display = ('id', 'story', 'viewer', 'viewed_at')
+    list_filter = ('viewed_at',)
+    search_fields = ('story__author__email', 'viewer__email')
+    ordering = ('-viewed_at',)
+    readonly_fields = ('viewed_at',)
+
+
+@admin.register(StoryReaction)
+class StoryReactionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'story', 'user', 'reaction_type', 'created_at')
+    list_filter = ('reaction_type', 'created_at')
+    search_fields = ('story__author__email', 'user__email')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+
+
+@admin.register(PostShare)
+class PostShareAdmin(admin.ModelAdmin):
+    list_display = ('id', 'post', 'user', 'platform', 'shared_at')
+    list_filter = ('platform', 'shared_at')
+    search_fields = ('post__content', 'user__email')
+    ordering = ('-shared_at',)
+    readonly_fields = ('shared_at',)
+
+
+@admin.register(FeedSearch)
+class FeedSearchAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'query', 'results_count', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('query', 'user__email')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+    
+    fieldsets = (
+        ('Search Info', {
+            'fields': ('user', 'query', 'results_count')
+        }),
+        ('Filters', {
+            'fields': ('filters_applied',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        })
+    )

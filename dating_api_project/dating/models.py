@@ -2,6 +2,7 @@ import random
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -646,6 +647,276 @@ class LocationPermission(models.Model):
         ordering = ['-updated_at']
 
 
+# =============================================================================
+# CHAT AND MESSAGING MODELS (NEW)
+# =============================================================================
+
+class Chat(models.Model):
+    """Represents a conversation between two or more users"""
+    CHAT_TYPES = [
+        ('direct', 'Direct Message'),
+        ('matchmaker_intro', 'Matchmaker Introduction'),
+        ('group', 'Group Chat'),
+    ]
+    
+    chat_type = models.CharField(max_length=20, choices=CHAT_TYPES, default='direct')
+    participants = models.ManyToManyField(User, related_name='chats')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_chats')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_message_at = models.DateTimeField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    
+    # Chat settings
+    chat_name = models.CharField(max_length=100, blank=True, null=True, help_text="Custom name for group chats")
+    chat_theme = models.CharField(max_length=20, default='default', choices=[
+        ('default', 'Default'), ('dark', 'Dark'), ('light', 'Light'), ('colorful', 'Colorful')
+    ])
+    
+    def __str__(self):
+        if self.chat_name:
+            return f"{self.chat_name} ({self.chat_type})"
+        participants = list(self.participants.all()[:2])
+        if len(participants) == 2:
+            return f"{participants[0].name} & {participants[1].name}"
+        return f"Chat {self.id} ({self.chat_type})"
+    
+    def get_other_participant(self, user):
+        """Get the other participant in a direct message chat"""
+        if self.chat_type == 'direct':
+            return self.participants.exclude(id=user.id).first()
+        return None
+    
+    def get_unread_count(self, user):
+        """Get unread message count for a specific user"""
+        return self.messages.filter(is_read=False).exclude(sender=user).count()
+    
+    class Meta:
+        ordering = ['-last_message_at']
+        indexes = [
+            models.Index(fields=['chat_type', 'is_active']),
+            models.Index(fields=['last_message_at']),
+        ]
+
+
+class Message(models.Model):
+    """Represents an individual message within a chat"""
+    MESSAGE_TYPES = [
+        ('text', 'Text Message'),
+        ('voice_note', 'Voice Note'),
+        ('image', 'Image'),
+        ('video', 'Video'),
+        ('document', 'Document'),
+        ('system', 'System Message'),
+        ('matchmaker_intro', 'Matchmaker Introduction'),
+        ('call_start', 'Call Started'),
+        ('call_end', 'Call Ended'),
+    ]
+    
+    chat = models.ForeignKey(Chat, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='sent_messages',
+                               help_text="Null for system messages")
+    message_type = models.CharField(max_length=20, choices=MESSAGE_TYPES, default='text')
+    content = models.TextField(blank=True, null=True, help_text="Text content of the message")
+    
+    # Media attachments
+    voice_note_url = models.URLField(blank=True, null=True, help_text="URL to the voice note audio file")
+    voice_note_duration = models.PositiveIntegerField(blank=True, null=True, help_text="Duration in seconds")
+    image_url = models.URLField(blank=True, null=True, help_text="URL to image file")
+    video_url = models.URLField(blank=True, null=True, help_text="URL to video file")
+    document_url = models.URLField(blank=True, null=True, help_text="URL to document file")
+    document_name = models.CharField(max_length=255, blank=True, null=True, help_text="Original document name")
+    
+    # Message metadata
+    timestamp = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+    read_at = models.DateTimeField(blank=True, null=True)
+    is_edited = models.BooleanField(default=False)
+    edited_at = models.DateTimeField(blank=True, null=True)
+    
+    # Reply/quote functionality
+    reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
+    
+    # Message reactions
+    reactions = models.JSONField(default=dict, help_text="User reactions: {'user_id': 'emoji'}")
+    
+    def __str__(self):
+        sender_name = self.sender.name if self.sender else 'System'
+        return f"{sender_name}: {self.content[:50]}..." if self.content else f"{sender_name}: {self.message_type}"
+    
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Update the last_message_at for the associated chat
+        self.chat.last_message_at = self.timestamp
+        self.chat.save(update_fields=['last_message_at'])
+    
+    def mark_as_read(self, user):
+        """Mark message as read by a specific user"""
+        if self.sender != user and not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save(update_fields=['is_read', 'read_at'])
+    
+    class Meta:
+        ordering = ['timestamp']
+        indexes = [
+            models.Index(fields=['chat', 'timestamp']),
+            models.Index(fields=['sender', 'timestamp']),
+            models.Index(fields=['message_type']),
+        ]
+
+
+class VoiceNote(models.Model):
+    """Store voice note metadata and processing status"""
+    message = models.OneToOneField(Message, on_delete=models.CASCADE, related_name='voice_note')
+    audio_url = models.URLField(help_text="URL to the audio file")
+    duration = models.PositiveIntegerField(help_text="Duration in seconds")
+    file_size = models.PositiveIntegerField(help_text="File size in bytes")
+    transcription = models.TextField(blank=True, null=True, help_text="Speech-to-text transcription")
+    transcription_confidence = models.FloatField(blank=True, null=True, help_text="Transcription confidence score")
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Voice note: {self.duration}s - {self.message.chat}"
+    
+    class Meta:
+        ordering = ['-created_at']
+
+
+class Call(models.Model):
+    """Store voice/video call sessions"""
+    CALL_TYPES = [
+        ('voice', 'Voice Call'),
+        ('video', 'Video Call'),
+    ]
+    
+    CALL_STATUS = [
+        ('initiated', 'Initiated'),
+        ('ringing', 'Ringing'),
+        ('active', 'Active'),
+        ('ended', 'Ended'),
+        ('missed', 'Missed'),
+        ('declined', 'Declined'),
+        ('busy', 'Busy'),
+    ]
+    
+    chat = models.ForeignKey(Chat, on_delete=models.CASCADE, related_name='calls')
+    caller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='initiated_calls')
+    callee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_calls')
+    call_type = models.CharField(max_length=10, choices=CALL_TYPES, default='voice')
+    status = models.CharField(max_length=20, choices=CALL_STATUS, default='initiated')
+    
+    # Call timing
+    started_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(blank=True, null=True)
+    ended_at = models.DateTimeField(blank=True, null=True)
+    duration = models.PositiveIntegerField(blank=True, null=True, help_text="Call duration in seconds")
+    
+    # Call metadata
+    call_id = models.CharField(max_length=100, unique=True, help_text="Unique call identifier for WebRTC")
+    room_id = models.CharField(max_length=100, blank=True, null=True, help_text="WebRTC room ID")
+    quality_score = models.FloatField(blank=True, null=True, help_text="Call quality score (0-100)")
+    
+    # Call settings
+    is_recorded = models.BooleanField(default=False)
+    recording_url = models.URLField(blank=True, null=True, help_text="URL to call recording")
+    
+    def __str__(self):
+        return f"{self.caller.name} → {self.callee.name} ({self.call_type}) - {self.status}"
+    
+    def get_duration_display(self):
+        """Get formatted duration string"""
+        if self.duration:
+            minutes = self.duration // 60
+            seconds = self.duration % 60
+            return f"{minutes:02d}:{seconds:02d}"
+        return "00:00"
+    
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['caller', 'status']),
+            models.Index(fields=['callee', 'status']),
+            models.Index(fields=['call_id']),
+        ]
+
+
+class ChatParticipant(models.Model):
+    """Track chat participant status and settings"""
+    chat = models.ForeignKey(Chat, on_delete=models.CASCADE, related_name='chat_participants')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_participations')
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    
+    # Participant settings
+    notifications_enabled = models.BooleanField(default=True)
+    mute_until = models.DateTimeField(blank=True, null=True, help_text="Mute chat until this time")
+    custom_nickname = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Last seen
+    last_seen_at = models.DateTimeField(blank=True, null=True)
+    last_read_message = models.ForeignKey(Message, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.user.name} in {self.chat}"
+    
+    def is_muted(self):
+        """Check if participant has muted the chat"""
+        if self.mute_until:
+            return timezone.now() < self.mute_until
+        return False
+    
+    class Meta:
+        unique_together = ['chat', 'user']
+        ordering = ['-joined_at']
+
+
+class ChatReport(models.Model):
+    """Store chat-related reports and moderation actions"""
+    REPORT_TYPES = [
+        ('spam', 'Spam'),
+        ('harassment', 'Harassment'),
+        ('inappropriate_content', 'Inappropriate Content'),
+        ('fake_profile', 'Fake Profile'),
+        ('other', 'Other'),
+    ]
+    
+    REPORT_STATUS = [
+        ('pending', 'Pending'),
+        ('reviewed', 'Reviewed'),
+        ('resolved', 'Resolved'),
+        ('dismissed', 'Dismissed'),
+    ]
+    
+    reporter = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_reports_made')
+    reported_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_reports_received')
+    chat = models.ForeignKey(Chat, on_delete=models.CASCADE, related_name='reports')
+    message = models.ForeignKey(Message, on_delete=models.SET_NULL, null=True, blank=True, related_name='reports')
+    
+    report_type = models.CharField(max_length=30, choices=REPORT_TYPES)
+    description = models.TextField(help_text="Detailed description of the issue")
+    status = models.CharField(max_length=20, choices=REPORT_STATUS, default='pending')
+    
+    # Moderation actions
+    moderator_notes = models.TextField(blank=True, null=True)
+    action_taken = models.CharField(max_length=100, blank=True, null=True)
+    resolved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='resolved_reports')
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Report: {self.reporter.name} → {self.reported_user.name} ({self.report_type})"
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'report_type']),
+            models.Index(fields=['reported_user', 'status']),
+        ]
+
+
 class LivenessVerification(models.Model):
     """Store liveness check verification data for user identity verification"""
     STATUS_CHOICES = (
@@ -944,3 +1215,325 @@ class UserRoleSelection(models.Model):
     
     class Meta:
         ordering = ['-selected_at']
+
+
+# =============================================================================
+# SOCIAL FEED AND STORY MODELS (NEW)
+# =============================================================================
+
+class Post(models.Model):
+    """Represents user posts in the Bond Story feed"""
+    POST_TYPES = [
+        ('story', 'Story'),
+        ('post', 'Regular Post'),
+        ('announcement', 'Announcement'),
+    ]
+    
+    VISIBILITY_CHOICES = [
+        ('public', 'Public'),
+        ('friends', 'Friends Only'),
+        ('private', 'Private'),
+    ]
+    
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='posts')
+    post_type = models.CharField(max_length=20, choices=POST_TYPES, default='post')
+    content = models.TextField(help_text="Post content/text")
+    
+    # Media attachments
+    image_urls = models.JSONField(default=list, help_text="List of image URLs")
+    video_url = models.URLField(blank=True, null=True, help_text="URL to video file")
+    video_thumbnail = models.URLField(blank=True, null=True, help_text="Video thumbnail URL")
+    
+    # Post metadata
+    visibility = models.CharField(max_length=20, choices=VISIBILITY_CHOICES, default='public')
+    location = models.CharField(max_length=255, blank=True, null=True, help_text="Post location")
+    hashtags = models.JSONField(default=list, help_text="List of hashtags in the post")
+    mentions = models.JSONField(default=list, help_text="List of mentioned user IDs")
+    
+    # Engagement metrics
+    likes_count = models.PositiveIntegerField(default=0)
+    comments_count = models.PositiveIntegerField(default=0)
+    shares_count = models.PositiveIntegerField(default=0)
+    bonds_count = models.PositiveIntegerField(default=0, help_text="Handshake/bond reactions")
+    
+    # Status and moderation
+    is_active = models.BooleanField(default=True)
+    is_featured = models.BooleanField(default=False)
+    is_reported = models.BooleanField(default=False)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.author.name}: {self.content[:50]}..."
+    
+    def get_engagement_score(self):
+        """Calculate total engagement score"""
+        return self.likes_count + self.comments_count + self.shares_count + self.bonds_count
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['author', 'created_at']),
+            models.Index(fields=['post_type', 'is_active']),
+            models.Index(fields=['visibility', 'created_at']),
+            models.Index(fields=['is_featured', 'created_at']),
+        ]
+
+
+class PostComment(models.Model):
+    """Represents comments on posts"""
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='post_comments')
+    content = models.TextField(help_text="Comment content")
+    
+    # Reply functionality
+    parent_comment = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='replies')
+    
+    # Engagement metrics
+    likes_count = models.PositiveIntegerField(default=0)
+    replies_count = models.PositiveIntegerField(default=0)
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    is_edited = models.BooleanField(default=False)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.author.name}: {self.content[:30]}..."
+    
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['post', 'created_at']),
+            models.Index(fields=['author', 'created_at']),
+            models.Index(fields=['parent_comment', 'created_at']),
+        ]
+
+
+class PostInteraction(models.Model):
+    """Track user interactions with posts (likes, shares, bonds)"""
+    INTERACTION_TYPES = [
+        ('like', 'Like'),
+        ('share', 'Share'),
+        ('bond', 'Bond/Handshake'),
+        ('save', 'Save'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='post_interactions')
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='interactions')
+    interaction_type = models.CharField(max_length=20, choices=INTERACTION_TYPES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.name} {self.interaction_type} {self.post.id}"
+    
+    class Meta:
+        unique_together = ['user', 'post', 'interaction_type']
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['post', 'interaction_type']),
+            models.Index(fields=['user', 'interaction_type']),
+        ]
+
+
+class CommentInteraction(models.Model):
+    """Track user interactions with comments (likes)"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='comment_interactions')
+    comment = models.ForeignKey(PostComment, on_delete=models.CASCADE, related_name='interactions')
+    interaction_type = models.CharField(max_length=20, default='like', choices=[('like', 'Like')])
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.name} likes comment {self.comment.id}"
+    
+    class Meta:
+        unique_together = ['user', 'comment']
+        ordering = ['-created_at']
+
+
+class PostReport(models.Model):
+    """Store reports for posts and comments"""
+    REPORT_TYPES = [
+        ('spam', 'Spam or Misleading'),
+        ('inappropriate', 'Inappropriate or Offensive'),
+        ('harassment', 'Harassment or Bullying'),
+        ('misinformation', 'Misinformation'),
+        ('fake', 'Fake Profile'),
+        ('other', 'Other'),
+    ]
+    
+    REPORT_STATUS = [
+        ('pending', 'Pending'),
+        ('reviewed', 'Reviewed'),
+        ('resolved', 'Resolved'),
+        ('dismissed', 'Dismissed'),
+    ]
+    
+    reporter = models.ForeignKey(User, on_delete=models.CASCADE, related_name='post_reports_made')
+    reported_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='post_reports_received')
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='reports')
+    comment = models.ForeignKey(PostComment, on_delete=models.CASCADE, null=True, blank=True, related_name='reports')
+    
+    report_type = models.CharField(max_length=30, choices=REPORT_TYPES)
+    description = models.TextField(help_text="Detailed description of the issue")
+    status = models.CharField(max_length=20, choices=REPORT_STATUS, default='pending')
+    
+    # Moderation actions
+    moderator_notes = models.TextField(blank=True, null=True)
+    action_taken = models.CharField(max_length=100, blank=True, null=True)
+    resolved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='resolved_post_reports')
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        target = self.post if self.post else self.comment
+        return f"Report: {self.reporter.name} → {target} ({self.report_type})"
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'report_type']),
+            models.Index(fields=['reported_user', 'status']),
+            models.Index(fields=['post', 'status']),
+            models.Index(fields=['comment', 'status']),
+        ]
+
+
+class Story(models.Model):
+    """Represents user stories (24-hour content)"""
+    STORY_TYPES = [
+        ('image', 'Image Story'),
+        ('video', 'Video Story'),
+        ('text', 'Text Story'),
+    ]
+    
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='stories')
+    story_type = models.CharField(max_length=20, choices=STORY_TYPES, default='image')
+    
+    # Content
+    content = models.TextField(blank=True, null=True, help_text="Text content for text stories")
+    image_url = models.URLField(blank=True, null=True, help_text="URL to image file")
+    video_url = models.URLField(blank=True, null=True, help_text="URL to video file")
+    video_duration = models.PositiveIntegerField(blank=True, null=True, help_text="Video duration in seconds")
+    
+    # Story metadata
+    background_color = models.CharField(max_length=7, blank=True, null=True, help_text="Hex color for text stories")
+    text_color = models.CharField(max_length=7, blank=True, null=True, help_text="Text color for text stories")
+    font_size = models.PositiveIntegerField(default=16, help_text="Font size for text stories")
+    
+    # Engagement
+    views_count = models.PositiveIntegerField(default=0)
+    reactions_count = models.PositiveIntegerField(default=0)
+    
+    # Status and timing
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(help_text="When the story expires (24 hours from creation)")
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.author.name}'s {self.story_type} story"
+    
+    def is_expired(self):
+        """Check if story has expired"""
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['author', 'created_at']),
+            models.Index(fields=['expires_at', 'is_active']),
+            models.Index(fields=['story_type', 'is_active']),
+        ]
+
+
+class StoryView(models.Model):
+    """Track story views"""
+    story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name='views')
+    viewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='story_views')
+    viewed_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.viewer.name} viewed {self.story.author.name}'s story"
+    
+    class Meta:
+        unique_together = ['story', 'viewer']
+        ordering = ['-viewed_at']
+
+
+class StoryReaction(models.Model):
+    """Track story reactions"""
+    REACTION_TYPES = [
+        ('like', 'Like'),
+        ('love', 'Love'),
+        ('laugh', 'Laugh'),
+        ('wow', 'Wow'),
+        ('sad', 'Sad'),
+        ('angry', 'Angry'),
+    ]
+    
+    story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name='reactions')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='story_reactions')
+    reaction_type = models.CharField(max_length=20, choices=REACTION_TYPES, default='like')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.name} {self.reaction_type} {self.story.author.name}'s story"
+    
+    class Meta:
+        unique_together = ['story', 'user']
+        ordering = ['-created_at']
+
+
+class PostShare(models.Model):
+    """Track post shares to external platforms"""
+    SHARE_PLATFORMS = [
+        ('whatsapp', 'WhatsApp'),
+        ('facebook', 'Facebook'),
+        ('twitter', 'Twitter/X'),
+        ('instagram', 'Instagram'),
+        ('threads', 'Threads'),
+        ('copy_link', 'Copy Link'),
+    ]
+    
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='shares')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='post_shares')
+    platform = models.CharField(max_length=20, choices=SHARE_PLATFORMS)
+    shared_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.name} shared {self.post.id} on {self.platform}"
+    
+    class Meta:
+        ordering = ['-shared_at']
+        indexes = [
+            models.Index(fields=['post', 'platform']),
+            models.Index(fields=['user', 'shared_at']),
+        ]
+
+
+class FeedSearch(models.Model):
+    """Store search queries for the Bond Story feed"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='feed_searches', null=True, blank=True)
+    query = models.CharField(max_length=255, help_text="Search query")
+    results_count = models.PositiveIntegerField(default=0, help_text="Number of results found")
+    filters_applied = models.JSONField(default=dict, help_text="Applied search filters")
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"Search: {self.query} ({self.results_count} results)"
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['query', 'created_at']),
+            models.Index(fields=['user', 'created_at']),
+        ]
