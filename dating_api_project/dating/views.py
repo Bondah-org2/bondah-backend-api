@@ -3470,6 +3470,51 @@ class MessageListView(generics.ListCreateAPIView):
             serializer.validated_data['message_type'] = 'document'
             serializer.validated_data['document_name'] = document_file.name
         
+        # Handle tip messages
+        message_type = serializer.validated_data.get('message_type', 'text')
+        tip_amount = serializer.validated_data.get('tip_amount', 0)
+        tip_gift = serializer.validated_data.get('tip_gift')
+        
+        # For tip messages, process the tip transaction
+        if message_type == 'tip' and tip_amount > 0:
+            # Check if user has enough Bondcoins
+            if user.bondcoin_balance < tip_amount:
+                raise serializers.ValidationError("Insufficient Bondcoins for this tip")
+            
+            # Get the recipient (other participant in the chat)
+            recipient = chat.participants.exclude(id=user.id).first()
+            if not recipient:
+                raise serializers.ValidationError("No recipient found for this tip")
+            
+            # Create Bondcoin transaction for the tip
+            from .models import BondcoinTransaction
+            tip_transaction = BondcoinTransaction.objects.create(
+                user=user,
+                transaction_type='spend',
+                amount=-tip_amount,  # Negative for spending
+                status='completed',
+                description=f"Tip sent to {recipient.name}",
+                payment_method='bondcoin'
+            )
+            
+            # Update user's Bondcoin balance
+            user.bondcoin_balance -= tip_amount
+            user.save()
+            
+            # Credit the recipient
+            recipient.bondcoin_balance += tip_amount
+            recipient.save()
+            
+            # Create transaction for recipient
+            BondcoinTransaction.objects.create(
+                user=recipient,
+                transaction_type='gift_received',
+                amount=tip_amount,
+                status='completed',
+                description=f"Tip received from {user.name}",
+                payment_method='bondcoin'
+            )
+        
         serializer.save(
             chat=chat,
             sender=user,
@@ -4791,5 +4836,855 @@ class UsernameUpdateView(APIView):
         except Exception as e:
             return Response({
                 "message": f"Failed to update username: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# SUBSCRIPTION PLANS VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class SubscriptionPlanListView(generics.ListAPIView):
+    """
+    List all available subscription plans
+    """
+    permission_classes = [AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import SubscriptionPlanSerializer
+        return SubscriptionPlanSerializer
+    
+    def get_queryset(self):
+        from .models import SubscriptionPlan
+        return SubscriptionPlan.objects.filter(is_active=True)
+
+
+class UserSubscriptionListView(generics.ListCreateAPIView):
+    """
+    List and create user subscriptions
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import UserSubscriptionCreateSerializer
+            return UserSubscriptionCreateSerializer
+        from .serializers import UserSubscriptionSerializer
+        return UserSubscriptionSerializer
+    
+    def get_queryset(self):
+        from .models import UserSubscription
+        return UserSubscription.objects.filter(user=self.request.user)
+
+
+class UserSubscriptionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific user subscription
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import UserSubscriptionSerializer
+        return UserSubscriptionSerializer
+    
+    def get_queryset(self):
+        from .models import UserSubscription
+        return UserSubscription.objects.filter(user=self.request.user)
+
+
+class UserCurrentSubscriptionView(APIView):
+    """
+    Get user's current active subscription
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            subscription = request.user.get_current_subscription()
+            if subscription:
+                from .serializers import UserSubscriptionSerializer
+                serializer = UserSubscriptionSerializer(subscription)
+                return Response({
+                    "message": "Current subscription retrieved",
+                    "status": "success",
+                    "data": serializer.data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    "message": "No active subscription found",
+                    "status": "info",
+                    "data": None
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            return Response({
+                "message": f"Failed to get current subscription: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UserFeatureAccessView(APIView):
+    """
+    Check user's access to specific features
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            feature_name = request.query_params.get('feature')
+            if not feature_name:
+                return Response({
+                    "message": "Feature name is required",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            has_access = request.user.has_feature_access(feature_name)
+            
+            return Response({
+                "message": "Feature access checked",
+                "status": "success",
+                "feature": feature_name,
+                "has_access": has_access
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to check feature access: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# BONDCOIN WALLET VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class BondcoinPackageListView(generics.ListAPIView):
+    """
+    List all available Bondcoin packages
+    """
+    permission_classes = [AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import BondcoinPackageSerializer
+        return BondcoinPackageSerializer
+    
+    def get_queryset(self):
+        from .models import BondcoinPackage
+        return BondcoinPackage.objects.filter(is_active=True)
+
+
+class UserBondcoinBalanceView(APIView):
+    """
+    Get user's Bondcoin balance
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            return Response({
+                "message": "Bondcoin balance retrieved",
+                "status": "success",
+                "balance": request.user.bondcoin_balance
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to get Bondcoin balance: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class BondcoinTransactionListView(generics.ListAPIView):
+    """
+    List user's Bondcoin transactions
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import BondcoinTransactionSerializer
+        return BondcoinTransactionSerializer
+    
+    def get_queryset(self):
+        from .models import BondcoinTransaction
+        return BondcoinTransaction.objects.filter(user=self.request.user)
+
+
+class BondcoinTransactionDetailView(generics.RetrieveAPIView):
+    """
+    Retrieve a specific Bondcoin transaction
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import BondcoinTransactionSerializer
+        return BondcoinTransactionSerializer
+    
+    def get_queryset(self):
+        from .models import BondcoinTransaction
+        return BondcoinTransaction.objects.filter(user=self.request.user)
+
+
+class BondcoinPurchaseView(APIView):
+    """
+    Purchase Bondcoins
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            package_id = request.data.get('package_id')
+            payment_method = request.data.get('payment_method', 'bondcoin')
+            
+            if not package_id:
+                return Response({
+                    "message": "Package ID is required",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            from .models import BondcoinPackage, BondcoinTransaction
+            
+            try:
+                package = BondcoinPackage.objects.get(id=package_id, is_active=True)
+            except BondcoinPackage.DoesNotExist:
+                return Response({
+                    "message": "Package not found",
+                    "status": "error"
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Create transaction
+            transaction = BondcoinTransaction.objects.create(
+                user=request.user,
+                transaction_type='purchase',
+                amount=package.bondcoin_amount,
+                package=package,
+                payment_method=payment_method,
+                description=f"Purchased {package.name}",
+                status='completed'
+            )
+            
+            # Update user balance
+            request.user.bondcoin_balance += package.bondcoin_amount
+            request.user.save(update_fields=['bondcoin_balance'])
+            
+            from .serializers import BondcoinTransactionSerializer
+            serializer = BondcoinTransactionSerializer(transaction)
+            
+            return Response({
+                "message": "Bondcoins purchased successfully",
+                "status": "success",
+                "data": serializer.data,
+                "new_balance": request.user.bondcoin_balance
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to purchase Bondcoins: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# VIRTUAL GIFTING VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class GiftCategoryListView(generics.ListAPIView):
+    """
+    List all gift categories
+    """
+    permission_classes = [AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import GiftCategorySerializer
+        return GiftCategorySerializer
+    
+    def get_queryset(self):
+        from .models import GiftCategory
+        return GiftCategory.objects.filter(is_active=True)
+
+
+class VirtualGiftListView(generics.ListAPIView):
+    """
+    List virtual gifts, optionally filtered by category
+    """
+    permission_classes = [AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import VirtualGiftSerializer
+        return VirtualGiftSerializer
+    
+    def get_queryset(self):
+        from .models import VirtualGift
+        queryset = VirtualGift.objects.filter(is_active=True)
+        
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        
+        return queryset
+
+
+class VirtualGiftDetailView(generics.RetrieveAPIView):
+    """
+    Retrieve a specific virtual gift
+    """
+    permission_classes = [AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import VirtualGiftSerializer
+        return VirtualGiftSerializer
+    
+    def get_queryset(self):
+        from .models import VirtualGift
+        return VirtualGift.objects.filter(is_active=True)
+
+
+class GiftTransactionListView(generics.ListAPIView):
+    """
+    List user's gift transactions (sent and received)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import GiftTransactionSerializer
+        return GiftTransactionSerializer
+    
+    def get_queryset(self):
+        from .models import GiftTransaction
+        from django.db import models
+        return GiftTransaction.objects.filter(
+            models.Q(sender=self.request.user) | models.Q(recipient=self.request.user)
+        )
+
+
+class SendGiftView(APIView):
+    """
+    Send a virtual gift to another user
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            from .serializers import GiftTransactionCreateSerializer
+            
+            serializer = GiftTransactionCreateSerializer(data=request.data, context={'request': request})
+            if serializer.is_valid():
+                # Check if user has enough Bondcoins
+                gift = serializer.validated_data['gift']
+                quantity = serializer.validated_data.get('quantity', 1)
+                total_cost = gift.cost_bondcoins * quantity
+                
+                if request.user.bondcoin_balance < total_cost:
+                    return Response({
+                        "message": "Insufficient Bondcoin balance",
+                        "status": "error",
+                        "required": total_cost,
+                        "current_balance": request.user.bondcoin_balance
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Create gift transaction
+                gift_transaction = serializer.save()
+                
+                # Update user balance
+                request.user.bondcoin_balance -= total_cost
+                request.user.save(update_fields=['bondcoin_balance'])
+                
+                from .serializers import GiftTransactionSerializer
+                response_serializer = GiftTransactionSerializer(gift_transaction)
+                
+                return Response({
+                    "message": "Gift sent successfully",
+                    "status": "success",
+                    "data": response_serializer.data,
+                    "new_balance": request.user.bondcoin_balance
+                }, status=status.HTTP_201_CREATED)
+            
+            return Response({
+                "message": "Invalid data provided",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to send gift: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# LIVE STREAMING ENHANCEMENT VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class LiveGiftListView(generics.ListCreateAPIView):
+    """
+    List and send gifts in live sessions
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import LiveGiftCreateSerializer
+            return LiveGiftCreateSerializer
+        from .serializers import LiveGiftSerializer
+        return LiveGiftSerializer
+    
+    def get_queryset(self):
+        from .models import LiveGift
+        session_id = self.request.query_params.get('session_id')
+        if session_id:
+            return LiveGift.objects.filter(session_id=session_id)
+        return LiveGift.objects.none()
+
+
+class LiveJoinRequestListView(generics.ListCreateAPIView):
+    """
+    List and create live session join requests
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import LiveJoinRequestCreateSerializer
+            return LiveJoinRequestCreateSerializer
+        from .serializers import LiveJoinRequestSerializer
+        return LiveJoinRequestSerializer
+    
+    def get_queryset(self):
+        from .models import LiveJoinRequest
+        session_id = self.request.query_params.get('session_id')
+        if session_id:
+            return LiveJoinRequest.objects.filter(session_id=session_id)
+        return LiveJoinRequest.objects.filter(requester=self.request.user)
+
+
+class LiveJoinRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific live join request
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import LiveJoinRequestSerializer
+        return LiveJoinRequestSerializer
+    
+    def get_queryset(self):
+        from .models import LiveJoinRequest
+        return LiveJoinRequest.objects.filter(requester=self.request.user)
+
+
+class LiveJoinRequestManageView(generics.UpdateAPIView):
+    """
+    Manage live session join requests (for hosts to approve/reject)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import LiveJoinRequestManageSerializer
+        return LiveJoinRequestManageSerializer
+    
+    def get_queryset(self):
+        from .models import LiveJoinRequest
+        # Only allow hosts to manage requests for their sessions
+        return LiveJoinRequest.objects.filter(session__user=self.request.user)
+
+
+class LiveSessionGiftersView(APIView):
+    """
+    Get top gifters for a live session
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, session_id):
+        try:
+            from .models import LiveSession, LiveGift
+            from django.db.models import Sum
+            
+            try:
+                session = LiveSession.objects.get(id=session_id)
+            except LiveSession.DoesNotExist:
+                return Response({
+                    "message": "Live session not found",
+                    "status": "error"
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Get top gifters
+            gifters = LiveGift.objects.filter(session=session).values(
+                'sender__id', 'sender__name', 'sender__profile_picture'
+            ).annotate(
+                total_gifts=Sum('total_cost')
+            ).order_by('-total_gifts')[:10]
+            
+            return Response({
+                "message": "Top gifters retrieved",
+                "status": "success",
+                "data": list(gifters)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to get top gifters: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Payment Processing Views
+class PaymentMethodListView(generics.ListAPIView):
+    """List available payment methods"""
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import PaymentMethodSerializer
+        return PaymentMethodSerializer
+    
+    def get_queryset(self):
+        from .models import PaymentMethod
+        return PaymentMethod.objects.filter(is_active=True)
+
+
+class PaymentTransactionListView(generics.ListAPIView):
+    """List user's payment transactions"""
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import PaymentTransactionSerializer
+        return PaymentTransactionSerializer
+    
+    def get_queryset(self):
+        from .models import PaymentTransaction
+        return PaymentTransaction.objects.filter(user=self.request.user)
+
+
+class PaymentTransactionDetailView(generics.RetrieveAPIView):
+    """Retrieve a specific payment transaction"""
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import PaymentTransactionSerializer
+        return PaymentTransactionSerializer
+    
+    def get_queryset(self):
+        from .models import PaymentTransaction
+        return PaymentTransaction.objects.filter(user=self.request.user)
+
+
+class ProcessPaymentView(APIView):
+    """Process payment for subscriptions or Bondcoin purchases"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            from .models import PaymentTransaction, PaymentMethod, UserSubscription, BondcoinPackage, BondcoinTransaction
+            from .serializers import PaymentTransactionCreateSerializer
+            from django.utils import timezone
+            from decimal import Decimal
+            
+            # Validate payment data
+            serializer = PaymentTransactionCreateSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response({
+                    "message": "Invalid payment data",
+                    "errors": serializer.errors,
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            validated_data = serializer.validated_data
+            transaction_type = validated_data['transaction_type']
+            payment_method = validated_data['payment_method']
+            amount_usd = validated_data['amount_usd']
+            
+            # Create payment transaction
+            payment_transaction = PaymentTransaction.objects.create(
+                user=request.user,
+                transaction_type=transaction_type,
+                payment_method=payment_method,
+                amount_usd=amount_usd,
+                processing_fee=validated_data.get('processing_fee', Decimal('0.00')),
+                total_amount=validated_data.get('total_amount', amount_usd),
+                currency=validated_data.get('currency', 'USD'),
+                description=validated_data.get('description', ''),
+                metadata=validated_data.get('metadata', {}),
+                status='pending'
+            )
+            
+            # Process based on transaction type
+            if transaction_type == 'subscription':
+                subscription_id = validated_data.get('subscription')
+                if subscription_id:
+                    subscription = UserSubscription.objects.get(id=subscription_id, user=request.user)
+                    payment_transaction.subscription = subscription
+                    payment_transaction.save()
+                    
+                    # Update subscription status
+                    subscription.status = 'active'
+                    subscription.save()
+                    
+                    # Create Bondcoin transaction for subscription payment
+                    BondcoinTransaction.objects.create(
+                        user=request.user,
+                        transaction_type='subscription',
+                        amount=-subscription.plan.price_bondcoins,
+                        subscription=subscription,
+                        payment_method='external_payment',
+                        description=f"Subscription: {subscription.plan.display_name}",
+                        status='completed'
+                    )
+                    
+                    # Update user's Bondcoin balance
+                    request.user.bondcoin_balance -= subscription.plan.price_bondcoins
+                    request.user.save(update_fields=['bondcoin_balance'])
+            
+            elif transaction_type == 'bondcoin_purchase':
+                bondcoin_transaction_id = validated_data.get('bondcoin_transaction')
+                if bondcoin_transaction_id:
+                    bondcoin_transaction = BondcoinTransaction.objects.get(id=bondcoin_transaction_id, user=request.user)
+                    payment_transaction.bondcoin_transaction = bondcoin_transaction
+                    payment_transaction.save()
+                    
+                    # Update Bondcoin transaction status
+                    bondcoin_transaction.status = 'completed'
+                    bondcoin_transaction.save()
+                    
+                    # Update user's Bondcoin balance
+                    request.user.bondcoin_balance += bondcoin_transaction.amount
+                    request.user.save(update_fields=['bondcoin_balance'])
+            
+            # Simulate payment processing (replace with actual payment provider integration)
+            payment_transaction.status = 'processing'
+            payment_transaction.save()
+            
+            # Simulate successful payment after 1 second
+            import time
+            time.sleep(1)
+            
+            payment_transaction.status = 'completed'
+            payment_transaction.processed_at = timezone.now()
+            payment_transaction.provider = 'stripe'  # Replace with actual provider
+            payment_transaction.provider_transaction_id = f"txn_{payment_transaction.id}_{int(timezone.now().timestamp())}"
+            payment_transaction.save()
+            
+            from .serializers import PaymentTransactionSerializer
+            serializer = PaymentTransactionSerializer(payment_transaction)
+            
+            return Response({
+                "message": "Payment processed successfully",
+                "status": "success",
+                "data": serializer.data
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Payment processing failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PaymentWebhookView(APIView):
+    """Handle payment webhooks from external providers"""
+    permission_classes = []  # No authentication required for webhooks
+    
+    def post(self, request, provider):
+        try:
+            from .models import PaymentWebhook, PaymentTransaction
+            from .serializers import PaymentWebhookCreateSerializer
+            from django.utils import timezone
+            import json
+            
+            # Get webhook data
+            payload = request.body.decode('utf-8')
+            event_data = json.loads(payload) if payload else {}
+            
+            # Extract event information
+            event_id = event_data.get('id', f"webhook_{int(timezone.now().timestamp())}")
+            event_type = event_data.get('type', 'unknown')
+            
+            # Create webhook record
+            webhook_data = {
+                'provider': provider,
+                'event_type': event_type,
+                'event_id': event_id,
+                'payload': event_data
+            }
+            
+            webhook = PaymentWebhook.objects.create(**webhook_data)
+            
+            # Process webhook based on provider and event type
+            if provider == 'stripe':
+                self._process_stripe_webhook(webhook, event_data)
+            elif provider == 'paypal':
+                self._process_paypal_webhook(webhook, event_data)
+            
+            # Mark webhook as processed
+            webhook.processed = True
+            webhook.processed_at = timezone.now()
+            webhook.save()
+            
+            return Response({
+                "message": "Webhook processed successfully",
+                "status": "success"
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            # Mark webhook as failed
+            if 'webhook' in locals():
+                webhook.processed = False
+                webhook.processing_error = str(e)
+                webhook.save()
+            
+            return Response({
+                "message": f"Webhook processing failed: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _process_stripe_webhook(self, webhook, event_data):
+        """Process Stripe webhook events"""
+        from .models import PaymentTransaction
+        from django.utils import timezone
+        
+        event_type = event_data.get('type')
+        
+        if event_type == 'payment_intent.succeeded':
+            # Handle successful payment
+            payment_intent = event_data.get('data', {}).get('object', {})
+            transaction_id = payment_intent.get('metadata', {}).get('transaction_id')
+            
+            if transaction_id:
+                try:
+                    transaction = PaymentTransaction.objects.get(id=transaction_id)
+                    transaction.status = 'completed'
+                    transaction.provider_transaction_id = payment_intent.get('id')
+                    transaction.provider_response = event_data
+                    transaction.processed_at = timezone.now()
+                    transaction.save()
+                except PaymentTransaction.DoesNotExist:
+                    pass
+        
+        elif event_type == 'payment_intent.payment_failed':
+            # Handle failed payment
+            payment_intent = event_data.get('data', {}).get('object', {})
+            transaction_id = payment_intent.get('metadata', {}).get('transaction_id')
+            
+            if transaction_id:
+                try:
+                    transaction = PaymentTransaction.objects.get(id=transaction_id)
+                    transaction.status = 'failed'
+                    transaction.provider_transaction_id = payment_intent.get('id')
+                    transaction.provider_response = event_data
+                    transaction.save()
+                except PaymentTransaction.DoesNotExist:
+                    pass
+    
+    def _process_paypal_webhook(self, webhook, event_data):
+        """Process PayPal webhook events"""
+        from .models import PaymentTransaction
+        from django.utils import timezone
+        
+        event_type = event_data.get('event_type')
+        
+        if event_type == 'PAYMENT.SALE.COMPLETED':
+            # Handle completed payment
+            resource = event_data.get('resource', {})
+            transaction_id = resource.get('custom', {}).get('transaction_id')
+            
+            if transaction_id:
+                try:
+                    transaction = PaymentTransaction.objects.get(id=transaction_id)
+                    transaction.status = 'completed'
+                    transaction.provider_transaction_id = resource.get('id')
+                    transaction.provider_response = event_data
+                    transaction.processed_at = timezone.now()
+                    transaction.save()
+                except PaymentTransaction.DoesNotExist:
+                    pass
+        
+        elif event_type == 'PAYMENT.SALE.DENIED':
+            # Handle denied payment
+            resource = event_data.get('resource', {})
+            transaction_id = resource.get('custom', {}).get('transaction_id')
+            
+            if transaction_id:
+                try:
+                    transaction = PaymentTransaction.objects.get(id=transaction_id)
+                    transaction.status = 'failed'
+                    transaction.provider_transaction_id = resource.get('id')
+                    transaction.provider_response = event_data
+                    transaction.save()
+                except PaymentTransaction.DoesNotExist:
+                    pass
+
+
+class RefundPaymentView(APIView):
+    """Process refund for a payment transaction"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, transaction_id):
+        try:
+            from .models import PaymentTransaction
+            from django.utils import timezone
+            from decimal import Decimal
+            
+            # Get transaction
+            transaction = PaymentTransaction.objects.get(
+                id=transaction_id, 
+                user=request.user,
+                status='completed'
+            )
+            
+            # Create refund transaction
+            refund_transaction = PaymentTransaction.objects.create(
+                user=request.user,
+                transaction_type='refund',
+                payment_method=transaction.payment_method,
+                amount_usd=transaction.amount_usd,
+                processing_fee=Decimal('0.00'),
+                total_amount=transaction.amount_usd,
+                currency=transaction.currency,
+                description=f"Refund for transaction {transaction.id}",
+                status='pending'
+            )
+            
+            # Simulate refund processing
+            refund_transaction.status = 'completed'
+            refund_transaction.processed_at = timezone.now()
+            refund_transaction.save()
+            
+            # Update original transaction
+            transaction.status = 'refunded'
+            transaction.save()
+            
+            # Reverse the original transaction effects
+            if transaction.transaction_type == 'subscription':
+                # Cancel subscription
+                if transaction.subscription:
+                    transaction.subscription.status = 'cancelled'
+                    transaction.subscription.save()
+                    
+                    # Refund Bondcoins
+                    request.user.bondcoin_balance += transaction.subscription.plan.price_bondcoins
+                    request.user.save(update_fields=['bondcoin_balance'])
+            
+            elif transaction.transaction_type == 'bondcoin_purchase':
+                # Reverse Bondcoin purchase
+                if transaction.bondcoin_transaction:
+                    request.user.bondcoin_balance -= transaction.bondcoin_transaction.amount
+                    request.user.save(update_fields=['bondcoin_balance'])
+            
+            from .serializers import PaymentTransactionSerializer
+            serializer = PaymentTransactionSerializer(refund_transaction)
+            
+            return Response({
+                "message": "Refund processed successfully",
+                "status": "success",
+                "data": serializer.data
+            }, status=status.HTTP_201_CREATED)
+            
+        except PaymentTransaction.DoesNotExist:
+            return Response({
+                "message": "Transaction not found or not eligible for refund",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        except Exception as e:
+            return Response({
+                "message": f"Refund processing failed: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

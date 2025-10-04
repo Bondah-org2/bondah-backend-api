@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection, UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine, Chat, Message, VoiceNote, Call, ChatParticipant, ChatReport, Post, PostComment, PostInteraction, CommentInteraction, PostReport, Story, StoryView, StoryReaction, PostShare, FeedSearch, LiveSession, LiveParticipant, UserSocialHandle, UserSecurityQuestion, DocumentVerification, UsernameValidation
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection, UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine, Chat, Message, VoiceNote, Call, ChatParticipant, ChatReport, Post, PostComment, PostInteraction, CommentInteraction, PostReport, Story, StoryView, StoryReaction, PostShare, FeedSearch, LiveSession, LiveParticipant, UserSocialHandle, UserSecurityQuestion, DocumentVerification, UsernameValidation, SubscriptionPlan, UserSubscription, BondcoinPackage, BondcoinTransaction, GiftCategory, VirtualGift, GiftTransaction, LiveGift, LiveJoinRequest, PaymentMethod, PaymentTransaction, PaymentWebhook
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -18,7 +18,8 @@ class UserSerializer(serializers.ModelSerializer):
             'pet_preference', 'exercise_frequency', 'kids_preference', 'personality_type',
             'love_language', 'communication_style', 'hobbies', 'interests', 'marriage_plans',
             'kids_plans', 'religion_importance', 'religion', 'dating_type', 'open_to_long_distance',
-            'looking_for', 'push_notifications_enabled', 'email_notifications_enabled', 'preferred_language'
+            'looking_for', 'push_notifications_enabled', 'email_notifications_enabled', 'preferred_language',
+            'bondcoin_balance'
         ]
 
     def create(self, validated_data):
@@ -98,7 +99,7 @@ class LiveSessionSerializer(serializers.ModelSerializer):
         model = LiveSession
         fields = [
             'id', 'user', 'user_name', 'user_profile_picture', 'title', 'description',
-            'start_time', 'end_time', 'status', 'duration_limit_minutes', 'viewers_count',
+            'subject_matter', 'start_time', 'end_time', 'status', 'duration_limit_minutes', 'viewers_count',
             'likes_count', 'stream_url', 'thumbnail_url', 'is_active', 'current_duration',
             'created_at', 'updated_at'
         ]
@@ -1351,7 +1352,7 @@ class MessageSerializer(serializers.ModelSerializer):
             'id', 'chat', 'sender_id', 'sender_name', 'sender_profile_picture',
             'message_type', 'content', 'voice_note_url', 'voice_note_duration',
             'image_url', 'video_url', 'document_url', 'document_name',
-            'timestamp', 'formatted_timestamp', 'is_read', 'read_at',
+            'tip_amount', 'tip_gift', 'timestamp', 'formatted_timestamp', 'is_read', 'read_at',
             'is_edited', 'edited_at', 'reply_to', 'reply_to_message',
             'reactions', 'is_from_current_user'
         ]
@@ -1524,7 +1525,8 @@ class MessageCreateSerializer(serializers.ModelSerializer):
         model = Message
         fields = [
             'message_type', 'content', 'voice_note_url', 'voice_note_duration',
-            'image_url', 'video_url', 'document_url', 'document_name', 'reply_to'
+            'image_url', 'video_url', 'document_url', 'document_name', 'reply_to',
+            'tip_amount', 'tip_gift'
         ]
     
     def validate(self, attrs):
@@ -1541,6 +1543,12 @@ class MessageCreateSerializer(serializers.ModelSerializer):
             media_fields = ['voice_note_url', 'image_url', 'video_url', 'document_url']
             if not any(attrs.get(field) for field in media_fields):
                 raise serializers.ValidationError(f"Media URL is required for {message_type} messages")
+        
+        # For tip messages, tip_amount is required
+        if message_type == 'tip':
+            tip_amount = attrs.get('tip_amount')
+            if not tip_amount or tip_amount <= 0:
+                raise serializers.ValidationError("Tip amount is required and must be greater than 0")
         
         return attrs
 
@@ -1952,3 +1960,394 @@ class FeedSearchSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             validated_data['user'] = request.user
         return super().create(validated_data)
+
+
+# =============================================================================
+# SUBSCRIPTION PLANS SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class SubscriptionPlanSerializer(serializers.ModelSerializer):
+    """Serializer for subscription plans"""
+    
+    class Meta:
+        model = SubscriptionPlan
+        fields = [
+            'id', 'name', 'display_name', 'description', 'duration', 
+            'price_bondcoins', 'price_usd', 'unlimited_swipes', 'undo_swipes',
+            'unlimited_unwind', 'global_access', 'read_receipt', 'live_hours_days',
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class UserSubscriptionSerializer(serializers.ModelSerializer):
+    """Serializer for user subscriptions"""
+    plan_name = serializers.CharField(source='plan.display_name', read_only=True)
+    plan_details = SubscriptionPlanSerializer(source='plan', read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    
+    class Meta:
+        model = UserSubscription
+        fields = [
+            'id', 'plan', 'plan_name', 'plan_details', 'status', 'start_date', 
+            'end_date', 'payment_method', 'transaction_id', 'auto_renew',
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'start_date', 'created_at', 'updated_at']
+
+
+class UserSubscriptionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating user subscriptions"""
+    
+    class Meta:
+        model = UserSubscription
+        fields = ['plan', 'payment_method', 'auto_renew']
+    
+    def create(self, validated_data):
+        """Create subscription with current user and set end date"""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        
+        plan = validated_data['plan']
+        
+        # Calculate end date based on plan duration
+        duration_map = {
+            '1_week': timedelta(weeks=1),
+            '1_month': timedelta(days=30),
+            '3_months': timedelta(days=90),
+            '6_months': timedelta(days=180),
+            '1_year': timedelta(days=365),
+        }
+        
+        duration = duration_map.get(plan.duration, timedelta(days=30))
+        validated_data['end_date'] = timezone.now() + duration
+        
+        return super().create(validated_data)
+
+
+# =============================================================================
+# BONDCOIN WALLET SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class BondcoinPackageSerializer(serializers.ModelSerializer):
+    """Serializer for Bondcoin packages"""
+    
+    class Meta:
+        model = BondcoinPackage
+        fields = [
+            'id', 'name', 'bondcoin_amount', 'price_usd', 'is_popular', 
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class BondcoinTransactionSerializer(serializers.ModelSerializer):
+    """Serializer for Bondcoin transactions"""
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    package_name = serializers.CharField(source='package.name', read_only=True)
+    
+    class Meta:
+        model = BondcoinTransaction
+        fields = [
+            'id', 'user', 'user_name', 'transaction_type', 'amount', 'status',
+            'package', 'package_name', 'subscription', 'gift', 'payment_method',
+            'payment_reference', 'description', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'user', 'user_name', 'created_at', 'updated_at']
+
+
+class BondcoinTransactionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating Bondcoin transactions"""
+    
+    class Meta:
+        model = BondcoinTransaction
+        fields = [
+            'transaction_type', 'amount', 'package', 'subscription', 'gift',
+            'payment_method', 'payment_reference', 'description'
+        ]
+    
+    def create(self, validated_data):
+        """Create transaction with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+# =============================================================================
+# VIRTUAL GIFTING SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class GiftCategorySerializer(serializers.ModelSerializer):
+    """Serializer for gift categories"""
+    
+    class Meta:
+        model = GiftCategory
+        fields = [
+            'id', 'name', 'display_name', 'description', 'icon_url', 
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class VirtualGiftSerializer(serializers.ModelSerializer):
+    """Serializer for virtual gifts"""
+    category_name = serializers.CharField(source='category.display_name', read_only=True)
+    
+    class Meta:
+        model = VirtualGift
+        fields = [
+            'id', 'name', 'category', 'category_name', 'description', 'icon_url',
+            'cost_bondcoins', 'is_popular', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class GiftTransactionSerializer(serializers.ModelSerializer):
+    """Serializer for gift transactions"""
+    sender_name = serializers.CharField(source='sender.name', read_only=True)
+    recipient_name = serializers.CharField(source='recipient.name', read_only=True)
+    gift_name = serializers.CharField(source='gift.name', read_only=True)
+    gift_icon = serializers.URLField(source='gift.icon_url', read_only=True)
+    
+    class Meta:
+        model = GiftTransaction
+        fields = [
+            'id', 'sender', 'sender_name', 'recipient', 'recipient_name',
+            'gift', 'gift_name', 'gift_icon', 'quantity', 'total_cost',
+            'context_type', 'context_id', 'status', 'message', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'sender', 'sender_name', 'recipient_name', 'gift_name', 
+            'gift_icon', 'total_cost', 'created_at', 'updated_at'
+        ]
+
+
+class GiftTransactionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating gift transactions"""
+    
+    class Meta:
+        model = GiftTransaction
+        fields = [
+            'recipient', 'gift', 'quantity', 'context_type', 'context_id', 'message'
+        ]
+    
+    def create(self, validated_data):
+        """Create gift transaction with current user as sender"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['sender'] = request.user
+        
+        # Calculate total cost
+        gift = validated_data['gift']
+        quantity = validated_data.get('quantity', 1)
+        validated_data['total_cost'] = gift.cost_bondcoins * quantity
+        
+        # Create Bondcoin transaction for the gift
+        bondcoin_transaction = BondcoinTransaction.objects.create(
+            user=validated_data['sender'],
+            transaction_type='gift_sent',
+            amount=-validated_data['total_cost'],
+            gift=gift,
+            description=f"Gift sent: {gift.name}",
+            status='completed'
+        )
+        validated_data['bondcoin_transaction'] = bondcoin_transaction
+        
+        return super().create(validated_data)
+
+
+# =============================================================================
+# LIVE STREAMING ENHANCEMENT SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class LiveGiftSerializer(serializers.ModelSerializer):
+    """Serializer for live session gifts"""
+    sender_name = serializers.CharField(source='sender.name', read_only=True)
+    gift_name = serializers.CharField(source='gift.name', read_only=True)
+    gift_icon = serializers.URLField(source='gift.icon_url', read_only=True)
+    
+    class Meta:
+        model = LiveGift
+        fields = [
+            'id', 'session', 'sender', 'sender_name', 'gift', 'gift_name', 
+            'gift_icon', 'quantity', 'total_cost', 'chat_message', 'created_at'
+        ]
+        read_only_fields = ['id', 'sender', 'sender_name', 'gift_name', 'gift_icon', 'created_at']
+
+
+class LiveGiftCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating live session gifts"""
+    
+    class Meta:
+        model = LiveGift
+        fields = ['session', 'gift', 'quantity']
+    
+    def create(self, validated_data):
+        """Create live gift with current user as sender"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['sender'] = request.user
+        
+        # Calculate total cost
+        gift = validated_data['gift']
+        quantity = validated_data.get('quantity', 1)
+        validated_data['total_cost'] = gift.cost_bondcoins * quantity
+        
+        # Create chat message
+        validated_data['chat_message'] = f"{request.user.name} sent {gift.name}"
+        
+        # Create Bondcoin transaction
+        bondcoin_transaction = BondcoinTransaction.objects.create(
+            user=validated_data['sender'],
+            transaction_type='gift_sent',
+            amount=-validated_data['total_cost'],
+            gift=gift,
+            description=f"Live gift sent: {gift.name}",
+            status='completed'
+        )
+        validated_data['bondcoin_transaction'] = bondcoin_transaction
+        
+        return super().create(validated_data)
+
+
+class LiveJoinRequestSerializer(serializers.ModelSerializer):
+    """Serializer for live session join requests"""
+    requester_name = serializers.CharField(source='requester.name', read_only=True)
+    requester_profile_picture = serializers.URLField(source='requester.profile_picture', read_only=True)
+    session_title = serializers.CharField(source='session.title', read_only=True)
+    host_name = serializers.CharField(source='session.user.name', read_only=True)
+    
+    class Meta:
+        model = LiveJoinRequest
+        fields = [
+            'id', 'session', 'session_title', 'host_name', 'requester', 'requester_name',
+            'requester_profile_picture', 'requested_role', 'status', 'message',
+            'responded_by', 'response_message', 'responded_at', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'requester', 'requester_name', 'requester_profile_picture',
+            'session_title', 'host_name', 'responded_by', 'responded_at', 'created_at', 'updated_at'
+        ]
+
+
+class LiveJoinRequestCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating live session join requests"""
+    
+    class Meta:
+        model = LiveJoinRequest
+        fields = ['session', 'requested_role', 'message']
+    
+    def create(self, validated_data):
+        """Create join request with current user as requester"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['requester'] = request.user
+        return super().create(validated_data)
+
+
+class LiveJoinRequestManageSerializer(serializers.ModelSerializer):
+    """Serializer for managing live session join requests (host response)"""
+    
+    class Meta:
+        model = LiveJoinRequest
+        fields = ['status', 'response_message']
+    
+    def update(self, instance, validated_data):
+        """Update join request with response from host"""
+        from django.utils import timezone
+        
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['responded_by'] = request.user
+            validated_data['responded_at'] = timezone.now()
+        
+        return super().update(instance, validated_data)
+
+
+class PaymentMethodSerializer(serializers.ModelSerializer):
+    """Serializer for payment methods"""
+    
+    class Meta:
+        model = PaymentMethod
+        fields = [
+            'id', 'name', 'display_name', 'description', 'icon_url',
+            'is_active', 'processing_fee_percentage', 'min_amount', 'max_amount',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    """Serializer for payment transactions"""
+    payment_method_display = serializers.CharField(source='payment_method.display_name', read_only=True)
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    
+    class Meta:
+        model = PaymentTransaction
+        fields = [
+            'id', 'user', 'user_name', 'transaction_type', 'payment_method', 'payment_method_display',
+            'amount_usd', 'processing_fee', 'total_amount', 'currency', 'status',
+            'provider', 'provider_transaction_id', 'subscription', 'bondcoin_transaction',
+            'description', 'metadata', 'created_at', 'updated_at', 'processed_at'
+        ]
+        read_only_fields = [
+            'id', 'user', 'user_name', 'payment_method_display', 'provider_transaction_id',
+            'created_at', 'updated_at', 'processed_at'
+        ]
+
+
+class PaymentTransactionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating payment transactions"""
+    
+    class Meta:
+        model = PaymentTransaction
+        fields = [
+            'transaction_type', 'payment_method', 'amount_usd', 'currency',
+            'subscription', 'bondcoin_transaction', 'description', 'metadata'
+        ]
+    
+    def validate(self, attrs):
+        """Validate payment transaction"""
+        payment_method = attrs.get('payment_method')
+        amount_usd = attrs.get('amount_usd')
+        
+        if payment_method and amount_usd:
+            # Check amount limits
+            if amount_usd < payment_method.min_amount:
+                raise serializers.ValidationError(f"Amount must be at least ${payment_method.min_amount}")
+            
+            if amount_usd > payment_method.max_amount:
+                raise serializers.ValidationError(f"Amount cannot exceed ${payment_method.max_amount}")
+            
+            # Calculate processing fee and total
+            processing_fee = amount_usd * (payment_method.processing_fee_percentage / 100)
+            attrs['processing_fee'] = processing_fee
+            attrs['total_amount'] = amount_usd + processing_fee
+        
+        return attrs
+
+
+class PaymentWebhookSerializer(serializers.ModelSerializer):
+    """Serializer for payment webhooks"""
+    transaction_details = PaymentTransactionSerializer(source='transaction', read_only=True)
+    
+    class Meta:
+        model = PaymentWebhook
+        fields = [
+            'id', 'provider', 'event_type', 'event_id', 'transaction', 'transaction_details',
+            'payload', 'processed', 'processing_error', 'created_at', 'processed_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'processed_at']
+
+
+class PaymentWebhookCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating payment webhooks"""
+    
+    class Meta:
+        model = PaymentWebhook
+        fields = ['provider', 'event_type', 'event_id', 'transaction', 'payload']

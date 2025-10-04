@@ -114,6 +114,36 @@ from .views import (
     DocumentUploadView,
     UsernameValidationView,
     UsernameUpdateView,
+    # Subscription Plans Views (NEW FROM FIGMA)
+    SubscriptionPlanListView,
+    UserSubscriptionListView,
+    UserSubscriptionDetailView,
+    UserCurrentSubscriptionView,
+    UserFeatureAccessView,
+    # Bondcoin Wallet Views (NEW FROM FIGMA)
+    BondcoinPackageListView,
+    UserBondcoinBalanceView,
+    BondcoinTransactionListView,
+    BondcoinTransactionDetailView,
+    BondcoinPurchaseView,
+    # Virtual Gifting Views (NEW FROM FIGMA)
+    GiftCategoryListView,
+    VirtualGiftListView,
+    VirtualGiftDetailView,
+    GiftTransactionListView,
+    SendGiftView,
+    # Live Streaming Enhancement Views (NEW FROM FIGMA)
+    LiveGiftListView,
+    LiveJoinRequestListView,
+    LiveJoinRequestDetailView,
+    LiveJoinRequestManageView,
+    LiveSessionGiftersView,
+    PaymentMethodListView,
+    PaymentTransactionListView,
+    PaymentTransactionDetailView,
+    ProcessPaymentView,
+    PaymentWebhookView,
+    RefundPaymentView,
 )
 
 urlpatterns = [
@@ -263,4 +293,40 @@ urlpatterns = [
     # Username Validation Endpoints (NEW FROM FIGMA)
     path('username/validate/', UsernameValidationView.as_view(), name='username-validate'),
     path('username/update/', UsernameUpdateView.as_view(), name='username-update'),
+    
+    # Subscription Plans Endpoints (NEW FROM FIGMA)
+    path('subscriptions/plans/', SubscriptionPlanListView.as_view(), name='subscription-plans'),
+    path('subscriptions/', UserSubscriptionListView.as_view(), name='user-subscriptions'),
+    path('subscriptions/<int:pk>/', UserSubscriptionDetailView.as_view(), name='user-subscription-detail'),
+    path('subscriptions/current/', UserCurrentSubscriptionView.as_view(), name='current-subscription'),
+    path('subscriptions/feature-access/', UserFeatureAccessView.as_view(), name='feature-access'),
+    
+    # Bondcoin Wallet Endpoints (NEW FROM FIGMA)
+    path('bondcoin/packages/', BondcoinPackageListView.as_view(), name='bondcoin-packages'),
+    path('bondcoin/balance/', UserBondcoinBalanceView.as_view(), name='bondcoin-balance'),
+    path('bondcoin/transactions/', BondcoinTransactionListView.as_view(), name='bondcoin-transactions'),
+    path('bondcoin/transactions/<int:pk>/', BondcoinTransactionDetailView.as_view(), name='bondcoin-transaction-detail'),
+    path('bondcoin/purchase/', BondcoinPurchaseView.as_view(), name='bondcoin-purchase'),
+    
+    # Virtual Gifting Endpoints (NEW FROM FIGMA)
+    path('gifts/categories/', GiftCategoryListView.as_view(), name='gift-categories'),
+    path('gifts/', VirtualGiftListView.as_view(), name='virtual-gifts'),
+    path('gifts/<int:pk>/', VirtualGiftDetailView.as_view(), name='virtual-gift-detail'),
+    path('gifts/transactions/', GiftTransactionListView.as_view(), name='gift-transactions'),
+    path('gifts/send/', SendGiftView.as_view(), name='send-gift'),
+    
+    # Live Streaming Enhancement Endpoints (NEW FROM FIGMA)
+    path('live-sessions/gifts/', LiveGiftListView.as_view(), name='live-gifts'),
+    path('live-sessions/join-requests/', LiveJoinRequestListView.as_view(), name='live-join-requests'),
+    path('live-sessions/join-requests/<int:pk>/', LiveJoinRequestDetailView.as_view(), name='live-join-request-detail'),
+    path('live-sessions/join-requests/<int:pk>/manage/', LiveJoinRequestManageView.as_view(), name='live-join-request-manage'),
+    path('live-sessions/<int:session_id>/gifters/', LiveSessionGiftersView.as_view(), name='live-session-gifters'),
+    
+    # Payment Processing Endpoints
+    path('payments/methods/', PaymentMethodListView.as_view(), name='payment-methods'),
+    path('payments/transactions/', PaymentTransactionListView.as_view(), name='payment-transactions'),
+    path('payments/transactions/<int:pk>/', PaymentTransactionDetailView.as_view(), name='payment-transaction-detail'),
+    path('payments/process/', ProcessPaymentView.as_view(), name='process-payment'),
+    path('payments/webhooks/<str:provider>/', PaymentWebhookView.as_view(), name='payment-webhook'),
+    path('payments/refund/<int:transaction_id>/', RefundPaymentView.as_view(), name='refund-payment'),
 ]

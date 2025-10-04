@@ -13,7 +13,12 @@ from .models import (
     # Live Session Models (NEW)
     LiveSession, LiveParticipant,
     # New Figma Features
-    UserSocialHandle, UserSecurityQuestion, DocumentVerification
+    UserSocialHandle, UserSecurityQuestion, DocumentVerification,
+    # Subscription and Monetization Features (NEW FROM FIGMA)
+    SubscriptionPlan, UserSubscription, BondcoinPackage, BondcoinTransaction,
+    GiftCategory, VirtualGift, GiftTransaction, LiveGift, LiveJoinRequest,
+    # Payment Processing Models
+    PaymentMethod, PaymentTransaction, PaymentWebhook
 )
 
 # Register your models here.
@@ -739,5 +744,300 @@ class DocumentVerificationAdmin(admin.ModelAdmin):
         }),
         ('Timestamps', {
             'fields': ('uploaded_at', 'processed_at', 'verified_at', 'updated_at')
+        })
+    )
+
+
+# =============================================================================
+# SUBSCRIPTION PLANS ADMIN (NEW FROM FIGMA)
+# =============================================================================
+
+@admin.register(SubscriptionPlan)
+class SubscriptionPlanAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'display_name', 'duration', 'price_bondcoins', 'price_usd', 'is_active')
+    list_filter = ('name', 'duration', 'is_active', 'unlimited_swipes', 'undo_swipes', 'global_access')
+    search_fields = ('name', 'display_name', 'description')
+    ordering = ('price_bondcoins',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Plan Info', {
+            'fields': ('name', 'display_name', 'description', 'duration')
+        }),
+        ('Pricing', {
+            'fields': ('price_bondcoins', 'price_usd')
+        }),
+        ('Features', {
+            'fields': ('unlimited_swipes', 'undo_swipes', 'unlimited_unwind', 'global_access', 'read_receipt', 'live_hours_days')
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(UserSubscription)
+class UserSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'plan', 'status', 'start_date', 'end_date', 'is_active')
+    list_filter = ('status', 'payment_method', 'auto_renew', 'plan__name', 'start_date')
+    search_fields = ('user__email', 'user__name', 'transaction_id')
+    ordering = ('-created_at',)
+    readonly_fields = ('start_date', 'created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Subscription Info', {
+            'fields': ('user', 'plan', 'status')
+        }),
+        ('Period', {
+            'fields': ('start_date', 'end_date')
+        }),
+        ('Payment', {
+            'fields': ('payment_method', 'transaction_id', 'auto_renew')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+# =============================================================================
+# BONDCOIN WALLET ADMIN (NEW FROM FIGMA)
+# =============================================================================
+
+@admin.register(BondcoinPackage)
+class BondcoinPackageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'bondcoin_amount', 'price_usd', 'is_popular', 'is_active')
+    list_filter = ('is_popular', 'is_active', 'created_at')
+    search_fields = ('name',)
+    ordering = ('bondcoin_amount',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Package Info', {
+            'fields': ('name', 'bondcoin_amount', 'price_usd')
+        }),
+        ('Status', {
+            'fields': ('is_popular', 'is_active')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(BondcoinTransaction)
+class BondcoinTransactionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'transaction_type', 'amount', 'status', 'description', 'created_at')
+    list_filter = ('transaction_type', 'status', 'payment_method', 'created_at')
+    search_fields = ('user__email', 'user__name', 'description', 'payment_reference')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Transaction Info', {
+            'fields': ('user', 'transaction_type', 'amount', 'status', 'description')
+        }),
+        ('Related Objects', {
+            'fields': ('package', 'subscription', 'gift')
+        }),
+        ('Payment Info', {
+            'fields': ('payment_method', 'payment_reference')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+# =============================================================================
+# VIRTUAL GIFTING ADMIN (NEW FROM FIGMA)
+# =============================================================================
+
+@admin.register(GiftCategory)
+class GiftCategoryAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'display_name', 'is_active')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('name', 'display_name', 'description')
+    ordering = ('name',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Category Info', {
+            'fields': ('name', 'display_name', 'description', 'icon_url')
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(VirtualGift)
+class VirtualGiftAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'category', 'cost_bondcoins', 'is_popular', 'is_active')
+    list_filter = ('category', 'is_popular', 'is_active', 'created_at')
+    search_fields = ('name', 'description')
+    ordering = ('category', 'cost_bondcoins')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Gift Info', {
+            'fields': ('name', 'category', 'description', 'icon_url')
+        }),
+        ('Pricing', {
+            'fields': ('cost_bondcoins',)
+        }),
+        ('Status', {
+            'fields': ('is_popular', 'is_active')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(GiftTransaction)
+class GiftTransactionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'sender', 'recipient', 'gift', 'quantity', 'total_cost', 'status', 'created_at')
+    list_filter = ('status', 'context_type', 'created_at')
+    search_fields = ('sender__email', 'sender__name', 'recipient__email', 'recipient__name', 'gift__name')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Transaction Info', {
+            'fields': ('sender', 'recipient', 'gift', 'quantity', 'total_cost', 'status')
+        }),
+        ('Context', {
+            'fields': ('context_type', 'context_id', 'message')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+# =============================================================================
+# LIVE STREAMING ENHANCEMENT ADMIN (NEW FROM FIGMA)
+# =============================================================================
+
+@admin.register(LiveGift)
+class LiveGiftAdmin(admin.ModelAdmin):
+    list_display = ('id', 'session', 'sender', 'gift', 'quantity', 'total_cost', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('session__user__name', 'sender__name', 'gift__name')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)
+    
+    fieldsets = (
+        ('Gift Info', {
+            'fields': ('session', 'sender', 'gift', 'quantity', 'total_cost')
+        }),
+        ('Chat Message', {
+            'fields': ('chat_message',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        })
+    )
+
+
+@admin.register(LiveJoinRequest)
+class LiveJoinRequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'session', 'requester', 'requested_role', 'status', 'created_at')
+    list_filter = ('requested_role', 'status', 'created_at')
+    search_fields = ('session__user__name', 'requester__name', 'message')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Request Info', {
+            'fields': ('session', 'requester', 'requested_role', 'status', 'message')
+        }),
+        ('Response', {
+            'fields': ('responded_by', 'response_message', 'responded_at')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(PaymentMethod)
+class PaymentMethodAdmin(admin.ModelAdmin):
+    list_display = ['name', 'display_name', 'is_active', 'processing_fee_percentage', 'min_amount', 'max_amount', 'created_at']
+    list_filter = ['is_active', 'name', 'created_at']
+    search_fields = ['name', 'display_name', 'description']
+    ordering = ['name']
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'display_name', 'description', 'icon_url')
+        }),
+        ('Settings', {
+            'fields': ('is_active', 'processing_fee_percentage', 'min_amount', 'max_amount')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(PaymentTransaction)
+class PaymentTransactionAdmin(admin.ModelAdmin):
+    list_display = ['user', 'transaction_type', 'payment_method', 'amount_usd', 'total_amount', 'status', 'provider', 'created_at']
+    list_filter = ['status', 'transaction_type', 'payment_method', 'provider', 'currency', 'created_at']
+    search_fields = ['user__name', 'user__email', 'description', 'provider_transaction_id']
+    ordering = ['-created_at']
+    readonly_fields = ['created_at', 'updated_at', 'processed_at']
+    
+    fieldsets = (
+        ('Transaction Details', {
+            'fields': ('user', 'transaction_type', 'payment_method', 'amount_usd', 'processing_fee', 'total_amount', 'currency')
+        }),
+        ('Status', {
+            'fields': ('status', 'processed_at')
+        }),
+        ('Payment Provider', {
+            'fields': ('provider', 'provider_transaction_id', 'provider_response')
+        }),
+        ('Related Objects', {
+            'fields': ('subscription', 'bondcoin_transaction')
+        }),
+        ('Metadata', {
+            'fields': ('description', 'metadata')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(PaymentWebhook)
+class PaymentWebhookAdmin(admin.ModelAdmin):
+    list_display = ['provider', 'event_type', 'event_id', 'processed', 'created_at']
+    list_filter = ['provider', 'event_type', 'processed', 'created_at']
+    search_fields = ['provider', 'event_type', 'event_id', 'processing_error']
+    ordering = ['-created_at']
+    readonly_fields = ['created_at', 'processed_at']
+    
+    fieldsets = (
+        ('Webhook Details', {
+            'fields': ('provider', 'event_type', 'event_id', 'transaction')
+        }),
+        ('Processing Status', {
+            'fields': ('processed', 'processing_error', 'processed_at')
+        }),
+        ('Payload', {
+            'fields': ('payload',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
         })
     )
