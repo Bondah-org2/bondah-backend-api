@@ -41,6 +41,9 @@ from .views import (
     PasswordResetView,
     PasswordResetConfirmView,
     UserProfileView,
+    AccountDeactivationView,
+    NotificationSettingsView,
+    LanguageSettingsView,
     DeviceRegistrationView,
     # OAuth Views
     GoogleOAuthView,
@@ -96,6 +99,21 @@ from .views import (
     StoryReactionView,
     FeedSearchView,
     FeedSuggestionsView,
+    # Live Session Views (NEW)
+    LiveSessionListView,
+    LiveSessionDetailView,
+    LiveSessionJoinView,
+    LiveSessionLeaveView,
+    # New Figma Features
+    UserSocialHandleListView,
+    UserSocialHandleDetailView,
+    UserSecurityQuestionListView,
+    UserSecurityQuestionDetailView,
+    DocumentVerificationListView,
+    DocumentVerificationDetailView,
+    DocumentUploadView,
+    UsernameValidationView,
+    UsernameUpdateView,
 )
 
 urlpatterns = [
@@ -146,6 +164,9 @@ urlpatterns = [
     path('auth/password-reset/', PasswordResetView.as_view(), name='password-reset'),
     path('auth/password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('auth/profile/', UserProfileView.as_view(), name='user-profile'),
+    path('auth/deactivate/', AccountDeactivationView.as_view(), name='account-deactivate'),
+    path('auth/notifications/', NotificationSettingsView.as_view(), name='notification-settings'),
+    path('auth/language/', LanguageSettingsView.as_view(), name='language-settings'),
     path('auth/device-register/', DeviceRegistrationView.as_view(), name='device-register'),
     
     # OAuth Authentication Endpoints
@@ -219,4 +240,27 @@ urlpatterns = [
     path('feed/stories/<int:story_id>/react/', StoryReactionView.as_view(), name='story-reaction'),
     path('feed/search/', FeedSearchView.as_view(), name='feed-search'),
     path('feed/suggestions/', FeedSuggestionsView.as_view(), name='feed-suggestions'),
+    
+    # Live Session Endpoints (NEW)
+    path('live-sessions/', LiveSessionListView.as_view(), name='live-session-list'),
+    path('live-sessions/<int:pk>/', LiveSessionDetailView.as_view(), name='live-session-detail'),
+    path('live-sessions/<int:session_id>/join/', LiveSessionJoinView.as_view(), name='live-session-join'),
+    path('live-sessions/<int:session_id>/leave/', LiveSessionLeaveView.as_view(), name='live-session-leave'),
+    
+    # Social Media Handles Endpoints (NEW FROM FIGMA)
+    path('social-handles/', UserSocialHandleListView.as_view(), name='social-handle-list'),
+    path('social-handles/<int:pk>/', UserSocialHandleDetailView.as_view(), name='social-handle-detail'),
+    
+    # Security Questions Endpoints (NEW FROM FIGMA)
+    path('security-questions/', UserSecurityQuestionListView.as_view(), name='security-question-list'),
+    path('security-questions/<int:pk>/', UserSecurityQuestionDetailView.as_view(), name='security-question-detail'),
+    
+    # Document Verification Endpoints (NEW FROM FIGMA)
+    path('document-verification/', DocumentVerificationListView.as_view(), name='document-verification-list'),
+    path('document-verification/<int:pk>/', DocumentVerificationDetailView.as_view(), name='document-verification-detail'),
+    path('document-verification/upload/', DocumentUploadView.as_view(), name='document-upload'),
+    
+    # Username Validation Endpoints (NEW FROM FIGMA)
+    path('username/validate/', UsernameValidationView.as_view(), name='username-validate'),
+    path('username/update/', UsernameUpdateView.as_view(), name='username-update'),
 ]

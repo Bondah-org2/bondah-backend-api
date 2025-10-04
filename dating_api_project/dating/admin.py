@@ -9,7 +9,11 @@ from .models import (
     Chat, Message, VoiceNote, Call, ChatParticipant, ChatReport,
     # Social Feed and Story Models (NEW)
     Post, PostComment, PostInteraction, CommentInteraction, PostReport,
-    Story, StoryView, StoryReaction, PostShare, FeedSearch
+    Story, StoryView, StoryReaction, PostShare, FeedSearch,
+    # Live Session Models (NEW)
+    LiveSession, LiveParticipant,
+    # New Figma Features
+    UserSocialHandle, UserSecurityQuestion, DocumentVerification
 )
 
 # Register your models here.
@@ -613,5 +617,127 @@ class FeedSearchAdmin(admin.ModelAdmin):
         }),
         ('Timestamps', {
             'fields': ('created_at',)
+        })
+    )
+
+
+# =============================================================================
+# LIVE SESSION ADMIN (NEW)
+# =============================================================================
+
+@admin.register(LiveSession)
+class LiveSessionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'title', 'status', 'viewers_count', 'start_time', 'end_time')
+    list_filter = ('status', 'start_time', 'end_time')
+    search_fields = ('title', 'description', 'user__email')
+    ordering = ('-start_time',)
+    readonly_fields = ('created_at', 'updated_at', 'viewers_count', 'likes_count')
+    
+    fieldsets = (
+        ('Session Info', {
+            'fields': ('user', 'title', 'description', 'status')
+        }),
+        ('Timing', {
+            'fields': ('start_time', 'end_time', 'duration_limit_minutes')
+        }),
+        ('Metrics', {
+            'fields': ('viewers_count', 'likes_count')
+        }),
+        ('Stream Details', {
+            'fields': ('stream_url', 'thumbnail_url'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(LiveParticipant)
+class LiveParticipantAdmin(admin.ModelAdmin):
+    list_display = ('id', 'session', 'user', 'role', 'joined_at', 'left_at')
+    list_filter = ('role', 'joined_at', 'left_at')
+    search_fields = ('session__title', 'user__email')
+    ordering = ('-joined_at',)
+    readonly_fields = ('joined_at', 'left_at')
+    
+    fieldsets = (
+        ('Participation Info', {
+            'fields': ('session', 'user', 'role')
+        }),
+        ('Timing', {
+            'fields': ('joined_at', 'left_at')
+        })
+    )
+
+
+# =============================================================================
+# NEW FIGMA FEATURES ADMIN (NEW)
+# =============================================================================
+
+@admin.register(UserSocialHandle)
+class UserSocialHandleAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'platform', 'handle', 'created_at')
+    list_filter = ('platform', 'created_at')
+    search_fields = ('user__email', 'handle', 'platform')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Social Handle Info', {
+            'fields': ('user', 'platform', 'handle', 'url')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(UserSecurityQuestion)
+class UserSecurityQuestionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'question_type', 'is_public', 'created_at')
+    list_filter = ('question_type', 'is_public', 'created_at')
+    search_fields = ('user__email', 'response')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Question Response', {
+            'fields': ('user', 'question_type', 'response', 'is_public')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        })
+    )
+
+
+@admin.register(DocumentVerification)
+class DocumentVerificationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'document_type', 'status', 'verification_score', 'uploaded_at')
+    list_filter = ('document_type', 'status', 'uploaded_at', 'is_authentic')
+    search_fields = ('user__email', 'extracted_data')
+    ordering = ('-uploaded_at',)
+    readonly_fields = ('uploaded_at', 'processed_at', 'verified_at', 'updated_at', 'extracted_data', 'service_response')
+    
+    fieldsets = (
+        ('Verification Info', {
+            'fields': ('user', 'document_type', 'status')
+        }),
+        ('Document Images', {
+            'fields': ('front_image_url', 'back_image_url')
+        }),
+        ('Extracted Data', {
+            'fields': ('extracted_data',),
+            'classes': ('collapse',)
+        }),
+        ('Verification Results', {
+            'fields': ('verification_score', 'is_authentic', 'rejection_reason')
+        }),
+        ('Service Integration', {
+            'fields': ('verification_service', 'service_response'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('uploaded_at', 'processed_at', 'verified_at', 'updated_at')
         })
     )

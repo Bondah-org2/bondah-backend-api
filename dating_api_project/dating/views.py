@@ -1710,7 +1710,7 @@ class UserProfileView(APIView):
         """Get user profile"""
         try:
             user = request.user
-            serializer = UserProfileSerializer(user)
+            serializer = UserProfileDetailSerializer(user)
             return Response({
                 "message": "Profile retrieved successfully",
                 "status": "success",
@@ -1726,13 +1726,13 @@ class UserProfileView(APIView):
         """Update user profile"""
         try:
             user = request.user
-            serializer = UserProfileUpdateSerializer(user, data=request.data, partial=True)
+            serializer = UserProfileDetailSerializer(user, data=request.data, partial=True)
             if serializer.is_valid():
                 updated_user = serializer.save()
                 return Response({
                     "message": "Profile updated successfully",
                     "status": "success",
-                    "user": UserProfileSerializer(updated_user).data
+                    "user": UserProfileDetailSerializer(updated_user).data
                 }, status=status.HTTP_200_OK)
             
             return Response({
@@ -1743,6 +1743,121 @@ class UserProfileView(APIView):
         except Exception as e:
             return Response({
                 "message": f"Failed to update profile: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AccountDeactivationView(APIView):
+    """Deactivate user account"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Deactivate the current user's account"""
+        try:
+            user = request.user
+            
+            # Deactivate the account
+            user.is_active = False
+            user.save()
+            
+            return Response({
+                "message": "Account deactivated successfully",
+                "status": "success"
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to deactivate account: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NotificationSettingsView(APIView):
+    """Manage notification settings"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get current notification settings"""
+        try:
+            user = request.user
+            serializer = NotificationSettingsSerializer(user)
+            return Response({
+                "message": "Notification settings retrieved successfully",
+                "status": "success",
+                "settings": serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve notification settings: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request):
+        """Update notification settings"""
+        try:
+            user = request.user
+            serializer = NotificationSettingsSerializer(user, data=request.data, partial=True)
+            if serializer.is_valid():
+                updated_user = serializer.save()
+                return Response({
+                    "message": "Notification settings updated successfully",
+                    "status": "success",
+                    "settings": NotificationSettingsSerializer(updated_user).data
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                "message": "Failed to update notification settings",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to update notification settings: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LanguageSettingsView(APIView):
+    """Manage language settings"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get current language settings"""
+        try:
+            user = request.user
+            serializer = LanguageSettingsSerializer(user)
+            return Response({
+                "message": "Language settings retrieved successfully",
+                "status": "success",
+                "settings": serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to retrieve language settings: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request):
+        """Update language settings"""
+        try:
+            user = request.user
+            serializer = LanguageSettingsSerializer(user, data=request.data, partial=True)
+            if serializer.is_valid():
+                updated_user = serializer.save()
+                return Response({
+                    "message": "Language settings updated successfully",
+                    "status": "success",
+                    "settings": LanguageSettingsSerializer(updated_user).data
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                "message": "Failed to update language settings",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                "message": f"Failed to update language settings: {str(e)}",
                 "status": "error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -3732,6 +3847,140 @@ class MatchmakerIntroView(APIView):
 
 
 # =============================================================================
+# LIVE SESSION VIEWS (NEW)
+# =============================================================================
+
+class LiveSessionListView(generics.ListCreateAPIView):
+    """
+    List active live sessions or create a new live session
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import LiveSessionCreateSerializer
+            return LiveSessionCreateSerializer
+        from .serializers import LiveSessionSerializer
+        return LiveSessionSerializer
+    
+    def get_queryset(self):
+        from .models import LiveSession
+        from django.utils import timezone
+        
+        # Get active live sessions
+        return LiveSession.objects.filter(
+            status='active',
+            start_time__gte=timezone.now() - timezone.timedelta(hours=24)  # Only recent sessions
+        ).select_related('user').order_by('-start_time')
+    
+    def perform_create(self, serializer):
+        """Create live session with current user"""
+        serializer.save(user=self.request.user)
+
+
+class LiveSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or end a specific live session
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import LiveSessionSerializer
+        return LiveSessionSerializer
+    
+    def get_queryset(self):
+        from .models import LiveSession
+        return LiveSession.objects.filter(user=self.request.user)
+    
+    def perform_destroy(self, instance):
+        """End the live session instead of deleting"""
+        from django.utils import timezone
+        instance.status = 'ended'
+        instance.end_time = timezone.now()
+        instance.save()
+
+
+class LiveSessionJoinView(APIView):
+    """
+    Join a live session as a viewer
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, session_id):
+        from .models import LiveSession, LiveParticipant
+        
+        try:
+            session = LiveSession.objects.get(id=session_id, status='active')
+            
+            # Check if user is already a participant
+            participant, created = LiveParticipant.objects.get_or_create(
+                session=session,
+                user=request.user,
+                defaults={'role': 'viewer'}
+            )
+            
+            if created:
+                # Update viewers count
+                session.viewers_count += 1
+                session.save(update_fields=['viewers_count'])
+                
+                return Response({
+                    "message": "Successfully joined live session",
+                    "status": "success",
+                    "participant_id": participant.id
+                }, status=status.HTTP_201_CREATED)
+            else:
+                return Response({
+                    "message": "Already participating in this session",
+                    "status": "info"
+                }, status=status.HTTP_200_OK)
+                
+        except LiveSession.DoesNotExist:
+            return Response({
+                "message": "Live session not found or not active",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class LiveSessionLeaveView(APIView):
+    """
+    Leave a live session
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, session_id):
+        from .models import LiveSession, LiveParticipant
+        from django.utils import timezone
+        
+        try:
+            session = LiveSession.objects.get(id=session_id)
+            participant = LiveParticipant.objects.get(
+                session=session,
+                user=request.user,
+                left_at__isnull=True
+            )
+            
+            # Mark as left
+            participant.left_at = timezone.now()
+            participant.save()
+            
+            # Update viewers count
+            session.viewers_count = max(0, session.viewers_count - 1)
+            session.save(update_fields=['viewers_count'])
+            
+            return Response({
+                "message": "Successfully left live session",
+                "status": "success"
+            }, status=status.HTTP_200_OK)
+            
+        except (LiveSession.DoesNotExist, LiveParticipant.DoesNotExist):
+            return Response({
+                "message": "Live session or participation not found",
+                "status": "error"
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+# =============================================================================
 # SOCIAL FEED AND STORY VIEWS (NEW)
 # =============================================================================
 
@@ -4291,3 +4540,256 @@ class FeedSuggestionsView(APIView):
                 "status": "success",
                 "popular_searches": [s['query'] for s in popular_searches]
             }, status=status.HTTP_200_OK)
+
+
+# =============================================================================
+# SOCIAL MEDIA HANDLES VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class UserSocialHandleListView(generics.ListCreateAPIView):
+    """
+    List and create user social media handles
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import UserSocialHandleCreateSerializer
+            return UserSocialHandleCreateSerializer
+        from .serializers import UserSocialHandleSerializer
+        return UserSocialHandleSerializer
+    
+    def get_queryset(self):
+        from .models import UserSocialHandle
+        return UserSocialHandle.objects.filter(user=self.request.user)
+
+
+class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific social media handle
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import UserSocialHandleSerializer
+        return UserSocialHandleSerializer
+    
+    def get_queryset(self):
+        from .models import UserSocialHandle
+        return UserSocialHandle.objects.filter(user=self.request.user)
+
+
+# =============================================================================
+# SECURITY QUESTIONS VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class UserSecurityQuestionListView(generics.ListCreateAPIView):
+    """
+    List and create user security question responses
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import UserSecurityQuestionCreateSerializer
+            return UserSecurityQuestionCreateSerializer
+        from .serializers import UserSecurityQuestionSerializer
+        return UserSecurityQuestionSerializer
+    
+    def get_queryset(self):
+        from .models import UserSecurityQuestion
+        return UserSecurityQuestion.objects.filter(user=self.request.user)
+
+
+class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific security question response
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import UserSecurityQuestionSerializer
+        return UserSecurityQuestionSerializer
+    
+    def get_queryset(self):
+        from .models import UserSecurityQuestion
+        return UserSecurityQuestion.objects.filter(user=self.request.user)
+
+
+# =============================================================================
+# DOCUMENT VERIFICATION VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class DocumentVerificationListView(generics.ListCreateAPIView):
+    """
+    List and create document verification requests
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            from .serializers import DocumentVerificationCreateSerializer
+            return DocumentVerificationCreateSerializer
+        from .serializers import DocumentVerificationSerializer
+        return DocumentVerificationSerializer
+    
+    def get_queryset(self):
+        from .models import DocumentVerification
+        return DocumentVerification.objects.filter(user=self.request.user)
+
+
+class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific document verification
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        from .serializers import DocumentVerificationSerializer
+        return DocumentVerificationSerializer
+    
+    def get_queryset(self):
+        from .models import DocumentVerification
+        return DocumentVerification.objects.filter(user=self.request.user)
+
+
+class DocumentUploadView(APIView):
+    """
+    Upload document images for verification
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Upload document images"""
+        try:
+            document_type = request.data.get('document_type')
+            front_image = request.FILES.get('front_image')
+            back_image = request.FILES.get('back_image')
+            
+            if not document_type:
+                return Response({
+                    "message": "Document type is required",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not front_image:
+                return Response({
+                    "message": "Front image is required",
+                    "status": "error"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Save uploaded files (in production, use cloud storage)
+            from django.core.files.storage import default_storage
+            from django.conf import settings
+            import os
+            
+            # Create directory if it doesn't exist
+            upload_dir = os.path.join(settings.MEDIA_ROOT, 'documents', str(request.user.id))
+            os.makedirs(upload_dir, exist_ok=True)
+            
+            # Save front image
+            front_filename = f"front_{document_type}_{request.user.id}_{timezone.now().timestamp()}.jpg"
+            front_path = default_storage.save(os.path.join(upload_dir, front_filename), front_image)
+            front_url = request.build_absolute_uri(settings.MEDIA_URL + front_path)
+            
+            # Save back image if provided
+            back_url = None
+            if back_image:
+                back_filename = f"back_{document_type}_{request.user.id}_{timezone.now().timestamp()}.jpg"
+                back_path = default_storage.save(os.path.join(upload_dir, back_filename), back_image)
+                back_url = request.build_absolute_uri(settings.MEDIA_URL + back_path)
+            
+            # Create document verification record
+            from .models import DocumentVerification
+            verification = DocumentVerification.objects.create(
+                user=request.user,
+                document_type=document_type,
+                front_image_url=front_url,
+                back_image_url=back_url,
+                status='pending'
+            )
+            
+            # TODO: Trigger OCR processing in background
+            
+            return Response({
+                "message": "Document uploaded successfully",
+                "status": "success",
+                "verification_id": verification.id,
+                "front_image_url": front_url,
+                "back_image_url": back_url
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to upload document: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# USERNAME VALIDATION VIEWS (NEW FROM FIGMA)
+# =============================================================================
+
+class UsernameValidationView(APIView):
+    """
+    Validate username availability and format
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """Validate username"""
+        try:
+            from .serializers import UsernameValidationSerializer
+            
+            serializer = UsernameValidationSerializer(data=request.data)
+            if serializer.is_valid():
+                return Response({
+                    "message": "Username validation completed",
+                    "status": "success",
+                    "data": serializer.validated_data
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                "message": "Invalid data provided",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to validate username: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UsernameUpdateView(APIView):
+    """
+    Update user username
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def put(self, request):
+        """Update username"""
+        try:
+            from .serializers import UsernameUpdateSerializer
+            
+            serializer = UsernameUpdateSerializer(request.user, data=request.data, partial=True)
+            if serializer.is_valid():
+                updated_user = serializer.save()
+                return Response({
+                    "message": "Username updated successfully",
+                    "status": "success",
+                    "username": updated_user.username
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                "message": "Failed to update username",
+                "status": "error",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                "message": f"Failed to update username: {str(e)}",
+                "status": "error"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

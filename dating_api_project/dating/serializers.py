@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection, UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine, Chat, Message, VoiceNote, Call, ChatParticipant, ChatReport, Post, PostComment, PostInteraction, CommentInteraction, PostReport, Story, StoryView, StoryReaction, PostShare, FeedSearch
+from .models import User, NewsletterSubscriber, PuzzleVerification, CoinTransaction, Waitlist, Job, JobApplication, AdminUser, AdminOTP, TranslationLog, SocialAccount, DeviceRegistration, LocationHistory, UserMatch, LocationPermission, LivenessVerification, UserVerificationStatus, EmailVerification, PhoneVerification, UserRoleSelection, UserInterest, UserProfileView, UserInteraction, SearchQuery, RecommendationEngine, Chat, Message, VoiceNote, Call, ChatParticipant, ChatReport, Post, PostComment, PostInteraction, CommentInteraction, PostReport, Story, StoryView, StoryReaction, PostShare, FeedSearch, LiveSession, LiveParticipant, UserSocialHandle, UserSecurityQuestion, DocumentVerification, UsernameValidation
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -17,7 +17,8 @@ class UserSerializer(serializers.ModelSerializer):
             'languages', 'relationship_status', 'smoking_preference', 'drinking_preference',
             'pet_preference', 'exercise_frequency', 'kids_preference', 'personality_type',
             'love_language', 'communication_style', 'hobbies', 'interests', 'marriage_plans',
-            'kids_plans', 'religion_importance', 'religion', 'dating_type', 'open_to_long_distance'
+            'kids_plans', 'religion_importance', 'religion', 'dating_type', 'open_to_long_distance',
+            'looking_for', 'push_notifications_enabled', 'email_notifications_enabled', 'preferred_language'
         ]
 
     def create(self, validated_data):
@@ -32,6 +33,267 @@ class UserSerializer(serializers.ModelSerializer):
             user.set_unusable_password()
         user.save()
         return user
+
+
+class UserProfileDetailSerializer(serializers.ModelSerializer):
+    """Enhanced user profile serializer with profile completion percentage"""
+    profile_completion_percentage = serializers.IntegerField(source='get_profile_completion_percentage', read_only=True)
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'name', 'email', 'gender', 'age', 'location', 'bio', 'is_matchmaker',
+            'profile_picture', 'profile_gallery', 'education_level', 'height', 'zodiac_sign',
+            'languages', 'relationship_status', 'smoking_preference', 'drinking_preference',
+            'pet_preference', 'exercise_frequency', 'kids_preference', 'personality_type',
+            'love_language', 'communication_style', 'hobbies', 'interests', 'marriage_plans',
+            'kids_plans', 'religion_importance', 'religion', 'dating_type', 'open_to_long_distance',
+            'looking_for', 'push_notifications_enabled', 'email_notifications_enabled', 
+            'preferred_language', 'profile_completion_percentage'
+        ]
+        read_only_fields = ['id', 'email', 'profile_completion_percentage']
+
+
+class NotificationSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for notification settings"""
+    
+    class Meta:
+        model = User
+        fields = ['push_notifications_enabled', 'email_notifications_enabled']
+    
+    def update(self, instance, validated_data):
+        """Update notification settings"""
+        instance.push_notifications_enabled = validated_data.get('push_notifications_enabled', instance.push_notifications_enabled)
+        instance.email_notifications_enabled = validated_data.get('email_notifications_enabled', instance.email_notifications_enabled)
+        instance.save()
+        return instance
+
+
+class LanguageSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for language settings"""
+    
+    class Meta:
+        model = User
+        fields = ['preferred_language']
+    
+    def update(self, instance, validated_data):
+        """Update language settings"""
+        instance.preferred_language = validated_data.get('preferred_language', instance.preferred_language)
+        instance.save()
+        return instance
+
+
+# =============================================================================
+# LIVE SESSION SERIALIZERS (NEW)
+# =============================================================================
+
+class LiveSessionSerializer(serializers.ModelSerializer):
+    """Serializer for live sessions"""
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    user_profile_picture = serializers.URLField(source='user.profile_picture', read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    current_duration = serializers.DurationField(source='get_current_duration', read_only=True)
+    
+    class Meta:
+        model = LiveSession
+        fields = [
+            'id', 'user', 'user_name', 'user_profile_picture', 'title', 'description',
+            'start_time', 'end_time', 'status', 'duration_limit_minutes', 'viewers_count',
+            'likes_count', 'stream_url', 'thumbnail_url', 'is_active', 'current_duration',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'user', 'user_name', 'user_profile_picture', 'start_time', 'end_time',
+            'viewers_count', 'likes_count', 'is_active', 'current_duration', 'created_at', 'updated_at'
+        ]
+
+
+class LiveSessionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating live sessions"""
+    
+    class Meta:
+        model = LiveSession
+        fields = ['title', 'description', 'duration_limit_minutes']
+    
+    def create(self, validated_data):
+        """Create live session with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+class LiveParticipantSerializer(serializers.ModelSerializer):
+    """Serializer for live session participants"""
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    user_profile_picture = serializers.URLField(source='user.profile_picture', read_only=True)
+    
+    class Meta:
+        model = LiveParticipant
+        fields = [
+            'id', 'session', 'user', 'user_name', 'user_profile_picture', 'role',
+            'joined_at', 'left_at'
+        ]
+        read_only_fields = ['id', 'session', 'user', 'user_name', 'user_profile_picture', 'joined_at', 'left_at']
+
+
+# =============================================================================
+# SOCIAL MEDIA HANDLES SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class UserSocialHandleSerializer(serializers.ModelSerializer):
+    """Serializer for user social media handles"""
+    
+    class Meta:
+        model = UserSocialHandle
+        fields = [
+            'id', 'platform', 'handle', 'url', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class UserSocialHandleCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating user social media handles"""
+    
+    class Meta:
+        model = UserSocialHandle
+        fields = ['platform', 'handle', 'url']
+    
+    def create(self, validated_data):
+        """Create social handle with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+# =============================================================================
+# SECURITY QUESTIONS SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class UserSecurityQuestionSerializer(serializers.ModelSerializer):
+    """Serializer for user security questions"""
+    
+    class Meta:
+        model = UserSecurityQuestion
+        fields = [
+            'id', 'question_type', 'response', 'is_public', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class UserSecurityQuestionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating user security question responses"""
+    
+    class Meta:
+        model = UserSecurityQuestion
+        fields = ['question_type', 'response', 'is_public']
+    
+    def create(self, validated_data):
+        """Create security question response with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+# =============================================================================
+# DOCUMENT VERIFICATION SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class DocumentVerificationSerializer(serializers.ModelSerializer):
+    """Serializer for document verification"""
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    is_verified = serializers.BooleanField(read_only=True)
+    extracted_name = serializers.CharField(source='get_extracted_name', read_only=True)
+    extracted_date_of_birth = serializers.CharField(source='get_extracted_date_of_birth', read_only=True)
+    extracted_document_number = serializers.CharField(source='get_extracted_document_number', read_only=True)
+    
+    class Meta:
+        model = DocumentVerification
+        fields = [
+            'id', 'user', 'user_name', 'document_type', 'status', 'front_image_url',
+            'back_image_url', 'extracted_data', 'verification_score', 'is_authentic',
+            'rejection_reason', 'verification_service', 'service_response',
+            'uploaded_at', 'processed_at', 'verified_at', 'updated_at',
+            'is_verified', 'extracted_name', 'extracted_date_of_birth', 'extracted_document_number'
+        ]
+        read_only_fields = [
+            'id', 'user', 'user_name', 'status', 'extracted_data', 'verification_score',
+            'is_authentic', 'rejection_reason', 'service_response', 'uploaded_at',
+            'processed_at', 'verified_at', 'updated_at', 'is_verified',
+            'extracted_name', 'extracted_date_of_birth', 'extracted_document_number'
+        ]
+
+
+class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating document verification requests"""
+    
+    class Meta:
+        model = DocumentVerification
+        fields = ['document_type', 'front_image_url', 'back_image_url']
+    
+    def create(self, validated_data):
+        """Create document verification with current user"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            validated_data['user'] = request.user
+        return super().create(validated_data)
+
+
+# =============================================================================
+# USERNAME VALIDATION SERIALIZERS (NEW FROM FIGMA)
+# =============================================================================
+
+class UsernameValidationSerializer(serializers.Serializer):
+    """Serializer for username validation"""
+    username = serializers.CharField(max_length=30)
+    is_valid = serializers.BooleanField(read_only=True)
+    message = serializers.CharField(read_only=True)
+    suggestions = serializers.ListField(child=serializers.CharField(), read_only=True)
+    
+    def validate(self, data):
+        """Validate username and return results"""
+        username = data.get('username')
+        is_valid, message, suggestions = UsernameValidation.validate_username(username)
+        
+        data['is_valid'] = is_valid
+        data['message'] = message
+        data['suggestions'] = suggestions
+        
+        return data
+
+
+class UsernameUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating user username"""
+    
+    class Meta:
+        model = User
+        fields = ['username']
+    
+    def validate_username(self, value):
+        """Validate username format and availability"""
+        # Remove @ symbol if present
+        clean_username = value.lstrip('@')
+        
+        # Check if username is available (excluding current user)
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            if User.objects.filter(username=clean_username).exclude(id=request.user.id).exists():
+                raise serializers.ValidationError("Username already taken.")
+        else:
+            if User.objects.filter(username=clean_username).exists():
+                raise serializers.ValidationError("Username already taken.")
+        
+        # Validate format
+        from .models import validate_username_format
+        try:
+            validate_username_format(clean_username)
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
+        
+        return clean_username
+
 
 class NewsletterSubscriberSerializer(serializers.ModelSerializer):
     class Meta:
