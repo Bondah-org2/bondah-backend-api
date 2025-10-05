@@ -141,7 +141,7 @@ BEGIN
     END IF;
 END $$;
 
--- Fix dating_socialaccount table - add missing 'provider_user_id' column
+-- Fix dating_socialaccount table - add missing columns
 DO $$ 
 BEGIN
     IF NOT EXISTS (
@@ -152,7 +152,47 @@ BEGIN
     END IF;
 END $$;
 
--- Fix dating_usermatch table - add missing 'distance' column
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_socialaccount' AND column_name = 'provider_data'
+    ) THEN
+        ALTER TABLE dating_socialaccount ADD COLUMN provider_data JSONB NOT NULL DEFAULT '{}';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_socialaccount' AND column_name = 'is_active'
+    ) THEN
+        ALTER TABLE dating_socialaccount ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE;
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_socialaccount' AND column_name = 'created_at'
+    ) THEN
+        ALTER TABLE dating_socialaccount ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_socialaccount' AND column_name = 'updated_at'
+    ) THEN
+        ALTER TABLE dating_socialaccount ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+    END IF;
+END $$;
+
+-- Fix dating_usermatch table - add missing columns
 DO $$ 
 BEGIN
     IF NOT EXISTS (
@@ -160,6 +200,46 @@ BEGIN
         WHERE table_name = 'dating_usermatch' AND column_name = 'distance'
     ) THEN
         ALTER TABLE dating_usermatch ADD COLUMN distance DECIMAL(10,2) NULL;
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_usermatch' AND column_name = 'match_score'
+    ) THEN
+        ALTER TABLE dating_usermatch ADD COLUMN match_score DECIMAL(5,2) NOT NULL DEFAULT 0.0;
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_usermatch' AND column_name = 'status'
+    ) THEN
+        ALTER TABLE dating_usermatch ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'pending';
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_usermatch' AND column_name = 'created_at'
+    ) THEN
+        ALTER TABLE dating_usermatch ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+    END IF;
+END $$;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'dating_usermatch' AND column_name = 'updated_at'
+    ) THEN
+        ALTER TABLE dating_usermatch ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
     END IF;
 END $$;
 
@@ -222,7 +302,15 @@ CREATE INDEX IF NOT EXISTS dating_locationpermission_location_enabled_idx ON dat
 CREATE INDEX IF NOT EXISTS dating_locationpermission_background_location_enabled_idx ON dating_locationpermission (background_location_enabled);
 CREATE INDEX IF NOT EXISTS dating_locationpermission_updated_at_idx ON dating_locationpermission (updated_at);
 CREATE INDEX IF NOT EXISTS dating_socialaccount_provider_user_id_idx ON dating_socialaccount (provider_user_id);
+CREATE INDEX IF NOT EXISTS dating_socialaccount_provider_data_idx ON dating_socialaccount USING GIN (provider_data);
+CREATE INDEX IF NOT EXISTS dating_socialaccount_is_active_idx ON dating_socialaccount (is_active);
+CREATE INDEX IF NOT EXISTS dating_socialaccount_created_at_idx ON dating_socialaccount (created_at);
+CREATE INDEX IF NOT EXISTS dating_socialaccount_updated_at_idx ON dating_socialaccount (updated_at);
 CREATE INDEX IF NOT EXISTS dating_usermatch_distance_idx ON dating_usermatch (distance);
+CREATE INDEX IF NOT EXISTS dating_usermatch_match_score_idx ON dating_usermatch (match_score);
+CREATE INDEX IF NOT EXISTS dating_usermatch_status_idx ON dating_usermatch (status);
+CREATE INDEX IF NOT EXISTS dating_usermatch_created_at_idx ON dating_usermatch (created_at);
+CREATE INDEX IF NOT EXISTS dating_usermatch_updated_at_idx ON dating_usermatch (updated_at);
 CREATE INDEX IF NOT EXISTS socialaccount_socialapp_provider_id_idx ON socialaccount_socialapp (provider_id);
 CREATE INDEX IF NOT EXISTS socialaccount_socialapp_settings_idx ON socialaccount_socialapp USING GIN (settings);
 CREATE INDEX IF NOT EXISTS dating_user_bondcoin_balance_idx ON dating_user (bondcoin_balance);
@@ -242,7 +330,15 @@ COMMENT ON COLUMN dating_locationpermission.updated_at IS 'Last update timestamp
 COMMENT ON COLUMN dating_message.tip_amount IS 'Tip amount in Bondcoins';
 COMMENT ON COLUMN dating_message.tip_gift_id IS 'Gift sent with message';
 COMMENT ON COLUMN dating_socialaccount.provider_user_id IS 'Provider-specific user ID';
+COMMENT ON COLUMN dating_socialaccount.provider_data IS 'Additional provider data (JSON)';
+COMMENT ON COLUMN dating_socialaccount.is_active IS 'Whether the social account is active';
+COMMENT ON COLUMN dating_socialaccount.created_at IS 'Social account creation timestamp';
+COMMENT ON COLUMN dating_socialaccount.updated_at IS 'Social account last update timestamp';
 COMMENT ON COLUMN dating_usermatch.distance IS 'Distance between matched users';
+COMMENT ON COLUMN dating_usermatch.match_score IS 'Compatibility score (0-100)';
+COMMENT ON COLUMN dating_usermatch.status IS 'Match status (pending, liked, disliked, matched, blocked)';
+COMMENT ON COLUMN dating_usermatch.created_at IS 'Match creation timestamp';
+COMMENT ON COLUMN dating_usermatch.updated_at IS 'Match last update timestamp';
 COMMENT ON COLUMN socialaccount_socialapp.provider_id IS 'Provider identifier';
 COMMENT ON COLUMN socialaccount_socialapp.settings IS 'Provider-specific settings (JSON)';
 COMMENT ON COLUMN dating_user.bondcoin_balance IS 'User balance in Bondcoins (virtual currency)';
