@@ -30,3 +30,6 @@ geopy==2.4.1
 django-extensions==3.2.3
 # Distance calculations
 haversine==2.8.0
+# API Documentation
+drf-spectacular==0.26.5
+drf-spectacular-sidecar==2023.10.1

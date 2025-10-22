@@ -46,6 +46,12 @@ A comprehensive dating platform backend built with Django REST Framework, featur
 - **deep-translator 1.11.4** - Translation services
 - **django-extensions 3.2.3** - Django extensions
 
+### API Documentation
+- **drf-spectacular 0.26.5** - OpenAPI 3.0 schema generation
+- **drf-spectacular-sidecar 2023.10.1** - Static assets for documentation
+- **Swagger UI** - Interactive API documentation
+- **ReDoc** - Clean, responsive API documentation
+
 ### Deployment
 - **Gunicorn 21.2.0** - WSGI HTTP server
 - **Railway** - Cloud deployment platform
@@ -576,6 +582,22 @@ REST_FRAMEWORK = {
 ```
 
 ## 📊 API Documentation
+
+### Live Documentation
+- **Swagger UI**: https://bondah-backend-api-production.up.railway.app/api/docs/
+- **ReDoc**: https://bondah-backend-api-production.up.railway.app/api/redoc/
+- **OpenAPI Schema**: https://bondah-backend-api-production.up.railway.app/api/schema/
+- **Comprehensive Guide**: [API_DOCUMENTATION.md](dating_api_project/API_DOCUMENTATION.md)
+
+### Generate Documentation Locally
+```bash
+# Generate API schema
+python manage.py generate_api_docs --format json
+python manage.py generate_api_docs --format yaml
+
+# Serve documentation locally
+python manage.py generate_api_docs --serve
+```
 
 ### Authentication
 All protected endpoints require JWT authentication:

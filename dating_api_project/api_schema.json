@@ -1,0 +1,1299 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "Bondah Dating API",
+        "version": "1.0.0",
+        "x-logo": {
+            "url": "https://bondah-backend-api-production.up.railway.app/static/admin/img/icon-hires.svg",
+            "altText": "Bondah Dating API"
+        },
+        "description": "\n    # 🚀 Bondah Dating API Documentation\n    \n    ## Overview\n    Comprehensive dating platform API with advanced features including:\n    - User Authentication & OAuth Integration\n    - Real-time Chat & Video Calling\n    - Social Feed & Stories\n    - Live Streaming & Virtual Gifting\n    - Advanced Matching & Discovery\n    - Subscription Plans & Payment Processing\n    - Location-based Services\n    - Document Verification & Security\n    \n    ## Authentication\n    Most endpoints require JWT authentication. Include the access token in the Authorization header:\n    ```\n    Authorization: Bearer <your-access-token>\n    ```\n    \n    ## Base URL\n    - **Production**: https://bondah-backend-api-production.up.railway.app/api/\n    - **Development**: http://localhost:8000/api/\n    \n    ## Features\n    - 🔐 **Authentication**: JWT, OAuth (Google, Apple), Social Login\n    - 💬 **Communication**: Real-time chat, voice/video calls, messaging\n    - 📱 **Social**: Feed, stories, posts, comments, reactions\n    - 🎁 **Monetization**: Subscriptions, virtual gifts, Bondcoins\n    - 📍 **Location**: GPS tracking, nearby users, location-based matching\n    - 🎥 **Live Streaming**: Live sessions, audience interaction, gifts\n    - 🔒 **Security**: Document verification, facial recognition, OTP\n    - 🎯 **Matching**: AI-powered recommendations, advanced filters\n    "
+    },
+    "paths": {
+        "/waitlist/": {
+            "post": {
+                "operationId": "waitlist_create",
+                "description": "Join the waitlist",
+                "tags": [
+                    "waitlist"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WaitlistRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WaitlistRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WaitlistRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Waitlist"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/admin/refresh-token/": {
+            "post": {
+                "operationId": "admin_refresh_token_create",
+                "description": "Refresh access token",
+                "tags": [
+                    "admin"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/admin/logout/": {
+            "post": {
+                "operationId": "admin_logout_create",
+                "description": "Logout and revoke refresh token",
+                "tags": [
+                    "admin"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/admin/debug-auth/": {
+            "get": {
+                "operationId": "admin_debug_auth_retrieve",
+                "description": "Debug authentication headers and token",
+                "tags": [
+                    "admin"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/auth/register/": {
+            "post": {
+                "operationId": "auth_register_create",
+                "description": "User registration for mobile app",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/auth/login/": {
+            "post": {
+                "operationId": "auth_login_create",
+                "description": "User login for mobile app",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/auth/logout/": {
+            "post": {
+                "operationId": "auth_logout_create",
+                "description": "User logout for mobile app",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/auth/refresh/": {
+            "post": {
+                "operationId": "auth_refresh_create",
+                "description": "Refresh JWT token for mobile app",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/auth/password-reset/": {
+            "post": {
+                "operationId": "auth_password_reset_create",
+                "description": "Password reset request for mobile app",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/auth/password-reset-confirm/": {
+            "post": {
+                "operationId": "auth_password_reset_confirm_create",
+                "description": "Password reset confirmation for mobile app",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/oauth/google/": {
+            "post": {
+                "operationId": "oauth_google_create",
+                "description": "Google OAuth login for mobile app",
+                "tags": [
+                    "oauth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/oauth/apple/": {
+            "post": {
+                "operationId": "oauth_apple_create",
+                "description": "Apple Sign-In for mobile app",
+                "tags": [
+                    "oauth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/oauth/social-login/": {
+            "post": {
+                "operationId": "oauth_social_login_create",
+                "description": "Unified social login endpoint (Google/Apple)",
+                "tags": [
+                    "oauth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/verification/email/request/": {
+            "post": {
+                "operationId": "verification_email_request_create",
+                "description": "Request email OTP for verification",
+                "tags": [
+                    "verification"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/verification/email/verify/": {
+            "post": {
+                "operationId": "verification_email_verify_create",
+                "description": "Verify email OTP",
+                "tags": [
+                    "verification"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/verification/phone/request/": {
+            "post": {
+                "operationId": "verification_phone_request_create",
+                "description": "Request phone OTP for verification",
+                "tags": [
+                    "verification"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/verification/phone/verify/": {
+            "post": {
+                "operationId": "verification_phone_verify_create",
+                "description": "Verify phone OTP",
+                "tags": [
+                    "verification"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/verification/resend/": {
+            "post": {
+                "operationId": "verification_resend_create",
+                "description": "Resend OTP for email or phone verification",
+                "tags": [
+                    "verification"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/username/validate/": {
+            "post": {
+                "operationId": "username_validate_create",
+                "description": "Validate username",
+                "tags": [
+                    "username"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/subscriptions/plans/": {
+            "get": {
+                "operationId": "subscriptions_plans_list",
+                "description": "List all available subscription plans",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "subscriptions"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedSubscriptionPlanList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/bondcoin/packages/": {
+            "get": {
+                "operationId": "bondcoin_packages_list",
+                "description": "List all available Bondcoin packages",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "bondcoin"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedBondcoinPackageList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/gifts/categories/": {
+            "get": {
+                "operationId": "gifts_categories_list",
+                "description": "List all gift categories",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "gifts"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedGiftCategoryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/gifts/": {
+            "get": {
+                "operationId": "gifts_list",
+                "description": "List virtual gifts, optionally filtered by category",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "gifts"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedVirtualGiftList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/gifts/{id}/": {
+            "get": {
+                "operationId": "gifts_retrieve",
+                "description": "Retrieve a specific virtual gift",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "gifts"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/VirtualGift"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/live-sessions/{session_id}/gifters/": {
+            "get": {
+                "operationId": "live_sessions_gifters_retrieve",
+                "description": "Get top gifters for a live session",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "session_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "live-sessions"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/payments/webhooks/{provider}/": {
+            "post": {
+                "operationId": "payments_webhooks_create",
+                "description": "Handle payment webhooks from external providers",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {
+                        "tokenAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "BondcoinPackage": {
+                "type": "object",
+                "description": "Serializer for Bondcoin packages",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "e.g., '10 Bondcoins'",
+                        "maxLength": 100
+                    },
+                    "bondcoin_amount": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "description": "Amount of Bondcoins in package"
+                    },
+                    "price_usd": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,8}(?:\\.\\d{0,2})?$",
+                        "description": "Price in USD"
+                    },
+                    "is_popular": {
+                        "type": "boolean",
+                        "description": "Mark as 'Top Selling'"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "bondcoin_amount",
+                    "name",
+                    "price_usd"
+                ]
+            },
+            "GiftCategory": {
+                "type": "object",
+                "description": "Serializer for gift categories",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 50
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "icon_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "maxLength": 200
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "name"
+                ]
+            },
+            "PaginatedBondcoinPackageList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BondcoinPackage"
+                        }
+                    }
+                }
+            },
+            "PaginatedGiftCategoryList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/GiftCategory"
+                        }
+                    }
+                }
+            },
+            "PaginatedSubscriptionPlanList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SubscriptionPlan"
+                        }
+                    }
+                }
+            },
+            "PaginatedVirtualGiftList": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/VirtualGift"
+                        }
+                    }
+                }
+            },
+            "SubscriptionPlan": {
+                "type": "object",
+                "description": "Serializer for subscription plans",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "enum": [
+                            "free",
+                            "basic",
+                            "pro",
+                            "prime"
+                        ],
+                        "type": "string",
+                        "description": "* `free` - Free\n* `basic` - Basic\n* `pro` - Pro\n* `prime` - Prime"
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "description": "Display name like 'BONDAH Basic'",
+                        "maxLength": 100
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "duration": {
+                        "enum": [
+                            "1_week",
+                            "1_month",
+                            "3_months",
+                            "6_months",
+                            "1_year"
+                        ],
+                        "type": "string",
+                        "description": "* `1_week` - 1 Week\n* `1_month` - 1 Month\n* `3_months` - 3 Months\n* `6_months` - 6 Months\n* `1_year` - 1 Year"
+                    },
+                    "price_bondcoins": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "description": "Price in Bondcoins"
+                    },
+                    "price_usd": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,8}(?:\\.\\d{0,2})?$",
+                        "description": "Price in USD"
+                    },
+                    "unlimited_swipes": {
+                        "type": "boolean"
+                    },
+                    "undo_swipes": {
+                        "type": "boolean"
+                    },
+                    "unlimited_unwind": {
+                        "type": "boolean"
+                    },
+                    "global_access": {
+                        "type": "boolean"
+                    },
+                    "read_receipt": {
+                        "type": "boolean"
+                    },
+                    "live_hours_days": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "description": "Live hours in days"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "name",
+                    "price_bondcoins",
+                    "price_usd"
+                ]
+            },
+            "VirtualGift": {
+                "type": "object",
+                "description": "Serializer for virtual gifts",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "e.g., 'Rose Charm', 'Diamond Ring'",
+                        "maxLength": 100
+                    },
+                    "category": {
+                        "type": "integer"
+                    },
+                    "category_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "icon_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "URL to gift icon/image",
+                        "maxLength": 200
+                    },
+                    "cost_bondcoins": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "description": "Cost in Bondcoins"
+                    },
+                    "is_popular": {
+                        "type": "boolean"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "category",
+                    "cost_bondcoins",
+                    "icon_url",
+                    "name"
+                ]
+            },
+            "Waitlist": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 254
+                    },
+                    "date_joined": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "email"
+                ]
+            },
+            "WaitlistRequest": {
+                "type": "object",
+                "properties": {
+                    "firstName": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1
+                    },
+                    "lastName": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "minLength": 1,
+                        "maxLength": 254
+                    }
+                },
+                "required": [
+                    "email",
+                    "firstName",
+                    "lastName"
+                ]
+            }
+        },
+        "securitySchemes": {
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "sessionid"
+            },
+            "jwtAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            },
+            "tokenAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "Authorization",
+                "description": "Token-based authentication with required prefix \"Token\""
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Authentication",
+            "description": "User authentication and OAuth endpoints"
+        },
+        {
+            "name": "User Management",
+            "description": "User profiles, settings, and account management"
+        },
+        {
+            "name": "Chat & Messaging",
+            "description": "Real-time chat, voice/video calls, and messaging"
+        },
+        {
+            "name": "Social Feed",
+            "description": "Posts, stories, comments, and social interactions"
+        },
+        {
+            "name": "Live Streaming",
+            "description": "Live sessions, audience interaction, and streaming"
+        },
+        {
+            "name": "Matching & Discovery",
+            "description": "User search, recommendations, and matching"
+        },
+        {
+            "name": "Location Services",
+            "description": "Location tracking, nearby users, and geo features"
+        },
+        {
+            "name": "Monetization",
+            "description": "Subscriptions, payments, and virtual currency"
+        },
+        {
+            "name": "Virtual Gifting",
+            "description": "Virtual gifts, transactions, and gifting features"
+        },
+        {
+            "name": "Verification",
+            "description": "Document verification, facial recognition, OTP"
+        },
+        {
+            "name": "Admin",
+            "description": "Administrative endpoints and management"
+        },
+        {
+            "name": "Translation",
+            "description": "Multi-language support and translation services"
+        }
+    ]
+}

@@ -55,6 +55,8 @@ INSTALLED_APPS = [
     'allauth.socialaccount.providers.apple',
     'dj_rest_auth',
     'dj_rest_auth.registration',
+    # API Documentation
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -224,6 +226,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 # REST Auth settings
@@ -273,3 +276,102 @@ LOCATION_SERVICES_ENABLED = True
 DEFAULT_MAX_DISTANCE = 50  # kilometers
 LOCATION_UPDATE_FREQUENCY = 'manual'  # manual, hourly, daily, realtime
 LOCATION_HISTORY_RETENTION_DAYS = 30
+
+# API Documentation Configuration
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Bondah Dating API',
+    'DESCRIPTION': '''
+    # 🚀 Bondah Dating API Documentation
+    
+    ## Overview
+    Comprehensive dating platform API with advanced features including:
+    - User Authentication & OAuth Integration
+    - Real-time Chat & Video Calling
+    - Social Feed & Stories
+    - Live Streaming & Virtual Gifting
+    - Advanced Matching & Discovery
+    - Subscription Plans & Payment Processing
+    - Location-based Services
+    - Document Verification & Security
+    
+    ## Authentication
+    Most endpoints require JWT authentication. Include the access token in the Authorization header:
+    ```
+    Authorization: Bearer <your-access-token>
+    ```
+    
+    ## Base URL
+    - **Production**: https://bondah-backend-api-production.up.railway.app/api/
+    - **Development**: http://localhost:8000/api/
+    
+    ## Features
+    - 🔐 **Authentication**: JWT, OAuth (Google, Apple), Social Login
+    - 💬 **Communication**: Real-time chat, voice/video calls, messaging
+    - 📱 **Social**: Feed, stories, posts, comments, reactions
+    - 🎁 **Monetization**: Subscriptions, virtual gifts, Bondcoins
+    - 📍 **Location**: GPS tracking, nearby users, location-based matching
+    - 🎥 **Live Streaming**: Live sessions, audience interaction, gifts
+    - 🔒 **Security**: Document verification, facial recognition, OTP
+    - 🎯 **Matching**: AI-powered recommendations, advanced filters
+    ''',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'COMPONENT_NO_READ_ONLY_REQUIRED': True,
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+        'filter': True,
+        'tagsSorter': 'alpha',
+        'operationsSorter': 'alpha',
+        'docExpansion': 'none',
+        'showExtensions': True,
+        'showCommonExtensions': True,
+    },
+    'REDOC_UI_SETTINGS': {
+        'hideDownloadButton': False,
+        'hideHostname': False,
+        'hideLoading': False,
+        'nativeScrollbars': False,
+        'disableSearch': False,
+        'onlyRequiredInSamples': False,
+        'sortPropsAlphabetically': True,
+        'showObjectSchemaExamples': True,
+    },
+    'PREPROCESSING_HOOKS': [],
+    'POSTPROCESSING_HOOKS': [],
+    'SORT_OPERATIONS': False,
+    'ENUM_NAME_OVERRIDES': {
+        'ValidationErrorEnum': 'drf_spectacular.openapi.AutoSchema',
+    },
+    'ENUM_ADD_EXPLICIT_BLANK_NULL_CHOICE': False,
+    'ENUM_GENERATE_CHOICE_DESCRIPTION': True,
+    'GENERIC_ADDITIONAL_PROPERTIES': None,
+    'SCHEMA_PATH_PREFIX_TRIM': True,
+    'APPEND_COMPONENTS': {},
+    'PREPEND_COMPONENTS': {},
+    'SERVE_AUTHENTICATION': None,
+    'SERVE_PERMISSIONS': [],
+    'EXTENSIONS_INFO': {
+        'x-logo': {
+            'url': 'https://bondah-backend-api-production.up.railway.app/static/admin/img/icon-hires.svg',
+            'altText': 'Bondah Dating API'
+        }
+    },
+    'TAGS': [
+        {'name': 'Authentication', 'description': 'User authentication and OAuth endpoints'},
+        {'name': 'User Management', 'description': 'User profiles, settings, and account management'},
+        {'name': 'Chat & Messaging', 'description': 'Real-time chat, voice/video calls, and messaging'},
+        {'name': 'Social Feed', 'description': 'Posts, stories, comments, and social interactions'},
+        {'name': 'Live Streaming', 'description': 'Live sessions, audience interaction, and streaming'},
+        {'name': 'Matching & Discovery', 'description': 'User search, recommendations, and matching'},
+        {'name': 'Location Services', 'description': 'Location tracking, nearby users, and geo features'},
+        {'name': 'Monetization', 'description': 'Subscriptions, payments, and virtual currency'},
+        {'name': 'Virtual Gifting', 'description': 'Virtual gifts, transactions, and gifting features'},
+        {'name': 'Verification', 'description': 'Document verification, facial recognition, OTP'},
+        {'name': 'Admin', 'description': 'Administrative endpoints and management'},
+        {'name': 'Translation', 'description': 'Multi-language support and translation services'},
+    ]
+}
