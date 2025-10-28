@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'dj_rest_auth.registration',
     # API Documentation
     'drf_spectacular',
+    'drf_spectacular_sidecar',
 ]
 
 MIDDLEWARE = [

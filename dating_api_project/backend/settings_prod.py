@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'dating',
     'corsheaders',
+    # API Documentation
+    'drf_spectacular',
+    'drf_spectacular_sidecar',
     # OAuth and Social Authentication
     'allauth',
     'allauth.account',
@@ -214,6 +217,8 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    # API Documentation
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 # REST Auth settings
@@ -356,14 +361,35 @@ CACHES = {
     }
 }
 
-# REST Framework settings
-REST_FRAMEWORK = {
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
+# DRF Spectacular Settings for API Documentation
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Bondah Dating API',
+    'DESCRIPTION': 'Comprehensive API for Bondah Dating Mobile App',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'TAGS': [
+        {'name': 'Authentication', 'description': 'User authentication and OAuth'},
+        {'name': 'Users', 'description': 'User management and profiles'},
+        {'name': 'Chat', 'description': 'Messaging and chat functionality'},
+        {'name': 'Calls', 'description': 'Voice and video calling'},
+        {'name': 'Live Sessions', 'description': 'Live streaming functionality'},
+        {'name': 'Matching', 'description': 'User matching and discovery'},
+        {'name': 'Verification', 'description': 'User verification systems'},
+        {'name': 'Monetization', 'description': 'Subscriptions and payments'},
+        {'name': 'Admin', 'description': 'Administrative functions'},
     ],
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.SessionAuthentication',
-    ],
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+        'filter': True,
+        'tryItOutEnabled': True,
+    },
+    'REDOC_UI_SETTINGS': {
+        'hideDownloadButton': False,
+        'expandResponses': '200,201',
+        'pathInMiddlePanel': True,
+    },
 }
