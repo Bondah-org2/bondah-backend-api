@@ -777,4 +777,4 @@ This project is proprietary software. All rights reserved.
 
 **Built with ❤️ by the Bondah Team**
 
-For technical support, contact: [support@bondah.com](mailto:support@bondah.com)
+For technical support, contact: [support@bondah.com](mailto:support@bondah.org)
