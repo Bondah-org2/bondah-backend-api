@@ -6,6 +6,9 @@ Configured for Railway deployment.
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from urllib.parse import urlparse
+import dj_database_url
+
 
 # Load environment variables
 load_dotenv()
@@ -84,27 +87,23 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "backend.wsgi.application"
 
-# Database - Railway PostgreSQL
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": (
-            os.getenv("DATABASE_URL", "").split("/")[-1]
-            if os.getenv("DATABASE_URL")
-            else "bondah_db2"
-        ),
-        "USER": os.getenv("DB_USER", "bondah_user2"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "bondahpassorg"),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+# Database - Render PostgreSQL
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    url = urlparse(DATABASE_URL)
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": url.path[1:],
+            "USER": url.username,
+            "PASSWORD": url.password,
+            "HOST": url.hostname,
+            "PORT": url.port or "5432",
+        }
     }
-}
 
-# Use Railway's DATABASE_URL if available
-if os.getenv("DATABASE_URL"):
-    import dj_database_url
-
-    DATABASES["default"] = dj_database_url.parse(os.getenv("DATABASE_URL"))
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -133,7 +132,6 @@ STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Ensure staticfiles directory exists
-import os
 
 if not os.path.exists(STATIC_ROOT):
     os.makedirs(STATIC_ROOT, exist_ok=True)
