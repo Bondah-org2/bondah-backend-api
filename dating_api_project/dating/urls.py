@@ -1,11 +1,11 @@
 from django.urls import path
 from . import liveness_views
 from .views import (
-    UserCreateView, 
-    NewsletterSignupView, 
-    GetPuzzleView, 
-    SubmitPuzzleAnswerView, 
-    EarnCoinsView, 
+    UserCreateView,
+    NewsletterSignupView,
+    GetPuzzleView,
+    SubmitPuzzleAnswerView,
+    EarnCoinsView,
     SpendCoinsView,
     JoinWaitlistView,
     SendNewsletterWelcomeEmailView,
@@ -148,185 +148,456 @@ from .views import (
 
 urlpatterns = [
     # Public API endpoints
-    path('create-user/', UserCreateView.as_view(), name='create-user'),
-    path('newsletter/signup/', NewsletterSignupView.as_view(), name='newsletter-signup'),
-    path('newsletter/subscribe/', NewsletterSignupView.as_view(), name='newsletter-subscribe'),
-    path('puzzle/', GetPuzzleView.as_view(), name='get-puzzle'),
-    path('puzzle/verify/', SubmitPuzzleAnswerView.as_view(), name='verify-puzzle'),
-    path('coins/earn/', EarnCoinsView.as_view(), name='earn-coins'),
-    path('coins/spend/', SpendCoinsView.as_view(), name='spend-coins'),
-    path('waitlist/', JoinWaitlistView.as_view(), name='join-waitlist'),
-    path('email/send-newsletter-welcome/', SendNewsletterWelcomeEmailView.as_view(), name='send-newsletter-welcome'),
-    path('email/send-waitlist-confirmation/', SendWaitlistConfirmationEmailView.as_view(), name='send-waitlist-confirmation'),
-    path('email/send/', SendGenericEmailView.as_view(), name='send-generic-email'),
-    path('jobs/', JobListView.as_view(), name='job-list'),
-    path('jobs/<int:id>/', JobDetailView.as_view(), name='job-detail'),
-    path('jobs/apply/', JobApplicationView.as_view(), name='job-application'),
-    path('jobs/options/', JobOptionsView.as_view(), name='job-options'),
-    
+    path("create-user/", UserCreateView.as_view(), name="create-user"),
+    path(
+        "newsletter/signup/", NewsletterSignupView.as_view(), name="newsletter-signup"
+    ),
+    path(
+        "newsletter/subscribe/",
+        NewsletterSignupView.as_view(),
+        name="newsletter-subscribe",
+    ),
+    path("puzzle/", GetPuzzleView.as_view(), name="get-puzzle"),
+    path("puzzle/verify/", SubmitPuzzleAnswerView.as_view(), name="verify-puzzle"),
+    path("coins/earn/", EarnCoinsView.as_view(), name="earn-coins"),
+    path("coins/spend/", SpendCoinsView.as_view(), name="spend-coins"),
+    path("waitlist/", JoinWaitlistView.as_view(), name="join-waitlist"),
+    path(
+        "email/send-newsletter-welcome/",
+        SendNewsletterWelcomeEmailView.as_view(),
+        name="send-newsletter-welcome",
+    ),
+    path(
+        "email/send-waitlist-confirmation/",
+        SendWaitlistConfirmationEmailView.as_view(),
+        name="send-waitlist-confirmation",
+    ),
+    path("email/send/", SendGenericEmailView.as_view(), name="send-generic-email"),
+    path("jobs/", JobListView.as_view(), name="job-list"),
+    path("jobs/<int:id>/", JobDetailView.as_view(), name="job-detail"),
+    path("jobs/apply/", JobApplicationView.as_view(), name="job-application"),
+    path("jobs/options/", JobOptionsView.as_view(), name="job-options"),
     # Translation API endpoints
-    path('translate/', TranslationView.as_view(), name='translate'),
-    path('translate/languages/', SupportedLanguagesView.as_view(), name='supported-languages'),
-    path('translate/history/', TranslationHistoryView.as_view(), name='translation-history'),
-    path('translate/stats/', TranslationStatsView.as_view(), name='translation-stats'),
-    
+    path("translate/", TranslationView.as_view(), name="translate"),
+    path(
+        "translate/languages/",
+        SupportedLanguagesView.as_view(),
+        name="supported-languages",
+    ),
+    path(
+        "translate/history/",
+        TranslationHistoryView.as_view(),
+        name="translation-history",
+    ),
+    path("translate/stats/", TranslationStatsView.as_view(), name="translation-stats"),
     # Admin API endpoints
-    path('admin/login/', AdminLoginView.as_view(), name='admin-login'),
-    path('admin/verify-otp/', AdminOTPVerificationView.as_view(), name='admin-verify-otp'),
-    path('admin/refresh-token/', AdminTokenRefreshView.as_view(), name='admin-refresh-token'),
-    path('admin/logout/', AdminLogoutView.as_view(), name='admin-logout'),
-    path('admin/verify-token/', AdminVerifyTokenView.as_view(), name='admin-verify-token'),
-    path('admin/debug-auth/', AdminDebugAuthView.as_view(), name='admin-debug-auth'),
-    path('admin/jobs/', AdminJobListView.as_view(), name='admin-job-list'),
-    path('admin/jobs/create/', AdminJobCreateView.as_view(), name='admin-job-create'),
-    path('admin/jobs/<int:job_id>/update/', AdminJobUpdateView.as_view(), name='admin-job-update'),
-    path('admin/applications/', AdminJobApplicationsView.as_view(), name='admin-applications'),
-    path('admin/applications/<int:application_id>/', AdminJobApplicationDetailView.as_view(), name='admin-application-detail'),
-    path('admin/applications/<int:application_id>/status/', AdminUpdateApplicationStatusView.as_view(), name='admin-update-application-status'),
-    path('admin/waitlist/', AdminWaitlistListView.as_view(), name='admin-waitlist-list'),
-    path('admin/newsletter/', AdminNewsletterListView.as_view(), name='admin-newsletter-list'),
-    
+    path("admin/login/", AdminLoginView.as_view(), name="admin-login"),
+    path(
+        "admin/verify-otp/", AdminOTPVerificationView.as_view(), name="admin-verify-otp"
+    ),
+    path(
+        "admin/refresh-token/",
+        AdminTokenRefreshView.as_view(),
+        name="admin-refresh-token",
+    ),
+    path("admin/logout/", AdminLogoutView.as_view(), name="admin-logout"),
+    path(
+        "admin/verify-token/", AdminVerifyTokenView.as_view(), name="admin-verify-token"
+    ),
+    path("admin/debug-auth/", AdminDebugAuthView.as_view(), name="admin-debug-auth"),
+    path("admin/jobs/", AdminJobListView.as_view(), name="admin-job-list"),
+    path("admin/jobs/create/", AdminJobCreateView.as_view(), name="admin-job-create"),
+    path(
+        "admin/jobs/<int:job_id>/update/",
+        AdminJobUpdateView.as_view(),
+        name="admin-job-update",
+    ),
+    path(
+        "admin/applications/",
+        AdminJobApplicationsView.as_view(),
+        name="admin-applications",
+    ),
+    path(
+        "admin/applications/<int:application_id>/",
+        AdminJobApplicationDetailView.as_view(),
+        name="admin-application-detail",
+    ),
+    path(
+        "admin/applications/<int:application_id>/status/",
+        AdminUpdateApplicationStatusView.as_view(),
+        name="admin-update-application-status",
+    ),
+    path(
+        "admin/waitlist/", AdminWaitlistListView.as_view(), name="admin-waitlist-list"
+    ),
+    path(
+        "admin/newsletter/",
+        AdminNewsletterListView.as_view(),
+        name="admin-newsletter-list",
+    ),
     # Mobile App Authentication Endpoints
-    path('auth/register/', UserRegisterView.as_view(), name='user-register'),
-    path('auth/login/', UserLoginView.as_view(), name='user-login'),
-    path('auth/logout/', UserLogoutView.as_view(), name='user-logout'),
-    path('auth/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
-    path('auth/password-reset/', PasswordResetView.as_view(), name='password-reset'),
-    path('auth/password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
-    path('auth/profile/', UserProfileView.as_view(), name='user-profile'),
-    path('auth/deactivate/', AccountDeactivationView.as_view(), name='account-deactivate'),
-    path('auth/notifications/', NotificationSettingsView.as_view(), name='notification-settings'),
-    path('auth/language/', LanguageSettingsView.as_view(), name='language-settings'),
-    path('auth/device-register/', DeviceRegistrationView.as_view(), name='device-register'),
-    
+    path("auth/register/", UserRegisterView.as_view(), name="user-register"),
+    path("auth/login/", UserLoginView.as_view(), name="user-login"),
+    path("auth/logout/", UserLogoutView.as_view(), name="user-logout"),
+    path("auth/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
+    path("auth/password-reset/", PasswordResetView.as_view(), name="password-reset"),
+    path(
+        "auth/password-reset-confirm/",
+        PasswordResetConfirmView.as_view(),
+        name="password-reset-confirm",
+    ),
+    path("auth/profile/", UserProfileView.as_view(), name="user-profile"),
+    path(
+        "auth/deactivate/", AccountDeactivationView.as_view(), name="account-deactivate"
+    ),
+    path(
+        "auth/notifications/",
+        NotificationSettingsView.as_view(),
+        name="notification-settings",
+    ),
+    path("auth/language/", LanguageSettingsView.as_view(), name="language-settings"),
+    path(
+        "auth/device-register/",
+        DeviceRegistrationView.as_view(),
+        name="device-register",
+    ),
     # OAuth Authentication Endpoints
-    path('oauth/google/', GoogleOAuthView.as_view(), name='google-oauth'),
-    path('oauth/apple/', AppleOAuthView.as_view(), name='apple-oauth'),
-    path('oauth/social-login/', SocialLoginView.as_view(), name='social-login'),
-    path('oauth/link-account/', OAuthLinkAccountView.as_view(), name='oauth-link-account'),
-    path('oauth/unlink-account/<str:provider>/', OAuthUnlinkAccountView.as_view(), name='oauth-unlink-account'),
-    path('oauth/social-accounts/', SocialAccountsListView.as_view(), name='social-accounts-list'),
-    
+    path("oauth/google/", GoogleOAuthView.as_view(), name="google-oauth"),
+    path("oauth/apple/", AppleOAuthView.as_view(), name="apple-oauth"),
+    path("oauth/social-login/", SocialLoginView.as_view(), name="social-login"),
+    path(
+        "oauth/link-account/", OAuthLinkAccountView.as_view(), name="oauth-link-account"
+    ),
+    path(
+        "oauth/unlink-account/<str:provider>/",
+        OAuthUnlinkAccountView.as_view(),
+        name="oauth-unlink-account",
+    ),
+    path(
+        "oauth/social-accounts/",
+        SocialAccountsListView.as_view(),
+        name="social-accounts-list",
+    ),
     # Liveness Check / Facial Verification Endpoints
-    path('liveness/start/', liveness_views.StartLivenessCheckView.as_view(), name='liveness-start'),
-    path('liveness/submit/video/', liveness_views.SubmitLivenessVideoView.as_view(), name='liveness-submit-video'),
-    path('liveness/submit/images/', liveness_views.SubmitLivenessImagesView.as_view(), name='liveness-submit-images'),
-    path('liveness/status/<str:session_id>/', liveness_views.LivenessCheckStatusView.as_view(), name='liveness-status'),
-    path('liveness/retry/', liveness_views.RetryLivenessCheckView.as_view(), name='liveness-retry'),
-    path('verification/status/', liveness_views.UserVerificationStatusView.as_view(), name='verification-status'),
-    
+    path(
+        "liveness/start/",
+        liveness_views.StartLivenessCheckView.as_view(),
+        name="liveness-start",
+    ),
+    path(
+        "liveness/submit/video/",
+        liveness_views.SubmitLivenessVideoView.as_view(),
+        name="liveness-submit-video",
+    ),
+    path(
+        "liveness/submit/images/",
+        liveness_views.SubmitLivenessImagesView.as_view(),
+        name="liveness-submit-images",
+    ),
+    path(
+        "liveness/status/<str:session_id>/",
+        liveness_views.LivenessCheckStatusView.as_view(),
+        name="liveness-status",
+    ),
+    path(
+        "liveness/retry/",
+        liveness_views.RetryLivenessCheckView.as_view(),
+        name="liveness-retry",
+    ),
+    path(
+        "verification/status/",
+        liveness_views.UserVerificationStatusView.as_view(),
+        name="verification-status",
+    ),
     # Email and Phone Verification Endpoints
-    path('verification/email/request/', EmailOTPRequestView.as_view(), name='email-otp-request'),
-    path('verification/email/verify/', EmailOTPVerifyView.as_view(), name='email-otp-verify'),
-    path('verification/phone/request/', PhoneOTPRequestView.as_view(), name='phone-otp-request'),
-    path('verification/phone/verify/', PhoneOTPVerifyView.as_view(), name='phone-otp-verify'),
-    path('verification/resend/', ResendOTPView.as_view(), name='resend-otp'),
-    path('onboarding/role/', UserRoleSelectionView.as_view(), name='user-role-selection'),
-    
+    path(
+        "verification/email/request/",
+        EmailOTPRequestView.as_view(),
+        name="email-otp-request",
+    ),
+    path(
+        "verification/email/verify/",
+        EmailOTPVerifyView.as_view(),
+        name="email-otp-verify",
+    ),
+    path(
+        "verification/phone/request/",
+        PhoneOTPRequestView.as_view(),
+        name="phone-otp-request",
+    ),
+    path(
+        "verification/phone/verify/",
+        PhoneOTPVerifyView.as_view(),
+        name="phone-otp-verify",
+    ),
+    path("verification/resend/", ResendOTPView.as_view(), name="resend-otp"),
+    path(
+        "onboarding/role/", UserRoleSelectionView.as_view(), name="user-role-selection"
+    ),
     # Advanced Search and Discovery Endpoints
-    path('search/users/', UserSearchView.as_view(), name='user-search'),
-    path('users/<int:user_id>/profile/', UserProfileDetailView.as_view(), name='user-profile-detail'),
-    path('users/interact/', UserInteractionView.as_view(), name='user-interaction'),
-    path('users/recommendations/', UserRecommendationsView.as_view(), name='user-recommendations'),
-    path('users/category/', CategoryFilterView.as_view(), name='category-filter'),
-    path('users/interests/', UserInterestsView.as_view(), name='user-interests'),
-    
+    path("search/users/", UserSearchView.as_view(), name="user-search"),
+    path(
+        "users/<int:user_id>/profile/",
+        UserProfileDetailView.as_view(),
+        name="user-profile-detail",
+    ),
+    path("users/interact/", UserInteractionView.as_view(), name="user-interaction"),
+    path(
+        "users/recommendations/",
+        UserRecommendationsView.as_view(),
+        name="user-recommendations",
+    ),
+    path("users/category/", CategoryFilterView.as_view(), name="category-filter"),
+    path("users/interests/", UserInterestsView.as_view(), name="user-interests"),
     # Location Management Endpoints
-    path('location/update/', LocationUpdateView.as_view(), name='location-update'),
-    path('location/geocode/', AddressGeocodeView.as_view(), name='address-geocode'),
-    path('location/privacy/', LocationPrivacyUpdateView.as_view(), name='location-privacy'),
-    path('location/permissions/', LocationPermissionsView.as_view(), name='location-permissions'),
-    path('location/history/', LocationHistoryView.as_view(), name='location-history'),
-    path('location/nearby-users/', NearbyUsersView.as_view(), name='nearby-users'),
-    path('location/match-preferences/', MatchPreferencesView.as_view(), name='match-preferences'),
-    path('location/profile/', UserLocationProfileView.as_view(), name='user-location-profile'),
-    path('location/statistics/', LocationStatisticsView.as_view(), name='location-statistics'),
-    
+    path("location/update/", LocationUpdateView.as_view(), name="location-update"),
+    path("location/geocode/", AddressGeocodeView.as_view(), name="address-geocode"),
+    path(
+        "location/privacy/",
+        LocationPrivacyUpdateView.as_view(),
+        name="location-privacy",
+    ),
+    path(
+        "location/permissions/",
+        LocationPermissionsView.as_view(),
+        name="location-permissions",
+    ),
+    path("location/history/", LocationHistoryView.as_view(), name="location-history"),
+    path("location/nearby-users/", NearbyUsersView.as_view(), name="nearby-users"),
+    path(
+        "location/match-preferences/",
+        MatchPreferencesView.as_view(),
+        name="match-preferences",
+    ),
+    path(
+        "location/profile/",
+        UserLocationProfileView.as_view(),
+        name="user-location-profile",
+    ),
+    path(
+        "location/statistics/",
+        LocationStatisticsView.as_view(),
+        name="location-statistics",
+    ),
     # Chat and Messaging Endpoints (NEW)
-    path('chat/', ChatListView.as_view(), name='chat-list'),
-    path('chat/<int:pk>/', ChatDetailView.as_view(), name='chat-detail'),
-    path('chat/<int:chat_id>/messages/', MessageListView.as_view(), name='message-list'),
-    path('chat/<int:chat_id>/messages/<int:pk>/', MessageDetailView.as_view(), name='message-detail'),
-    path('chat/<int:chat_id>/report/', ChatReportView.as_view(), name='chat-report'),
-    path('chat/<int:chat_id>/messages/<int:message_id>/report/', ChatReportView.as_view(), name='message-report'),
-    path('chat/matchmaker-intro/', MatchmakerIntroView.as_view(), name='matchmaker-intro'),
-    
+    path("chat/", ChatListView.as_view(), name="chat-list"),
+    path("chat/<int:pk>/", ChatDetailView.as_view(), name="chat-detail"),
+    path(
+        "chat/<int:chat_id>/messages/", MessageListView.as_view(), name="message-list"
+    ),
+    path(
+        "chat/<int:chat_id>/messages/<int:pk>/",
+        MessageDetailView.as_view(),
+        name="message-detail",
+    ),
+    path("chat/<int:chat_id>/report/", ChatReportView.as_view(), name="chat-report"),
+    path(
+        "chat/<int:chat_id>/messages/<int:message_id>/report/",
+        ChatReportView.as_view(),
+        name="message-report",
+    ),
+    path(
+        "chat/matchmaker-intro/", MatchmakerIntroView.as_view(), name="matchmaker-intro"
+    ),
     # Voice/Video Call Endpoints (NEW)
-    path('calls/initiate/', CallInitiateView.as_view(), name='call-initiate'),
-    path('calls/<str:call_id>/answer/', CallAnswerView.as_view(), name='call-answer'),
-    path('calls/<str:call_id>/end/', CallEndView.as_view(), name='call-end'),
-    
+    path("calls/initiate/", CallInitiateView.as_view(), name="call-initiate"),
+    path("calls/<str:call_id>/answer/", CallAnswerView.as_view(), name="call-answer"),
+    path("calls/<str:call_id>/end/", CallEndView.as_view(), name="call-end"),
     # Social Feed and Story Endpoints (NEW)
-    path('feed/', FeedListView.as_view(), name='feed-list'),
-    path('feed/posts/<int:pk>/', PostDetailView.as_view(), name='post-detail'),
-    path('feed/posts/<int:post_id>/comments/', PostCommentListView.as_view(), name='post-comments'),
-    path('feed/posts/<int:post_id>/interact/', PostInteractionView.as_view(), name='post-interaction'),
-    path('feed/comments/<int:comment_id>/interact/', CommentInteractionView.as_view(), name='comment-interaction'),
-    path('feed/posts/<int:post_id>/report/', PostReportView.as_view(), name='post-report'),
-    path('feed/comments/<int:comment_id>/report/', PostReportView.as_view(), name='comment-report'),
-    path('feed/posts/<int:post_id>/share/', PostShareView.as_view(), name='post-share'),
-    path('feed/stories/', StoryListView.as_view(), name='story-list'),
-    path('feed/stories/<int:pk>/', StoryDetailView.as_view(), name='story-detail'),
-    path('feed/stories/<int:story_id>/react/', StoryReactionView.as_view(), name='story-reaction'),
-    path('feed/search/', FeedSearchView.as_view(), name='feed-search'),
-    path('feed/suggestions/', FeedSuggestionsView.as_view(), name='feed-suggestions'),
-    
+    path("feed/", FeedListView.as_view(), name="feed-list"),
+    path("feed/posts/<int:pk>/", PostDetailView.as_view(), name="post-detail"),
+    path(
+        "feed/posts/<int:post_id>/comments/",
+        PostCommentListView.as_view(),
+        name="post-comments",
+    ),
+    path(
+        "feed/posts/<int:post_id>/interact/",
+        PostInteractionView.as_view(),
+        name="post-interaction",
+    ),
+    path(
+        "feed/comments/<int:comment_id>/interact/",
+        CommentInteractionView.as_view(),
+        name="comment-interaction",
+    ),
+    path(
+        "feed/posts/<int:post_id>/report/", PostReportView.as_view(), name="post-report"
+    ),
+    path(
+        "feed/comments/<int:comment_id>/report/",
+        PostReportView.as_view(),
+        name="comment-report",
+    ),
+    path("feed/posts/<int:post_id>/share/", PostShareView.as_view(), name="post-share"),
+    path("feed/stories/", StoryListView.as_view(), name="story-list"),
+    path("feed/stories/<int:pk>/", StoryDetailView.as_view(), name="story-detail"),
+    path(
+        "feed/stories/<int:story_id>/react/",
+        StoryReactionView.as_view(),
+        name="story-reaction",
+    ),
+    path("feed/search/", FeedSearchView.as_view(), name="feed-search"),
+    path("feed/suggestions/", FeedSuggestionsView.as_view(), name="feed-suggestions"),
     # Live Session Endpoints (NEW)
-    path('live-sessions/', LiveSessionListView.as_view(), name='live-session-list'),
-    path('live-sessions/<int:pk>/', LiveSessionDetailView.as_view(), name='live-session-detail'),
-    path('live-sessions/<int:session_id>/join/', LiveSessionJoinView.as_view(), name='live-session-join'),
-    path('live-sessions/<int:session_id>/leave/', LiveSessionLeaveView.as_view(), name='live-session-leave'),
-    
+    path("live-sessions/", LiveSessionListView.as_view(), name="live-session-list"),
+    path(
+        "live-sessions/<int:pk>/",
+        LiveSessionDetailView.as_view(),
+        name="live-session-detail",
+    ),
+    path(
+        "live-sessions/<int:session_id>/join/",
+        LiveSessionJoinView.as_view(),
+        name="live-session-join",
+    ),
+    path(
+        "live-sessions/<int:session_id>/leave/",
+        LiveSessionLeaveView.as_view(),
+        name="live-session-leave",
+    ),
     # Social Media Handles Endpoints (NEW FROM FIGMA)
-    path('social-handles/', UserSocialHandleListView.as_view(), name='social-handle-list'),
-    path('social-handles/<int:pk>/', UserSocialHandleDetailView.as_view(), name='social-handle-detail'),
-    
+    path(
+        "social-handles/", UserSocialHandleListView.as_view(), name="social-handle-list"
+    ),
+    path(
+        "social-handles/<int:pk>/",
+        UserSocialHandleDetailView.as_view(),
+        name="social-handle-detail",
+    ),
     # Security Questions Endpoints (NEW FROM FIGMA)
-    path('security-questions/', UserSecurityQuestionListView.as_view(), name='security-question-list'),
-    path('security-questions/<int:pk>/', UserSecurityQuestionDetailView.as_view(), name='security-question-detail'),
-    
+    path(
+        "security-questions/",
+        UserSecurityQuestionListView.as_view(),
+        name="security-question-list",
+    ),
+    path(
+        "security-questions/<int:pk>/",
+        UserSecurityQuestionDetailView.as_view(),
+        name="security-question-detail",
+    ),
     # Document Verification Endpoints (NEW FROM FIGMA)
-    path('document-verification/', DocumentVerificationListView.as_view(), name='document-verification-list'),
-    path('document-verification/<int:pk>/', DocumentVerificationDetailView.as_view(), name='document-verification-detail'),
-    path('document-verification/upload/', DocumentUploadView.as_view(), name='document-upload'),
-    
+    path(
+        "document-verification/",
+        DocumentVerificationListView.as_view(),
+        name="document-verification-list",
+    ),
+    path(
+        "document-verification/<int:pk>/",
+        DocumentVerificationDetailView.as_view(),
+        name="document-verification-detail",
+    ),
+    path(
+        "document-verification/upload/",
+        DocumentUploadView.as_view(),
+        name="document-upload",
+    ),
     # Username Validation Endpoints (NEW FROM FIGMA)
-    path('username/validate/', UsernameValidationView.as_view(), name='username-validate'),
-    path('username/update/', UsernameUpdateView.as_view(), name='username-update'),
-    
+    path(
+        "username/validate/", UsernameValidationView.as_view(), name="username-validate"
+    ),
+    path("username/update/", UsernameUpdateView.as_view(), name="username-update"),
     # Subscription Plans Endpoints (NEW FROM FIGMA)
-    path('subscriptions/plans/', SubscriptionPlanListView.as_view(), name='subscription-plans'),
-    path('subscriptions/', UserSubscriptionListView.as_view(), name='user-subscriptions'),
-    path('subscriptions/<int:pk>/', UserSubscriptionDetailView.as_view(), name='user-subscription-detail'),
-    path('subscriptions/current/', UserCurrentSubscriptionView.as_view(), name='current-subscription'),
-    path('subscriptions/feature-access/', UserFeatureAccessView.as_view(), name='feature-access'),
-    
+    path(
+        "subscriptions/plans/",
+        SubscriptionPlanListView.as_view(),
+        name="subscription-plans",
+    ),
+    path(
+        "subscriptions/", UserSubscriptionListView.as_view(), name="user-subscriptions"
+    ),
+    path(
+        "subscriptions/<int:pk>/",
+        UserSubscriptionDetailView.as_view(),
+        name="user-subscription-detail",
+    ),
+    path(
+        "subscriptions/current/",
+        UserCurrentSubscriptionView.as_view(),
+        name="current-subscription",
+    ),
+    path(
+        "subscriptions/feature-access/",
+        UserFeatureAccessView.as_view(),
+        name="feature-access",
+    ),
     # Bondcoin Wallet Endpoints (NEW FROM FIGMA)
-    path('bondcoin/packages/', BondcoinPackageListView.as_view(), name='bondcoin-packages'),
-    path('bondcoin/balance/', UserBondcoinBalanceView.as_view(), name='bondcoin-balance'),
-    path('bondcoin/transactions/', BondcoinTransactionListView.as_view(), name='bondcoin-transactions'),
-    path('bondcoin/transactions/<int:pk>/', BondcoinTransactionDetailView.as_view(), name='bondcoin-transaction-detail'),
-    path('bondcoin/purchase/', BondcoinPurchaseView.as_view(), name='bondcoin-purchase'),
-    
+    path(
+        "bondcoin/packages/",
+        BondcoinPackageListView.as_view(),
+        name="bondcoin-packages",
+    ),
+    path(
+        "bondcoin/balance/", UserBondcoinBalanceView.as_view(), name="bondcoin-balance"
+    ),
+    path(
+        "bondcoin/transactions/",
+        BondcoinTransactionListView.as_view(),
+        name="bondcoin-transactions",
+    ),
+    path(
+        "bondcoin/transactions/<int:pk>/",
+        BondcoinTransactionDetailView.as_view(),
+        name="bondcoin-transaction-detail",
+    ),
+    path(
+        "bondcoin/purchase/", BondcoinPurchaseView.as_view(), name="bondcoin-purchase"
+    ),
     # Virtual Gifting Endpoints (NEW FROM FIGMA)
-    path('gifts/categories/', GiftCategoryListView.as_view(), name='gift-categories'),
-    path('gifts/', VirtualGiftListView.as_view(), name='virtual-gifts'),
-    path('gifts/<int:pk>/', VirtualGiftDetailView.as_view(), name='virtual-gift-detail'),
-    path('gifts/transactions/', GiftTransactionListView.as_view(), name='gift-transactions'),
-    path('gifts/send/', SendGiftView.as_view(), name='send-gift'),
-    
+    path("gifts/categories/", GiftCategoryListView.as_view(), name="gift-categories"),
+    path("gifts/", VirtualGiftListView.as_view(), name="virtual-gifts"),
+    path(
+        "gifts/<int:pk>/", VirtualGiftDetailView.as_view(), name="virtual-gift-detail"
+    ),
+    path(
+        "gifts/transactions/",
+        GiftTransactionListView.as_view(),
+        name="gift-transactions",
+    ),
+    path("gifts/send/", SendGiftView.as_view(), name="send-gift"),
     # Live Streaming Enhancement Endpoints (NEW FROM FIGMA)
-    path('live-sessions/gifts/', LiveGiftListView.as_view(), name='live-gifts'),
-    path('live-sessions/join-requests/', LiveJoinRequestListView.as_view(), name='live-join-requests'),
-    path('live-sessions/join-requests/<int:pk>/', LiveJoinRequestDetailView.as_view(), name='live-join-request-detail'),
-    path('live-sessions/join-requests/<int:pk>/manage/', LiveJoinRequestManageView.as_view(), name='live-join-request-manage'),
-    path('live-sessions/<int:session_id>/gifters/', LiveSessionGiftersView.as_view(), name='live-session-gifters'),
-    
+    path("live-sessions/gifts/", LiveGiftListView.as_view(), name="live-gifts"),
+    path(
+        "live-sessions/join-requests/",
+        LiveJoinRequestListView.as_view(),
+        name="live-join-requests",
+    ),
+    path(
+        "live-sessions/join-requests/<int:pk>/",
+        LiveJoinRequestDetailView.as_view(),
+        name="live-join-request-detail",
+    ),
+    path(
+        "live-sessions/join-requests/<int:pk>/manage/",
+        LiveJoinRequestManageView.as_view(),
+        name="live-join-request-manage",
+    ),
+    path(
+        "live-sessions/<int:session_id>/gifters/",
+        LiveSessionGiftersView.as_view(),
+        name="live-session-gifters",
+    ),
     # Payment Processing Endpoints
-    path('payments/methods/', PaymentMethodListView.as_view(), name='payment-methods'),
-    path('payments/transactions/', PaymentTransactionListView.as_view(), name='payment-transactions'),
-    path('payments/transactions/<int:pk>/', PaymentTransactionDetailView.as_view(), name='payment-transaction-detail'),
-    path('payments/process/', ProcessPaymentView.as_view(), name='process-payment'),
-    path('payments/webhooks/<str:provider>/', PaymentWebhookView.as_view(), name='payment-webhook'),
-    path('payments/refund/<int:transaction_id>/', RefundPaymentView.as_view(), name='refund-payment'),
+    path("payments/methods/", PaymentMethodListView.as_view(), name="payment-methods"),
+    path(
+        "payments/transactions/",
+        PaymentTransactionListView.as_view(),
+        name="payment-transactions",
+    ),
+    path(
+        "payments/transactions/<int:pk>/",
+        PaymentTransactionDetailView.as_view(),
+        name="payment-transaction-detail",
+    ),
+    path("payments/process/", ProcessPaymentView.as_view(), name="process-payment"),
+    path(
+        "payments/webhooks/<str:provider>/",
+        PaymentWebhookView.as_view(),
+        name="payment-webhook",
+    ),
+    path(
+        "payments/refund/<int:transaction_id>/",
+        RefundPaymentView.as_view(),
+        name="refund-payment",
+    ),
 ]

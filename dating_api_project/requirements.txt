@@ -1,7 +1,7 @@
 Django==4.2.7
 djangorestframework==3.14.0
 django-cors-headers==4.3.1
-psycopg2-binary==2.9.7
+psycopg2-binary
 python-dotenv==1.0.0
 gunicorn==21.2.0
 dj-database-url==2.1.0
@@ -20,7 +20,7 @@ google-auth-httplib2==0.1.1
 cryptography==42.0.8
 PyJWT[crypto]==2.8.0
 # Image handling
-Pillow==10.1.0
+Pillow
 # Push notifications
 firebase-admin==6.4.0
 # Additional utilities
