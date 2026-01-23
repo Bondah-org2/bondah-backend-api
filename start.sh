@@ -12,4 +12,4 @@ python dating_api_project/backend/manage.py collectstatic --noinput --settings=b
 
 # Start Gunicorn server
 echo "🚀 Starting Gunicorn..."
-gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT
+gunicorn dating_api_project.backend.wsgi:application --bind 0.0.0.0:$PORT
