@@ -87,22 +87,30 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "backend.wsgi.application"
 
-# Database - Render PostgreSQL
+# # Database - Render PostgreSQL
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL:
-    url = urlparse(DATABASE_URL)
+# DATABASE_URL = os.getenv("DATABASE_URL")
+# if DATABASE_URL:
+#     url = urlparse(DATABASE_URL)
 
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": url.path[1:],
-            "USER": url.username,
-            "PASSWORD": url.password,
-            "HOST": url.hostname,
-            "PORT": url.port or "5432",
-        }
-    }
+#     DATABASES = {
+#         "default": {
+#             "ENGINE": "django.db.backends.postgresql",
+#             "NAME": url.path[1:],
+#             "USER": url.username,
+#             "PASSWORD": url.password,
+#             "HOST": url.hostname,
+#             "PORT": url.port or "5432",
+#         }
+#     }
+
+DATABASES = {
+    "default": dj_database_url.config(
+        default="postgresql://bondah_user2:bondahpassorg@localhost:5432/bondah_db2",
+        conn_max_age=600,
+        ssl_require=False,
+    )
+}
 
 
 # Password validation
