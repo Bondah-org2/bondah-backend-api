@@ -413,3 +413,7 @@ SPECTACULAR_SETTINGS = {
         },
     ],
 }
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "CSRF_TRUSTED_ORIGINS",
+    "https://bondah-backend-api-production.up.railway.app,https://bondah.org,https://www.bondah.org",
+).split(",")

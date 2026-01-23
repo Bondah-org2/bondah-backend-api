@@ -27,7 +27,11 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "jwt-secret-key-change-in-productio
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
+ALLOWED_HOSTS = [
+    "bondah-backend-api-production-881c.up.railway.app",
+    "localhost",
+    "127.0.0.1",
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -312,10 +316,7 @@ CORS_ALLOW_HEADERS = [
 ]
 
 # CSRF settings for production
-CSRF_TRUSTED_ORIGINS = os.getenv(
-    "CSRF_TRUSTED_ORIGINS",
-    "https://bondah-backend-api-production.up.railway.app,https://bondah.org,https://www.bondah.org",
-).split(",")
+CSRF_TRUSTED_ORIGINS = ["https://bondah-backend-api-production-881c.up.railway.app"]
 CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = "Lax"
