@@ -3,13 +3,13 @@
 echo "🚀 Starting Bondah Dating API deployment..."
 
 # Run database fixes
-echo "📋 Running database fixes..."
-python fix_all_database_issues.py
-python fix_auth_tables.py
-python fix_admin_login.py
-python fix_job_application_schema.py
-python fix_waitlist_database.py
-python fix_waitlist_railway_db.py
+# echo "📋 Running database fixes..."
+# python fix_all_database_issues.py
+# python fix_auth_tables.py
+# python fix_admin_login.py
+# python fix_job_application_schema.py
+# python fix_waitlist_database.py
+# python fix_waitlist_railway_db.py
 
 # Run migrations
 echo "📋 Running migrations..."
