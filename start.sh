@@ -12,7 +12,7 @@ echo "📋 Collecting static files..."
 python manage.py collectstatic --noinput --settings=backend.settings_prod
 
 echo "👤 Creating superuser if not exists..."
-python create_superuser.py
+python create_admin_superuser.py
 
 
 echo "🚀 Starting Gunicorn server..."
