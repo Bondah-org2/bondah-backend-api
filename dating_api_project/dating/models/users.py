@@ -416,7 +416,7 @@ class User(AbstractUser):
         if not (self.has_location and other_user.has_location):
             return None
 
-        from .location_utils import calculate_distance
+        from ..location_utils import calculate_distance
 
         return calculate_distance(
             self.location_coordinates, other_user.location_coordinates
@@ -607,8 +607,6 @@ class AdminOTP(models.Model):
         return f"OTP for {self.admin_user.email}"
 
     def is_expired(self):
-        from django.utils import timezone
-
         return timezone.now() > self.expires_at
 
     class Meta:

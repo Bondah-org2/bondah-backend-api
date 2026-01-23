@@ -79,6 +79,7 @@ from .serializers import (
     UserProfileWithLocationSerializer,
     NearbyUserSerializer,
     MatchPreferencesSerializer,
+    UsernameValidationSerializer
 )
 import time
 from deep_translator import GoogleTranslator
@@ -127,7 +128,7 @@ class NewsletterSignupView(generics.CreateAPIView):
                 message = f"""
 Hi {name if name else 'there'},
 
-Thank you for subscribing to our newsletter! 
+Thank you for subscribing to our newsletter!
 
 We're excited to keep you updated on:
 • Latest dating tips and advice
@@ -5585,7 +5586,6 @@ class UsernameValidationView(APIView):
     def post(self, request):
         """Validate username"""
         try:
-            from .serializers import UsernameValidationSerializer
 
             serializer = UsernameValidationSerializer(data=request.data)
             if serializer.is_valid():
