@@ -113,7 +113,6 @@ class UserSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "email",
             "bondcoin_balance",  # Financial data should be read-only
             "is_matchmaker",     # Admin privilege should be read-only
         ]
