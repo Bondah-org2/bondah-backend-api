@@ -11,5 +11,9 @@ python manage.py migrate --settings=backend.settings_prod
 echo "📋 Collecting static files..."
 python manage.py collectstatic --noinput --settings=backend.settings_prod
 
+echo "👤 Creating superuser if not exists..."
+python create_superuser.py
+
+
 echo "🚀 Starting Gunicorn server..."
 gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT
