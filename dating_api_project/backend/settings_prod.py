@@ -104,13 +104,13 @@ WSGI_APPLICATION = "backend.wsgi.application"
 #         }
 #     }
 
-DATABASES = {
-    "default": dj_database_url.config(
-        default="postgresql://bondah_user2:bondahpassorg@localhost:5432/bondah_db2",
-        conn_max_age=600,
-        ssl_require=False,
-    )
-}
+# DATABASES = {
+#     "default": dj_database_url.config(
+#         default="postgresql://bondah_user2:bondahpassorg@localhost:5432/bondah_db2",
+#         conn_max_age=600,
+#         ssl_require=False,
+#     )
+# }
 
 
 # Password validation
