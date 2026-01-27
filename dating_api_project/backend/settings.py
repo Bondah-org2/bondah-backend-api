@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+
 # Firebase Configuration
 import firebase_admin
 from firebase_admin import credentials
@@ -21,13 +22,27 @@ from firebase_admin import credentials
 load_dotenv()
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 
+# Firebase Configuration
+# For Railway deployment - JSON content from environment variable
+FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
-# Path to Firebase service account key (set in .env or env var)
-FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "path/to/firebase-service-account.json")
+# For local development - path to JSON file
+FIREBASE_CREDENTIALS_PATH = os.getenv(
+    "FIREBASE_CREDENTIALS_PATH", "firebase-service-account.json"
+)
 
 # Initialize Firebase Admin SDK
 if not firebase_admin._apps:  # Prevent re-initialization
-    cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+    if FIREBASE_CREDENTIALS_JSON:
+        # Use JSON content from environment variable (Railway)
+        import json
+
+        cred_dict = json.loads(FIREBASE_CREDENTIALS_JSON)
+        cred = credentials.Certificate(cred_dict)
+    else:
+        # Use file path (local development)
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+
     firebase_admin.initialize_app(cred)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.

@@ -8,10 +8,38 @@ from pathlib import Path
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 import dj_database_url
+# Firebase Configuration
+import firebase_admin
+from firebase_admin import credentials
+import json
 
 
 # Load environment variables
 load_dotenv()
+
+
+# Firebase Configuration
+# For Railway deployment - JSON content from environment variable
+FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
+
+# For local development - path to JSON file
+FIREBASE_CREDENTIALS_PATH = os.getenv(
+    "FIREBASE_CREDENTIALS_PATH", "firebase-service-account.json"
+)
+
+# Initialize Firebase Admin SDK
+if not firebase_admin._apps:  # Prevent re-initialization
+    if FIREBASE_CREDENTIALS_JSON:
+        # Use JSON content from environment variable (Railway)
+
+        cred_dict = json.loads(FIREBASE_CREDENTIALS_JSON)
+        cred = credentials.Certificate(cred_dict)
+    else:
+        # Use file path (local development)
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+
+    firebase_admin.initialize_app(cred)
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

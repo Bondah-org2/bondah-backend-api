@@ -8,11 +8,34 @@ from firebase_admin import auth, firestore, messaging
 from django.conf import settings
 from .models.users import User  # Import your User model
 import logging
+from firebase_admin import credentials
 
 logger = logging.getLogger(__name__)
 
-# Initialize Firestore client
-db = firestore.client()
+# Remove global Firestore client initialization - will be lazy loaded
+_db = None
+
+
+def get_firestore_client():
+    """Get Firestore client with lazy initialization"""
+    global _db
+    if _db is None:
+        # Ensure Firebase is initialized
+        if not firebase_admin._apps:
+            # This should have been initialized in settings.py, but just in case
+            if (
+                hasattr(settings, "FIREBASE_CREDENTIALS_JSON")
+                and settings.FIREBASE_CREDENTIALS_JSON
+            ):
+                import json
+
+                cred_dict = json.loads(settings.FIREBASE_CREDENTIALS_JSON)
+                cred = credentials.Certificate(cred_dict)
+            else:
+                cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
+            firebase_admin.initialize_app(cred)
+        _db = firestore.client()
+    return _db
 
 
 def verify_firebase_token(id_token):
@@ -57,6 +80,7 @@ def get_user_profile_from_firestore(uid):
     Assumes a 'users' collection with documents keyed by Firebase UID.
     """
     try:
+        db = get_firestore_client()
         doc_ref = db.collection("users").document(uid)
         doc = doc_ref.get()
         if doc.exists:
@@ -73,6 +97,7 @@ def update_user_profile_in_firestore(uid, data):
     Data should be a dict of fields to update.
     """
     try:
+        db = get_firestore_client()
         doc_ref = db.collection("users").document(uid)
         doc_ref.set(data, merge=True)  # Merge to update existing fields
         return True
@@ -87,6 +112,7 @@ def create_match_in_firestore(user_uid, matched_uid):
     Assumes a 'matches' collection.
     """
     try:
+        db = get_firestore_client()
         match_id = f"{user_uid}_{matched_uid}"
         doc_ref = db.collection("matches").document(match_id)
         doc_ref.set(
@@ -130,6 +156,7 @@ def get_matches_for_user(uid):
     Retrieve matches for a user from Firestore.
     """
     try:
+        db = get_firestore_client()
         matches = []
         query = db.collection("matches").where("user1", "==", uid).stream()
         for doc in query:
@@ -141,3 +168,9 @@ def get_matches_for_user(uid):
     except Exception as e:
         logger.error(f"Error fetching matches: {e}")
         return []
+
+
+def init_firebase():
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
+        firebase_admin.initialize_app(cred)
