@@ -121,6 +121,7 @@ from .serializers import (
     PaymentTransactionSerializer,
     PaymentTransactionCreateSerializer,
     GiftTransactionCreateSerializer,
+    BondcoinTransactionCreateSerializer,
     BondcoinTransactionSerializer,
     UserSubscriptionSerializer,
     UserSubscriptionCreateSerializer,
@@ -128,6 +129,7 @@ from .serializers import (
     UsernameUpdateSerializer,
     DocumentVerificationCreateSerializer,
     DocumentVerificationSerializer,
+    LiveParticipantSerializer,
     UserSecurityQuestionSerializer,
     UserSecurityQuestionSerializer,
     UserSecurityQuestionCreateSerializer,
@@ -136,9 +138,16 @@ from .serializers import (
     ChatDetailSerializer,
     ChatSerializer,
     ChatCreateSerializer,
+    CallInitiateSerializer,
+    CallSerializer,
+    PostSerializer,
+    StorySerializer,
     UserInterestSerializer,
     RecommendationSerializer,
     UserInteractionSerializer,
+    PostInteractionSerializer,
+    CommentInteractionSerializer,
+    StoryReactionSerializer,
     AdminJobApplicationDetailSerializer,
 )
 from .firebase_utils import (
@@ -1724,9 +1733,15 @@ class SupportedLanguagesView(APIView):
 class TranslationHistoryView(APIView):
     @extend_schema(
         parameters=[
-            OpenApiParameter(name="source_language", type=OpenApiTypes.STR, required=False),
-            OpenApiParameter(name="target_language", type=OpenApiTypes.STR, required=False),
-            OpenApiParameter(name="limit", type=OpenApiTypes.INT, required=False, default=50),
+            OpenApiParameter(
+                name="source_language", type=OpenApiTypes.STR, required=False
+            ),
+            OpenApiParameter(
+                name="target_language", type=OpenApiTypes.STR, required=False
+            ),
+            OpenApiParameter(
+                name="limit", type=OpenApiTypes.INT, required=False, default=50
+            ),
         ],
         responses={
             200: inline_serializer(
@@ -4921,6 +4936,34 @@ class CallInitiateView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=CallInitiateSerializer,
+        responses={
+            201: inline_serializer(
+                name="CallInitiateResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "call": CallSerializer(),
+                },
+            ),
+            400: inline_serializer(
+                name="CallInitiateError",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                },
+            ),
+            404: inline_serializer(
+                name="CallInitiateNotFound",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         from .serializers import CallInitiateSerializer
         import uuid
@@ -5006,6 +5049,33 @@ class CallAnswerView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=inline_serializer(
+            name="CallAnswerRequest",
+            fields={
+                "action": serializers.ChoiceField(
+                    choices=["answer", "decline", "busy"]
+                ),
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                name="CallAnswerResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "call": CallSerializer(),
+                },
+            ),
+            404: inline_serializer(
+                name="CallAnswerNotFound",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request, call_id):
         try:
             call = Call.objects.get(
@@ -5080,6 +5150,25 @@ class CallEndView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="CallEndResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "call": CallSerializer(),
+                },
+            ),
+            404: inline_serializer(
+                name="CallEndNotFound",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request, call_id):
         try:
             call = Call.objects.get(
@@ -5341,14 +5430,15 @@ class LiveSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.save()
 
 
-class LiveSessionJoinView(APIView):
+class LiveSessionJoinView(generics.CreateAPIView):
     """
     Join a live session as a viewer
     """
 
     permission_classes = [IsAuthenticated]
+    serializer_class = LiveParticipantSerializer
 
-    def post(self, request, session_id):
+    def create(self, request, session_id):
         from .models import LiveSession, LiveParticipant
 
         try:
@@ -5364,19 +5454,23 @@ class LiveSessionJoinView(APIView):
                 session.viewers_count += 1
                 session.save(update_fields=["viewers_count"])
 
+                serializer = self.get_serializer(participant)
                 return Response(
                     {
                         "message": "Successfully joined live session",
                         "status": "success",
                         "participant_id": participant.id,
+                        "data": serializer.data,
                     },
                     status=status.HTTP_201_CREATED,
                 )
             else:
+                serializer = self.get_serializer(participant)
                 return Response(
                     {
                         "message": "Already participating in this session",
                         "status": "info",
+                        "data": serializer.data,
                     },
                     status=status.HTTP_200_OK,
                 )
@@ -5587,16 +5681,18 @@ class PostCommentListView(generics.ListCreateAPIView):
         post.save(update_fields=["comments_count"])
 
 
-class PostInteractionView(APIView):
+class PostInteractionView(generics.CreateAPIView):
     """
     Handle post interactions (like, share, bond)
     """
 
+    serializer_class = PostInteractionSerializer
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, post_id):
+    def create(self, request, *args, **kwargs):
         from .models import Post, PostInteraction
 
+        post_id = self.kwargs.get("post_id")
         try:
             post = Post.objects.get(id=post_id, is_active=True)
             interaction_type = request.data.get("interaction_type")
@@ -5655,16 +5751,18 @@ class PostInteractionView(APIView):
             )
 
 
-class CommentInteractionView(APIView):
+class CommentInteractionView(generics.CreateAPIView):
     """
     Handle comment interactions (like)
     """
 
+    serializer_class = CommentInteractionSerializer
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, comment_id):
+    def create(self, request, *args, **kwargs):
         from .models import PostComment, CommentInteraction
 
+        comment_id = self.kwargs.get("comment_id")
         try:
             comment = PostComment.objects.get(id=comment_id, is_active=True)
             interaction_type = request.data.get("interaction_type", "like")
@@ -5865,16 +5963,18 @@ class StoryDetailView(generics.RetrieveAPIView):
         return Response(serializer.data)
 
 
-class StoryReactionView(APIView):
+class StoryReactionView(generics.CreateAPIView):
     """
     Handle story reactions
     """
 
+    serializer_class = StoryReactionSerializer
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, story_id):
+    def create(self, request, *args, **kwargs):
         from .models import Story, StoryReaction
 
+        story_id = self.kwargs.get("story_id")
         try:
             story = Story.objects.get(id=story_id, is_active=True)
             reaction_type = request.data.get("reaction_type", "like")
@@ -5919,53 +6019,57 @@ class StoryReactionView(APIView):
             )
 
 
-class FeedSearchView(APIView):
+class FeedSearchView(generics.ListAPIView):
     """
     Search posts in the Bond Story feed
     """
 
+    serializer_class = PostSerializer
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        try:
-            query = request.GET.get("q", "").strip()
-            if not query:
-                return Response(
-                    {"message": "Search query is required", "status": "error"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+    def get_queryset(self):
+        query = self.request.GET.get("q", "").strip()
+        if not query:
+            return Post.objects.none()
 
-            # Search posts by content, hashtags, and author name
-            posts = (
-                Post.objects.filter(
-                    Q(content__icontains=query)
-                    | Q(hashtags__icontains=query)
-                    | Q(author__name__icontains=query)
-                    | Q(location__icontains=query),
-                    is_active=True,
-                    visibility="public",
-                )
-                .select_related("author")
-                .prefetch_related("comments__author")
-                .order_by("-created_at")
+        # Search posts by content, hashtags, and author name
+        return (
+            Post.objects.filter(
+                Q(content__icontains=query)
+                | Q(hashtags__icontains=query)
+                | Q(author__name__icontains=query)
+                | Q(location__icontains=query),
+                is_active=True,
+                visibility="public",
             )
+            .select_related("author")
+            .prefetch_related("comments__author")
+            .order_by("-created_at")
+        )
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            query = self.request.GET.get("q", "").strip()
 
             # Store search query for analytics
             FeedSearch.objects.create(
-                user=request.user, query=query, results_count=posts.count()
+                user=request.user, query=query, results_count=queryset.count()
             )
 
-            # Serialize results
-            from .serializers import PostSerializer
+            # Use paginated response if needed, otherwise standard list
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
 
-            serializer = PostSerializer(posts, many=True, context={"request": request})
-
+            serializer = self.get_serializer(queryset, many=True)
             return Response(
                 {
                     "message": "Search completed successfully",
                     "status": "success",
                     "query": query,
-                    "results_count": posts.count(),
+                    "results_count": queryset.count(),
                     "posts": serializer.data,
                 },
                 status=status.HTTP_200_OK,
@@ -5980,14 +6084,18 @@ class FeedSearchView(APIView):
             )
 
 
-class FeedSuggestionsView(APIView):
+class FeedSuggestionsView(generics.ListAPIView):
     """
     Get search suggestions for the Bond Story feed
     """
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get_queryset(self):
+        # This view doesn't use a traditional queryset
+        return FeedSearch.objects.none()
+
+    def list(self, request, *args, **kwargs):
         from .models import FeedSearch, Post
         from django.db.models import Count
 
@@ -6167,14 +6275,15 @@ class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
         return DocumentVerification.objects.filter(user=self.request.user)
 
 
-class DocumentUploadView(APIView):
+class DocumentUploadView(generics.CreateAPIView):
     """
     Upload document images for verification
     """
 
     permission_classes = [IsAuthenticated]
+    serializer_class = DocumentVerificationCreateSerializer
 
-    def post(self, request):
+    def create(self, request, *args, **kwargs):
         """Upload document images"""
         try:
             document_type = request.data.get("document_type")
@@ -6216,30 +6325,38 @@ class DocumentUploadView(APIView):
                 )
                 back_url = request.build_absolute_uri(settings.MEDIA_URL + back_path)
 
-            # Create document verification record
-            from .models import DocumentVerification
+            # Create serializer data
+            serializer_data = {
+                "document_type": document_type,
+                "front_image_url": front_url,
+            }
+            if back_url:
+                serializer_data["back_image_url"] = back_url
 
-            verification = DocumentVerification.objects.create(
-                user=request.user,
-                document_type=document_type,
-                front_image_url=front_url,
-                back_image_url=back_url,
-                status="pending",
-            )
-
-            # TODO: Trigger OCR processing in background
+            serializer = self.get_serializer(data=serializer_data)
+            serializer.is_valid(raise_exception=True)
+            instance = serializer.save()
 
             return Response(
                 {
                     "message": "Document uploaded successfully",
                     "status": "success",
-                    "verification_id": verification.id,
+                    "verification_id": instance.id,
                     "front_image_url": front_url,
                     "back_image_url": back_url,
                 },
                 status=status.HTTP_201_CREATED,
             )
 
+        except serializers.ValidationError as e:
+            return Response(
+                {
+                    "message": "Invalid data provided",
+                    "status": "error",
+                    "errors": e.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             return Response(
                 {"message": f"Failed to upload document: {str(e)}", "status": "error"},
@@ -6259,6 +6376,34 @@ class UsernameValidationView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=UsernameValidationSerializer,
+        responses={
+            200: inline_serializer(
+                name="UsernameValidationResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "data": UsernameValidationSerializer(),
+                },
+            ),
+            400: inline_serializer(
+                name="UsernameValidationError",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                },
+            ),
+            500: inline_serializer(
+                name="UsernameValidationServerError",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         """Validate username"""
         try:
@@ -6549,14 +6694,15 @@ class BondcoinTransactionDetailView(generics.RetrieveAPIView):
         return BondcoinTransaction.objects.filter(user=self.request.user)
 
 
-class BondcoinPurchaseView(APIView):
+class BondcoinPurchaseView(generics.CreateAPIView):
     """
     Purchase Bondcoins
     """
 
     permission_classes = [IsAuthenticated]
+    serializer_class = BondcoinTransactionCreateSerializer
 
-    def post(self, request):
+    def create(self, request, *args, **kwargs):
         try:
             package_id = request.data.get("package_id")
             payment_method = request.data.get("payment_method", "bondcoin")
@@ -6575,33 +6721,46 @@ class BondcoinPurchaseView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            # Create transaction
-            transaction = BondcoinTransaction.objects.create(
-                user=request.user,
-                transaction_type="purchase",
-                amount=package.bondcoin_amount,
-                package=package,
-                payment_method=payment_method,
-                description=f"Purchased {package.name}",
-                status="completed",
-            )
+            # Create serializer data
+            serializer_data = {
+                "transaction_type": "purchase",
+                "amount": package.bondcoin_amount,
+                "package": package.id,
+                "payment_method": payment_method,
+                "description": f"Purchased {package.name}",
+                "status": "completed",
+            }
+
+            serializer = self.get_serializer(data=serializer_data)
+            serializer.is_valid(raise_exception=True)
+            transaction = serializer.save()
 
             # Update user balance
             request.user.bondcoin_balance += package.bondcoin_amount
             request.user.save(update_fields=["bondcoin_balance"])
 
-            serializer = BondcoinTransactionSerializer(transaction)
+            # Return full transaction data
+            response_serializer = BondcoinTransactionSerializer(transaction)
 
             return Response(
                 {
                     "message": "Bondcoins purchased successfully",
                     "status": "success",
-                    "data": serializer.data,
+                    "data": response_serializer.data,
                     "new_balance": request.user.bondcoin_balance,
                 },
                 status=status.HTTP_201_CREATED,
             )
 
+        except serializers.ValidationError as e:
+            return Response(
+                {
+                    "message": "Invalid data provided",
+                    "status": "error",
+                    "errors": e.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             return Response(
                 {
@@ -6698,18 +6857,17 @@ class GiftTransactionListView(generics.ListAPIView):
         )
 
 
-class SendGiftView(APIView):
+class SendGiftView(generics.CreateAPIView):
     """
     Send a virtual gift to another user
     """
 
     permission_classes = [IsAuthenticated]
+    serializer_class = GiftTransactionCreateSerializer
 
-    def post(self, request):
+    def create(self, request, *args, **kwargs):
         try:
-            serializer = GiftTransactionCreateSerializer(
-                data=request.data, context={"request": request}
-            )
+            serializer = self.get_serializer(data=request.data)
             if serializer.is_valid():
                 # Check if user has enough Bondcoins
                 gift = serializer.validated_data["gift"]
@@ -6856,27 +7014,33 @@ class LiveJoinRequestManageView(generics.UpdateAPIView):
         return LiveJoinRequest.objects.filter(session__user=self.request.user)
 
 
-class LiveSessionGiftersView(APIView):
+class LiveSessionGiftersView(generics.ListAPIView):
     """
     Get top gifters for a live session
     """
 
     permission_classes = [AllowAny]
 
-    def get(self, request, session_id):
-        try:
-            # LiveSession already imported at top
-            from django.db.models import Sum
+    def get_queryset(self):
+        session_id = self.kwargs.get("session_id")
+        if not session_id:
+            return LiveGift.objects.none()
 
-            try:
-                session = LiveSession.objects.get(id=session_id)
-            except LiveSession.DoesNotExist:
-                return Response(
-                    {"message": "Live session not found", "status": "error"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
+        try:
+            session = LiveSession.objects.get(id=session_id)
+            return LiveGift.objects.filter(session=session)
+        except LiveSession.DoesNotExist:
+            return LiveGift.objects.none()
+
+    def list(self, request, *args, **kwargs):
+        session_id = self.kwargs.get("session_id")
+
+        try:
+            session = LiveSession.objects.get(id=session_id)
 
             # Get top gifters
+            from django.db.models import Sum
+
             gifters = (
                 LiveGift.objects.filter(session=session)
                 .values("sender__id", "sender__name", "sender__profile_picture")
@@ -6892,7 +7056,11 @@ class LiveSessionGiftersView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
-
+        except LiveSession.DoesNotExist:
+            return Response(
+                {"message": "Live session not found", "status": "error"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except Exception as e:
             return Response(
                 {"message": f"Failed to get top gifters: {str(e)}", "status": "error"},
@@ -6952,6 +7120,34 @@ class ProcessPaymentView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=PaymentTransactionCreateSerializer,
+        responses={
+            201: inline_serializer(
+                name="ProcessPaymentResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "data": PaymentTransactionSerializer(),
+                },
+            ),
+            400: inline_serializer(
+                name="ProcessPaymentError",
+                fields={
+                    "message": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ProcessPaymentServerError",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         try:
             # Validate payment data
@@ -7069,6 +7265,30 @@ class PaymentWebhookView(APIView):
 
     permission_classes = []  # No authentication required for webhooks
 
+    @extend_schema(
+        request=inline_serializer(
+            name="PaymentWebhookRequest",
+            fields={
+                "payload": serializers.JSONField(),
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                name="PaymentWebhookResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            500: inline_serializer(
+                name="PaymentWebhookError",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request, provider):
         try:
             # Get webhook data
@@ -7197,6 +7417,32 @@ class RefundPaymentView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={
+            201: inline_serializer(
+                name="RefundPaymentResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "data": PaymentTransactionSerializer(),
+                },
+            ),
+            404: inline_serializer(
+                name="RefundPaymentNotFound",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            500: inline_serializer(
+                name="RefundPaymentError",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request, transaction_id):
         try:
             from .models import PaymentTransaction
@@ -7292,6 +7538,32 @@ class FirebaseLoginView(APIView):
     Returns user data and JWT token for Django session.
     """
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: inline_serializer(
+                name="FirebaseLoginResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "user": UserSerializer(),
+                    "access_token": serializers.CharField(),
+                    "refresh_token": serializers.CharField(),
+                },
+            ),
+            401: inline_serializer(
+                name="FirebaseLoginUnauthorized",
+                fields={
+                    "error": serializers.CharField(),
+                },
+            ),
+            500: inline_serializer(
+                name="FirebaseLoginError",
+                fields={
+                    "error": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         try:
             auth_header = request.headers.get("Authorization")
@@ -7405,6 +7677,40 @@ class FirebaseMatchView(APIView):
     Requires Firebase auth.
     """
 
+    @extend_schema(
+        request=inline_serializer(
+            name="FirebaseMatchRequest",
+            fields={
+                "matched_uid": serializers.CharField(),
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                name="FirebaseMatchResponse",
+                fields={
+                    "message": serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                name="FirebaseMatchBadRequest",
+                fields={
+                    "error": serializers.CharField(),
+                },
+            ),
+            401: inline_serializer(
+                name="FirebaseMatchUnauthorized",
+                fields={
+                    "error": serializers.CharField(),
+                },
+            ),
+            500: inline_serializer(
+                name="FirebaseMatchError",
+                fields={
+                    "error": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         try:
             auth_header = request.headers.get("Authorization")
@@ -7444,12 +7750,16 @@ class FirebaseMatchView(APIView):
             )
 
 
-class FirebaseMatchesListView(APIView):
+class FirebaseMatchesListView(generics.ListAPIView):
     """
     Get list of matches for the authenticated user.
     """
 
-    def get(self, request):
+    def get_queryset(self):
+        # This doesn't use Django querysets
+        return []
+
+    def list(self, request, *args, **kwargs):
         try:
             auth_header = request.headers.get("Authorization")
             if not auth_header or not auth_header.startswith("Bearer "):

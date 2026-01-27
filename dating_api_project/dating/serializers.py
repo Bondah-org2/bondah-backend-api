@@ -357,13 +357,18 @@ class LiveParticipantSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "session",
-            "user",
             "user_name",
             "user_profile_picture",
             "joined_at",
             "left_at",
         ]
+
+    def create(self, validated_data):
+        """Create participant with current user"""
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            validated_data["user"] = request.user
+        return super().create(validated_data)
 
 
 # =============================================================================
@@ -2915,6 +2920,7 @@ class PostSerializer(serializers.ModelSerializer):
         else:
             return obj.created_at.strftime("%m/%d/%Y")
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_user_interactions(self, obj):
         """Get current user's interactions with this post"""
         request = self.context.get("request")
@@ -3025,6 +3031,7 @@ class StorySerializer(serializers.ModelSerializer):
             "user_reaction",
         ]
 
+    @extend_schema_field(serializers.BooleanField())
     def get_user_has_viewed(self, obj):
         """Check if current user has viewed this story"""
         request = self.context.get("request")
@@ -3032,6 +3039,7 @@ class StorySerializer(serializers.ModelSerializer):
             return obj.views.filter(viewer=request.user).exists()
         return False
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_user_reaction(self, obj):
         """Get current user's reaction to this story"""
         request = self.context.get("request")
@@ -3098,7 +3106,7 @@ class PostInteractionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PostInteraction
-        fields = ["interaction_type"]
+        fields = ["post", "interaction_type"]
 
     def create(self, validated_data):
         """Create interaction with current user"""
@@ -3113,10 +3121,25 @@ class CommentInteractionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CommentInteraction
-        fields = ["interaction_type"]
+        fields = ["comment", "interaction_type"]
 
     def create(self, validated_data):
         """Create interaction with current user"""
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            validated_data["user"] = request.user
+        return super().create(validated_data)
+
+
+class StoryReactionSerializer(serializers.ModelSerializer):
+    """Serializer for story reactions"""
+
+    class Meta:
+        model = StoryReaction
+        fields = ["story", "reaction_type"]
+
+    def create(self, validated_data):
+        """Create reaction with current user"""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             validated_data["user"] = request.user
