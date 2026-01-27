@@ -15,4 +15,4 @@ if not User.objects.filter(username=USERNAME).exists():
     print("Creating superuser...")
     User.objects.create_superuser(username=USERNAME, email=EMAIL, password=PASSWORD)
 else:
-    print("ℹSuperuser already exists. Skipping.")
+    print("Superuser already exists. Skipping.")

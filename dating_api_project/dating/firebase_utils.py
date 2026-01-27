@@ -1,0 +1,143 @@
+"""
+Firebase utilities for the dating app.
+Handles authentication, Firestore operations, and Firebase Cloud Messaging.
+"""
+
+import firebase_admin
+from firebase_admin import auth, firestore, messaging
+from django.conf import settings
+from .models.users import User  # Import your User model
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Initialize Firestore client
+db = firestore.client()
+
+
+def verify_firebase_token(id_token):
+    """
+    Verify a Firebase ID token and return decoded claims.
+    Used for authenticating users in views.
+    """
+    try:
+        decoded_token = auth.verify_id_token(id_token)
+        return decoded_token  # Contains uid, email, etc.
+    except Exception as e:
+        logger.error(f"Firebase token verification failed: {e}")
+        return None
+
+
+def get_or_create_user_from_firebase(decoded_token):
+    """
+    Get or create a Django User from Firebase decoded token.
+    Syncs Firebase user data with Django User model.
+    """
+    uid = decoded_token["uid"]
+    email = decoded_token.get("email")
+    name = decoded_token.get("name", "")
+
+    # Check if user exists by Firebase UID (add firebase_uid to User model if needed)
+    user = User.objects.filter(email=email).first()
+    if not user:
+        # Create new user
+        user = User.objects.create_user(
+            username=email,  # Or use uid
+            email=email,
+            name=name,
+            # Add other fields as needed
+        )
+        # Optionally, store Firebase UID in a profile model
+    return user
+
+
+def get_user_profile_from_firestore(uid):
+    """
+    Fetch user profile data from Firestore.
+    Assumes a 'users' collection with documents keyed by Firebase UID.
+    """
+    try:
+        doc_ref = db.collection("users").document(uid)
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching user profile from Firestore: {e}")
+        return None
+
+
+def update_user_profile_in_firestore(uid, data):
+    """
+    Update user profile in Firestore.
+    Data should be a dict of fields to update.
+    """
+    try:
+        doc_ref = db.collection("users").document(uid)
+        doc_ref.set(data, merge=True)  # Merge to update existing fields
+        return True
+    except Exception as e:
+        logger.error(f"Error updating user profile in Firestore: {e}")
+        return False
+
+
+def create_match_in_firestore(user_uid, matched_uid):
+    """
+    Create a match document in Firestore.
+    Assumes a 'matches' collection.
+    """
+    try:
+        match_id = f"{user_uid}_{matched_uid}"
+        doc_ref = db.collection("matches").document(match_id)
+        doc_ref.set(
+            {
+                "user1": user_uid,
+                "user2": matched_uid,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "status": "pending",  # Or 'matched'
+            }
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error creating match in Firestore: {e}")
+        return False
+
+
+def send_push_notification(token, title, body, data=None):
+    """
+    Send a push notification via Firebase Cloud Messaging (FCM).
+    Token is the device registration token from FCM.
+    """
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            data=data or {},
+            token=token,
+        )
+        response = messaging.send(message)
+        logger.info(f"Successfully sent message: {response}")
+        return response
+    except Exception as e:
+        logger.error(f"Error sending push notification: {e}")
+        return None
+
+
+def get_matches_for_user(uid):
+    """
+    Retrieve matches for a user from Firestore.
+    """
+    try:
+        matches = []
+        query = db.collection("matches").where("user1", "==", uid).stream()
+        for doc in query:
+            matches.append(doc.to_dict())
+        query2 = db.collection("matches").where("user2", "==", uid).stream()
+        for doc in query2:
+            matches.append(doc.to_dict())
+        return matches
+    except Exception as e:
+        logger.error(f"Error fetching matches: {e}")
+        return []

@@ -144,6 +144,12 @@ from .views import (
     ProcessPaymentView,
     PaymentWebhookView,
     RefundPaymentView,
+    # Firebase Integration Views
+    FirebaseLoginView,
+    FirebaseUserProfileView,
+    FirebaseMatchView,
+    FirebaseMatchesListView,
+    FirebasePushNotificationView,
 )
 
 urlpatterns = [
@@ -599,5 +605,19 @@ urlpatterns = [
         "payments/refund/<int:transaction_id>/",
         RefundPaymentView.as_view(),
         name="refund-payment",
+    ),
+    # Firebase Integration Endpoints
+    path("firebase/login/", FirebaseLoginView.as_view(), name="firebase-login"),
+    path(
+        "firebase/profile/", FirebaseUserProfileView.as_view(), name="firebase-profile"
+    ),
+    path("firebase/match/", FirebaseMatchView.as_view(), name="firebase-match"),
+    path(
+        "firebase/matches/", FirebaseMatchesListView.as_view(), name="firebase-matches"
+    ),
+    path(
+        "firebase/notify/",
+        FirebasePushNotificationView.as_view(),
+        name="firebase-notify",
     ),
 ]

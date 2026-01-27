@@ -4,11 +4,21 @@ from rest_framework.response import Response
 from django.db.models import Sum
 from rest_framework import status
 from rest_framework import generics
+from decimal import Decimal
+import time
 import random
 import string
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.hashers import make_password, check_password
+import json
+from django.core.files.storage import default_storage
+from django.conf import settings
+import os
+from django.shortcuts import get_object_or_404
+import uuid
+from django.core.files.base import ContentFile
+from rest_framework import serializers
 from .models import (
     NewsletterSubscriber,
     PuzzleVerification,
@@ -28,12 +38,37 @@ from .models import (
     EmailVerification,
     PhoneVerification,
     UserRoleSelection,
+    PaymentWebhook,
+    PaymentTransaction,
+    PaymentTransaction,
+    PaymentMethod,
+    UserSubscription,
+    BondcoinPackage,
+    BondcoinTransaction,
+    LiveSession,
+    LiveGift,
+    SubscriptionPlan,
+    DocumentVerification,
+    UserSecurityQuestion,
+    UserSocialHandle,
+    Post,
+    FeedSearch,
+    Message,
+    Chat,
+    Call,
+    UserInterest,
+    RecommendationEngine,
+    UserInteraction,
+    SearchQuery,
+    UserVerificationStatus,
 )
 from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
 from django.conf import settings
 from .serializers import (
     UserSerializer,
+    LanguageSettingsSerializer,
     NewsletterSubscriberSerializer,
     PuzzleVerificationSerializer,
     CoinTransactionSerializer,
@@ -60,8 +95,10 @@ from .serializers import (
     PasswordResetConfirmSerializer,
     UserProfileSerializer,
     UserProfileUpdateSerializer,
+    UserProfileDetailSerializer,
     SocialLoginSerializer,
     DeviceRegistrationSerializer,
+    NotificationSettingsSerializer,
     # OAuth Serializers
     GoogleOAuthSerializer,
     AppleOAuthSerializer,
@@ -79,12 +116,42 @@ from .serializers import (
     UserProfileWithLocationSerializer,
     NearbyUserSerializer,
     MatchPreferencesSerializer,
-    UsernameValidationSerializer
+    UsernameValidationSerializer,
+    PaymentWebhookCreateSerializer,
+    PaymentTransactionSerializer,
+    PaymentTransactionCreateSerializer,
+    GiftTransactionCreateSerializer,
+    BondcoinTransactionSerializer,
+    UserSubscriptionSerializer,
+    UserSubscriptionCreateSerializer,
+    SubscriptionPlanSerializer,
+    UsernameUpdateSerializer,
+    DocumentVerificationCreateSerializer,
+    DocumentVerificationSerializer,
+    UserSecurityQuestionSerializer,
+    UserSecurityQuestionSerializer,
+    UserSecurityQuestionCreateSerializer,
+    UserSocialHandleSerializer,
+    UserSocialHandleCreateSerializer,
+    ChatDetailSerializer,
+    ChatSerializer,
+    ChatCreateSerializer,
+    UserInterestSerializer,
+    RecommendationSerializer,
+    UserInteractionSerializer,
+    AdminJobApplicationDetailSerializer,
 )
-import time
+from .firebase_utils import (
+    verify_firebase_token,
+    get_or_create_user_from_firebase,
+    get_user_profile_from_firestore,
+    update_user_profile_in_firestore,
+    create_match_in_firestore,
+    send_push_notification,
+    get_matches_for_user,
+)
 from deep_translator import GoogleTranslator
 from django.db import models
-import os
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db.models import Q
@@ -97,6 +164,15 @@ User = get_user_model()
 class UserCreateView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
+
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {"message": f"User creation failed: {str(e)}", "status": "error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class NewsletterSignupView(generics.CreateAPIView):
@@ -320,69 +396,81 @@ class JoinWaitlistView(generics.CreateAPIView):
 
 class GetPuzzleView(APIView):
     def post(self, request):
-        user_id = request.data.get("user_id")
-        if user_id is None:
-            return Response(
-                {"error": "user_id is required."}, status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
-            user_id = int(user_id)
-        except (ValueError, TypeError):
-            return Response(
-                {"error": "user_id must be an integer."},
-                status=status.HTTP_400_BAD_REQUEST,
+            user_id = request.data.get("user_id")
+            if user_id is None:
+                return Response(
+                    {"error": "user_id is required."}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                user_id = int(user_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {"error": "user_id must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {"error": f"User with id {user_id} not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            question, answer = PuzzleVerification.generate_puzzle()
+            puzzle = PuzzleVerification.objects.create(
+                user=user, question=question, answer=answer
             )
 
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
             return Response(
-                {"error": f"User with id {user_id} not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                {"puzzle_id": puzzle.id, "question": puzzle.question},
+                status=status.HTTP_201_CREATED,
             )
-
-        question, answer = PuzzleVerification.generate_puzzle()
-        puzzle = PuzzleVerification.objects.create(
-            user=user, question=question, answer=answer
-        )
-
-        return Response(
-            {"puzzle_id": puzzle.id, "question": puzzle.question},
-            status=status.HTTP_201_CREATED,
-        )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to generate puzzle: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class SubmitPuzzleAnswerView(APIView):
     def post(self, request):
-        puzzle_id = request.data.get("puzzle_id")
-        user_answer = request.data.get("user_answer")
-
-        if not puzzle_id or not user_answer:
-            return Response(
-                {"error": "puzzle_id and user_answer are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
-            puzzle = PuzzleVerification.objects.get(id=puzzle_id)
-        except PuzzleVerification.DoesNotExist:
+            puzzle_id = request.data.get("puzzle_id")
+            user_answer = request.data.get("user_answer")
+
+            if not puzzle_id or not user_answer:
+                return Response(
+                    {"error": "puzzle_id and user_answer are required"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                puzzle = PuzzleVerification.objects.get(id=puzzle_id)
+            except PuzzleVerification.DoesNotExist:
+                return Response(
+                    {"error": "Puzzle not found"}, status=status.HTTP_404_NOT_FOUND
+                )
+
+            is_correct = puzzle.answer.strip().lower() == user_answer.strip().lower()
+            puzzle.user_answer = user_answer
+            puzzle.is_correct = is_correct
+            puzzle.save()
+
             return Response(
-                {"error": "Puzzle not found"}, status=status.HTTP_404_NOT_FOUND
+                {
+                    "correct": is_correct,
+                    "message": "Correct!" if is_correct else "Incorrect, try again.",
+                },
+                status=status.HTTP_200_OK,
             )
-
-        is_correct = puzzle.answer.strip().lower() == user_answer.strip().lower()
-        puzzle.user_answer = user_answer
-        puzzle.is_correct = is_correct
-        puzzle.save()
-
-        return Response(
-            {
-                "correct": is_correct,
-                "message": "Correct!" if is_correct else "Incorrect, try again.",
-            },
-            status=status.HTTP_200_OK,
-        )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to submit puzzle answer: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 def has_solved_puzzle(user):
@@ -394,69 +482,81 @@ def has_solved_puzzle(user):
 
 class EarnCoinsView(APIView):
     def post(self, request):
-        user_id = request.data.get("user_id")
-        amount = int(request.data.get("amount", 0))
-
-        if not user_id or not amount:
-            return Response({"error": "User ID and amount are required."}, status=400)
-
         try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({"error": "User not found."}, status=404)
+            user_id = request.data.get("user_id")
+            amount = int(request.data.get("amount", 0))
 
-        if not has_solved_puzzle(user):
-            return Response(
-                {"error": "You must solve a puzzle before earning coins."}, status=403
+            if not user_id or not amount:
+                return Response({"error": "User ID and amount are required."}, status=400)
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response({"error": "User not found."}, status=404)
+
+            if not has_solved_puzzle(user):
+                return Response(
+                    {"error": "You must solve a puzzle before earning coins."}, status=403
+                )
+
+            transaction = CoinTransaction.objects.create(
+                user=user, transaction_type="earn", amount=amount
             )
 
-        transaction = CoinTransaction.objects.create(
-            user=user, transaction_type="earn", amount=amount
-        )
-
-        return Response(CoinTransactionSerializer(transaction).data, status=201)
+            return Response(CoinTransactionSerializer(transaction).data, status=201)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to earn coins: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class SpendCoinsView(APIView):
     def post(self, request):
-        user_id = request.data.get("user_id")
-        amount = int(request.data.get("amount", 0))
-
-        if not user_id or not amount:
-            return Response({"error": "User ID and amount are required."}, status=400)
-
         try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({"error": "User not found."}, status=404)
+            user_id = request.data.get("user_id")
+            amount = int(request.data.get("amount", 0))
 
-        if not has_solved_puzzle(user):
-            return Response(
-                {"error": "You must solve a puzzle before spending coins."}, status=403
+            if not user_id or not amount:
+                return Response({"error": "User ID and amount are required."}, status=400)
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response({"error": "User not found."}, status=404)
+
+            if not has_solved_puzzle(user):
+                return Response(
+                    {"error": "You must solve a puzzle before spending coins."}, status=403
+                )
+
+            total_earned = (
+                CoinTransaction.objects.filter(
+                    user=user, transaction_type="earn"
+                ).aggregate(Sum("amount"))["amount__sum"]
+                or 0
             )
 
-        total_earned = (
-            CoinTransaction.objects.filter(
-                user=user, transaction_type="earn"
-            ).aggregate(Sum("amount"))["amount__sum"]
-            or 0
-        )
+            total_spent = (
+                CoinTransaction.objects.filter(
+                    user=user, transaction_type="spend"
+                ).aggregate(Sum("amount"))["amount__sum"]
+                or 0
+            )
 
-        total_spent = (
-            CoinTransaction.objects.filter(
-                user=user, transaction_type="spend"
-            ).aggregate(Sum("amount"))["amount__sum"]
-            or 0
-        )
+            if amount > (total_earned - total_spent):
+                return Response({"error": "Insufficient coin balance."}, status=400)
 
-        if amount > (total_earned - total_spent):
-            return Response({"error": "Insufficient coin balance."}, status=400)
+            transaction = CoinTransaction.objects.create(
+                user=user, transaction_type="spend", amount=amount
+            )
 
-        transaction = CoinTransaction.objects.create(
-            user=user, transaction_type="spend", amount=amount
-        )
-
-        return Response(CoinTransactionSerializer(transaction).data, status=201)
+            return Response(CoinTransactionSerializer(transaction).data, status=201)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to spend coins: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class SendNewsletterWelcomeEmailView(APIView):
@@ -682,11 +782,29 @@ class JobListView(generics.ListAPIView):
 
         return queryset
 
+    def list(self, request, *args, **kwargs):
+        try:
+            return super().list(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {"message": f"Failed to retrieve jobs: {str(e)}", "status": "error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 
 class JobDetailView(generics.RetrieveAPIView):
     queryset = Job.objects.all()
     serializer_class = JobDetailSerializer
     lookup_field = "id"
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            return super().retrieve(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {"message": f"Failed to retrieve job: {str(e)}", "status": "error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class JobApplicationView(generics.CreateAPIView):
@@ -805,26 +923,27 @@ P.S. Follow us on social media to stay updated on our journey!
 
 class AdminLoginView(APIView):
     def post(self, request):
-        serializer = AdminLoginSerializer(data=request.data)
-        if serializer.is_valid():
-            email = serializer.validated_data["email"]
-            password = serializer.validated_data["password"]
+        try:
+            serializer = AdminLoginSerializer(data=request.data)
+            if serializer.is_valid():
+                email = serializer.validated_data["email"]
+                password = serializer.validated_data["password"]
 
-            try:
-                admin_user = AdminUser.objects.get(email=email, is_active=True)
-                if check_password(password, admin_user.password):
-                    # Generate OTP
-                    otp_code = "".join(random.choices(string.digits, k=6))
-                    expires_at = timezone.now() + timedelta(minutes=10)
+                try:
+                    admin_user = AdminUser.objects.get(email=email, is_active=True)
+                    if check_password(password, admin_user.password):
+                        # Generate OTP
+                        otp_code = "".join(random.choices(string.digits, k=6))
+                        expires_at = timezone.now() + timedelta(minutes=10)
 
-                    # Create OTP record
-                    AdminOTP.objects.create(
-                        admin_user=admin_user, otp_code=otp_code, expires_at=expires_at
-                    )
+                        # Create OTP record
+                        AdminOTP.objects.create(
+                            admin_user=admin_user, otp_code=otp_code, expires_at=expires_at
+                        )
 
-                    # Send OTP email
-                    subject = "🔐 Admin Login OTP - Bondah Dating"
-                    message = f"""
+                        # Send OTP email
+                        subject = "🔐 Admin Login OTP - Bondah Dating"
+                        message = f"""
 Hi there,
 
 Your OTP for admin login is: {otp_code}
@@ -841,110 +960,131 @@ Best regards,
 The Bondah Team
 
 P.S. Keep your admin credentials secure!
-                    """.strip()
+                        """.strip()
 
-                    try:
-                        # Send email with timeout handling
-                        send_mail(
-                            subject=subject,
-                            message=message,
-                            from_email=settings.DEFAULT_FROM_EMAIL,
-                            recipient_list=[email],
-                            fail_silently=True,  # Don't fail the request if email fails
-                        )
+                        try:
+                            # Send email with timeout handling
+                            send_mail(
+                                subject=subject,
+                                message=message,
+                                from_email=settings.DEFAULT_FROM_EMAIL,
+                                recipient_list=[email],
+                                fail_silently=True,  # Don't fail the request if email fails
+                            )
 
+                            return Response(
+                                {"message": "OTP sent to your email", "status": "success"},
+                                status=status.HTTP_200_OK,
+                            )
+                        except Exception as e:
+                            # Log the error but don't fail the request
+                            print(f"Email sending failed: {str(e)}")
+                            return Response(
+                                {
+                                    "message": "OTP generated but email delivery may be delayed",
+                                    "status": "success",
+                                    "otp_code": otp_code,  # Temporarily return OTP for debugging
+                                },
+                                status=status.HTTP_200_OK,
+                            )
+                    else:
                         return Response(
-                            {"message": "OTP sent to your email", "status": "success"},
-                            status=status.HTTP_200_OK,
+                            {"message": "Invalid credentials", "status": "error"},
+                            status=status.HTTP_401_UNAUTHORIZED,
                         )
-                    except Exception as e:
-                        # Log the error but don't fail the request
-                        print(f"Email sending failed: {str(e)}")
-                        return Response(
-                            {
-                                "message": "OTP generated but email delivery may be delayed",
-                                "status": "success",
-                                "otp_code": otp_code,  # Temporarily return OTP for debugging
-                            },
-                            status=status.HTTP_200_OK,
-                        )
-                else:
+                except AdminUser.DoesNotExist:
                     return Response(
                         {"message": "Invalid credentials", "status": "error"},
                         status=status.HTTP_401_UNAUTHORIZED,
                     )
-            except AdminUser.DoesNotExist:
-                return Response(
-                    {"message": "Invalid credentials", "status": "error"},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
 
-        return Response(
-            {"message": "Invalid data", "status": "error", "errors": serializer.errors},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+            return Response(
+                {"message": "Invalid data", "status": "error", "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"An unexpected error occurred: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class AdminOTPVerificationView(APIView):
     def post(self, request):
-        serializer = AdminOTPVerificationSerializer(data=request.data)
-        if serializer.is_valid():
-            email = serializer.validated_data["email"]
-            otp_code = serializer.validated_data["otp_code"]
+        try:
+            serializer = AdminOTPVerificationSerializer(data=request.data)
+            if serializer.is_valid():
+                email = serializer.validated_data["email"]
+                otp_code = serializer.validated_data["otp_code"]
 
-            try:
-                admin_user = AdminUser.objects.get(email=email, is_active=True)
-                otp = AdminOTP.objects.filter(
-                    admin_user=admin_user, otp_code=otp_code, is_used=False
-                ).latest("created_at")
+                try:
+                    admin_user = AdminUser.objects.get(email=email, is_active=True)
+                    otp = AdminOTP.objects.filter(
+                        admin_user=admin_user, otp_code=otp_code, is_used=False
+                    ).latest("created_at")
 
-                if otp.is_expired():
+                    if otp.is_expired():
+                        return Response(
+                            {"message": "OTP has expired", "status": "error"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    # Mark OTP as used
+                    otp.is_used = True
+                    otp.save()
+
+                    # Update last login
+                    admin_user.last_login = timezone.now()
+                    admin_user.save()
+
+                    # Generate JWT tokens
+                    tokens = generate_tokens(admin_user)
+
                     return Response(
-                        {"message": "OTP has expired", "status": "error"},
+                        {
+                            "message": "Login successful",
+                            "status": "success",
+                            "admin_email": admin_user.email,
+                            "access_token": tokens["access_token"],
+                            "refresh_token": tokens["refresh_token"],
+                            "access_token_expires": tokens["access_token_expires"],
+                            "refresh_token_expires": tokens["refresh_token_expires"],
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+
+                except (AdminUser.DoesNotExist, AdminOTP.DoesNotExist):
+                    return Response(
+                        {"message": "Invalid OTP", "status": "error"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                # Mark OTP as used
-                otp.is_used = True
-                otp.save()
-
-                # Update last login
-                admin_user.last_login = timezone.now()
-                admin_user.save()
-
-                # Generate JWT tokens
-                tokens = generate_tokens(admin_user)
-
-                return Response(
-                    {
-                        "message": "Login successful",
-                        "status": "success",
-                        "admin_email": admin_user.email,
-                        "access_token": tokens["access_token"],
-                        "refresh_token": tokens["refresh_token"],
-                        "access_token_expires": tokens["access_token_expires"],
-                        "refresh_token_expires": tokens["refresh_token_expires"],
-                    },
-                    status=status.HTTP_200_OK,
-                )
-
-            except (AdminUser.DoesNotExist, AdminOTP.DoesNotExist):
-                return Response(
-                    {"message": "Invalid OTP", "status": "error"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        return Response(
-            {"message": "Invalid data", "status": "error", "errors": serializer.errors},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+            return Response(
+                {"message": "Invalid data", "status": "error", "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"An unexpected error occurred: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
-class AdminJobListView(APIView):
-    def get(self, request):
+class AdminJobListView(generics.ListAPIView):
+    queryset = Job.objects.all().order_by("-created_at")
+    serializer_class = AdminJobListSerializer
+    permission_classes = [AdminJWTPermission]
+
+    def list(self, request, *args, **kwargs):
         try:
-            jobs = Job.objects.all().order_by("-created_at")
-            serializer = AdminJobListSerializer(jobs, many=True)
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
 
             return Response(
                 {
@@ -961,29 +1101,24 @@ class AdminJobListView(APIView):
             )
 
 
-class AdminJobCreateView(APIView):
-    def post(self, request):
-        try:
-            serializer = AdminJobCreateSerializer(data=request.data)
-            if serializer.is_valid():
-                job = serializer.save()
+class AdminJobCreateView(generics.CreateAPIView):
+    queryset = Job.objects.all()
+    serializer_class = AdminJobCreateSerializer
+    permission_classes = [AdminJWTPermission]
 
-                return Response(
-                    {
-                        "message": "Job created successfully",
-                        "status": "success",
-                        "job": AdminJobCreateSerializer(job).data,
-                    },
-                    status=status.HTTP_201_CREATED,
-                )
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            job = serializer.save()
 
             return Response(
                 {
-                    "message": "Invalid job data",
-                    "status": "error",
-                    "errors": serializer.errors,
+                    "message": "Job created successfully",
+                    "status": "success",
+                    "job": self.get_serializer(job).data,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_201_CREATED,
             )
         except Exception as e:
             return Response(
@@ -992,36 +1127,27 @@ class AdminJobCreateView(APIView):
             )
 
 
-class AdminJobUpdateView(APIView):
-    def put(self, request, job_id):
+class AdminJobUpdateView(generics.UpdateAPIView):
+    queryset = Job.objects.all()
+    serializer_class = AdminJobUpdateSerializer
+    permission_classes = [AdminJWTPermission]
+    lookup_field = 'id'
+
+    def update(self, request, *args, **kwargs):
         try:
-            job = Job.objects.get(id=job_id)
-            serializer = AdminJobUpdateSerializer(job, data=request.data, partial=True)
-
-            if serializer.is_valid():
-                updated_job = serializer.save()
-
-                return Response(
-                    {
-                        "message": "Job updated successfully",
-                        "status": "success",
-                        "job": AdminJobUpdateSerializer(updated_job).data,
-                    },
-                    status=status.HTTP_200_OK,
-                )
+            partial = kwargs.pop('partial', False)
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            updated_job = serializer.save()
 
             return Response(
                 {
-                    "message": "Invalid job data",
-                    "status": "error",
-                    "errors": serializer.errors,
+                    "message": "Job updated successfully",
+                    "status": "success",
+                    "job": self.get_serializer(updated_job).data,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except Job.DoesNotExist:
-            return Response(
-                {"message": "Job not found", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
+                status=status.HTTP_200_OK,
             )
         except Exception as e:
             return Response(
@@ -1167,7 +1293,7 @@ class TranslationView(APIView):
                         detected_source = (
                             "auto"  # We'll store 'auto' as detected source
                         )
-                    except:
+                    except Exception as e:
                         # Fallback to English if auto-detection fails
                         translator = GoogleTranslator(
                             source="en", target=target_language
@@ -1734,19 +1860,20 @@ class AdminDebugAuthView(APIView):
 # =============================================================================
 
 
-class UserRegisterView(APIView):
-    """User registration for mobile app"""
+class UserRegisterView(generics.CreateAPIView):
+    """ " User register for mobile app"""
 
+    queryset = User.objects.all()
+    serializer_class = CustomRegisterSerializer
     permission_classes = [AllowAny]
 
-    def post(self, request):
-        serializer = CustomRegisterSerializer(data=request.data)
-        if serializer.is_valid():
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
             user = serializer.save()
 
             # Generate JWT tokens
-            from rest_framework_simplejwt.tokens import RefreshToken
-
             refresh = RefreshToken.for_user(user)
 
             return Response(
@@ -1761,30 +1888,49 @@ class UserRegisterView(APIView):
                 },
                 status=status.HTTP_201_CREATED,
             )
-
-        return Response(
-            {
-                "message": "Registration failed",
-                "status": "error",
-                "errors": serializer.errors,
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Registration failed: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class UserLoginView(APIView):
-    """User login for mobile app"""
+    """User login for mobile app - supports both Django auth and Firebase auth"""
 
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = CustomLoginSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.validated_data["user"]
+        try:
+            # Check if Firebase token is provided
+            firebase_token = request.data.get("firebase_token")
+            if firebase_token:
+                # Use Firebase auth
+                decoded_token = verify_firebase_token(firebase_token)
+                if not decoded_token:
+                    return Response(
+                        {"message": "Invalid Firebase token", "status": "error"},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+                user = get_or_create_user_from_firebase(decoded_token)
+            else:
+                # Use Django auth
+                serializer = CustomLoginSerializer(data=request.data)
+                if not serializer.is_valid():
+                    return Response(
+                        {
+                            "message": "Login failed",
+                            "status": "error",
+                            "errors": serializer.errors,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                user = serializer.validated_data["user"]
 
             # Generate JWT tokens
-            from rest_framework_simplejwt.tokens import RefreshToken
-
             refresh = RefreshToken.for_user(user)
 
             return Response(
@@ -1799,11 +1945,14 @@ class UserLoginView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
-
-        return Response(
-            {"message": "Login failed", "status": "error", "errors": serializer.errors},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Login failed: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class UserLogoutView(APIView):
@@ -1815,7 +1964,6 @@ class UserLogoutView(APIView):
         try:
             refresh_token = request.data.get("refresh_token")
             if refresh_token:
-                from rest_framework_simplejwt.tokens import RefreshToken
 
                 token = RefreshToken(refresh_token)
                 token.blacklist()
@@ -1873,23 +2021,31 @@ class PasswordResetView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = PasswordResetSerializer(data=request.data)
-        if serializer.is_valid():
-            email = serializer.validated_data["email"]
-            user = User.objects.get(email=email)
+        try:
+            serializer = PasswordResetSerializer(data=request.data)
+            if serializer.is_valid():
+                email = serializer.validated_data["email"]
+                try:
+                    user = User.objects.get(email=email)
+                except User.DoesNotExist:
+                    # Don't reveal if email exists or not for security
+                    return Response(
+                        {"message": "If the email exists, a reset link has been sent", "status": "success"},
+                        status=status.HTTP_200_OK,
+                    )
 
-            # Generate reset token
-            from django.contrib.auth.tokens import default_token_generator
-            from django.utils.http import urlsafe_base64_encode
-            from django.utils.encoding import force_bytes
+                # Generate reset token
+                from django.contrib.auth.tokens import default_token_generator
+                from django.utils.http import urlsafe_base64_encode
+                from django.utils.encoding import force_bytes
 
-            token = default_token_generator.make_token(user)
-            uid = urlsafe_base64_encode(force_bytes(user.pk))
+                token = default_token_generator.make_token(user)
+                uid = urlsafe_base64_encode(force_bytes(user.pk))
 
-            # Send reset email
-            reset_url = f"https://bondah.org/reset-password/{uid}/{token}/"
-            subject = "Password Reset - Bondah Dating"
-            message = f"""
+                # Send reset email
+                reset_url = f"https://bondah.org/reset-password/{uid}/{token}/"
+                subject = "Password Reset - Bondah Dating"
+                message = f"""
 Hi {user.name},
 
 You requested a password reset for your Bondah Dating account.
@@ -1901,38 +2057,46 @@ If you didn't request this, please ignore this email.
 
 Best regards,
 The Bondah Team
-            """.strip()
+                """.strip()
 
-            try:
-                send_mail(
-                    subject=subject,
-                    message=message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[email],
-                    fail_silently=False,
-                )
+                try:
+                    send_mail(
+                        subject=subject,
+                        message=message,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[email],
+                        fail_silently=False,
+                    )
 
-                return Response(
-                    {"message": "Password reset email sent", "status": "success"},
-                    status=status.HTTP_200_OK,
-                )
-            except Exception as e:
-                return Response(
-                    {
-                        "message": f"Failed to send reset email: {str(e)}",
-                        "status": "error",
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+                    return Response(
+                        {"message": "Password reset email sent", "status": "success"},
+                        status=status.HTTP_200_OK,
+                    )
+                except Exception as e:
+                    return Response(
+                        {
+                            "message": f"Failed to send reset email: {str(e)}",
+                            "status": "error",
+                        },
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
 
-        return Response(
-            {
-                "message": "Invalid email",
-                "status": "error",
-                "errors": serializer.errors,
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+            return Response(
+                {
+                    "message": "Invalid email",
+                    "status": "error",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"An unexpected error occurred: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class PasswordResetConfirmView(APIView):
@@ -1941,72 +2105,23 @@ class PasswordResetConfirmView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = PasswordResetConfirmSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.validated_data["user"]
-            new_password = serializer.validated_data["new_password"]
-
-            user.set_password(new_password)
-            user.save()
-
-            return Response(
-                {"message": "Password reset successfully", "status": "success"},
-                status=status.HTTP_200_OK,
-            )
-
-        return Response(
-            {
-                "message": "Password reset failed",
-                "status": "error",
-                "errors": serializer.errors,
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-
-class UserProfileView(APIView):
-    """Get and update user profile for mobile app"""
-
-    def get(self, request):
-        """Get user profile"""
         try:
-            user = request.user
-            serializer = UserProfileDetailSerializer(user)
-            return Response(
-                {
-                    "message": "Profile retrieved successfully",
-                    "status": "success",
-                    "user": serializer.data,
-                },
-                status=status.HTTP_200_OK,
-            )
-        except Exception as e:
-            return Response(
-                {"message": f"Failed to retrieve profile: {str(e)}", "status": "error"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    def put(self, request):
-        """Update user profile"""
-        try:
-            user = request.user
-            serializer = UserProfileDetailSerializer(
-                user, data=request.data, partial=True
-            )
+            serializer = PasswordResetConfirmSerializer(data=request.data)
             if serializer.is_valid():
-                updated_user = serializer.save()
+                user = serializer.validated_data["user"]
+                new_password = serializer.validated_data["new_password"]
+
+                user.set_password(new_password)
+                user.save()
+
                 return Response(
-                    {
-                        "message": "Profile updated successfully",
-                        "status": "success",
-                        "user": UserProfileDetailSerializer(updated_user).data,
-                    },
+                    {"message": "Password reset successfully", "status": "success"},
                     status=status.HTTP_200_OK,
                 )
 
             return Response(
                 {
-                    "message": "Profile update failed",
+                    "message": "Password reset failed",
                     "status": "error",
                     "errors": serializer.errors,
                 },
@@ -2014,7 +2129,96 @@ class UserProfileView(APIView):
             )
         except Exception as e:
             return Response(
-                {"message": f"Failed to update profile: {str(e)}", "status": "error"},
+                {
+                    "message": f"An unexpected error occurred: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class UserProfileView(generics.RetrieveUpdateAPIView):
+    """User profile view for mobile app"""
+
+    serializer_class = UserProfileDetailSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            profile_data = serializer.data
+
+            # Try to get additional data from Firestore
+            from .firebase_utils import get_user_profile_from_firestore
+
+            # Assuming user has firebase_uid, or use email as key
+            firebase_uid = getattr(
+                instance, "firebase_uid", instance.email
+            )  # Adjust if you add firebase_uid field
+            firestore_profile = get_user_profile_from_firestore(firebase_uid)
+            if firestore_profile:
+                profile_data.update(firestore_profile)  # Merge Firestore data
+
+            return Response(
+                {
+                    "message": "Profile retrieved successfully",
+                    "status": "success",
+                    "user": profile_data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to retrieve profile: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def update(self, request, *args, **kwargs):
+        try:
+            partial = kwargs.pop("partial", False)
+            instance = self.get_object()
+            serializer = self.get_serializer(
+                instance, data=request.data, partial=partial
+            )
+            serializer.is_valid(raise_exception=True)
+            updated_user = serializer.save()
+
+            # Update Firestore if additional data provided
+            firestore_data = {}
+            firestore_fields = [
+                "bio",
+                "interests",
+                "photos",
+            ]  # Example fields stored in Firestore
+            for field in firestore_fields:
+                if field in request.data:
+                    firestore_data[field] = request.data[field]
+
+            if firestore_data:
+                firebase_uid = getattr(instance, "firebase_uid", instance.email)
+                update_user_profile_in_firestore(firebase_uid, firestore_data)
+
+            return Response(
+                {
+                    "message": "Profile updated successfully",
+                    "status": "success",
+                    "user": self.get_serializer(updated_user).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to update profile: {str(e)}",
+                    "status": "error",
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -2852,15 +3056,18 @@ class LocationPermissionsView(APIView):
             )
 
 
-class LocationHistoryView(APIView):
+class LocationHistoryView(generics.ListAPIView):
     """Get user's location history"""
 
-    def get(self, request):
-        try:
-            # Get recent location history (last 30 entries)
-            history = LocationHistory.objects.filter(user=request.user)[:30]
-            serializer = LocationHistorySerializer(history, many=True)
+    serializer_class = LocationHistorySerializer
 
+    def get_queryset(self):
+        return LocationHistory.objects.filter(user=self.request.user)[:30]
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
             return Response(
                 {
                     "message": "Location history retrieved successfully",
@@ -2869,7 +3076,6 @@ class LocationHistoryView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
-
         except Exception as e:
             return Response(
                 {
@@ -3292,7 +3498,7 @@ class PhoneOTPRequestView(APIView):
                 return Response(
                     {
                         "message": "Failed to process phone verification request",
-                        "status": "error",
+                        "status": f"error{e}",
                     },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
@@ -3590,146 +3796,155 @@ class UserSearchView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from .serializers import UserSearchFilterSerializer, UserSearchSerializer
+        try:
+            from .serializers import UserSearchFilterSerializer, UserSearchSerializer
 
-        # Validate search parameters
-        filter_serializer = UserSearchFilterSerializer(data=request.GET)
-        if not filter_serializer.is_valid():
+            # Validate search parameters
+            filter_serializer = UserSearchFilterSerializer(data=request.GET)
+            if not filter_serializer.is_valid():
+                return Response(
+                    {
+                        "message": "Invalid search parameters",
+                        "status": "error",
+                        "errors": filter_serializer.errors,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            filters = filter_serializer.validated_data
+
+            # Start with all active users except current user
+            queryset = User.objects.filter(is_active=True).exclude(id=request.user.id)
+
+            # Apply filters
+            if filters.get("gender"):
+                queryset = queryset.filter(gender=filters["gender"])
+
+            if filters.get("age_min"):
+                queryset = queryset.filter(age__gte=filters["age_min"])
+
+            if filters.get("age_max"):
+                queryset = queryset.filter(age__lte=filters["age_max"])
+
+            if filters.get("education_level"):
+                queryset = queryset.filter(education_level=filters["education_level"])
+
+            if filters.get("relationship_status"):
+                queryset = queryset.filter(
+                    relationship_status=filters["relationship_status"]
+                )
+
+            if filters.get("smoking_preference"):
+                queryset = queryset.filter(smoking_preference=filters["smoking_preference"])
+
+            if filters.get("drinking_preference"):
+                queryset = queryset.filter(
+                    drinking_preference=filters["drinking_preference"]
+                )
+
+            if filters.get("pet_preference"):
+                queryset = queryset.filter(pet_preference=filters["pet_preference"])
+
+            if filters.get("exercise_frequency"):
+                queryset = queryset.filter(exercise_frequency=filters["exercise_frequency"])
+
+            if filters.get("kids_preference"):
+                queryset = queryset.filter(kids_preference=filters["kids_preference"])
+
+            if filters.get("personality_type"):
+                queryset = queryset.filter(personality_type=filters["personality_type"])
+
+            if filters.get("love_language"):
+                queryset = queryset.filter(love_language=filters["love_language"])
+
+            if filters.get("dating_type"):
+                queryset = queryset.filter(dating_type=filters["dating_type"])
+
+            if filters.get("religion"):
+                queryset = queryset.filter(religion__icontains=filters["religion"])
+
+            if filters.get("is_matchmaker") is not None:
+                queryset = queryset.filter(is_matchmaker=filters["is_matchmaker"])
+
+            if filters.get("has_photos"):
+                queryset = queryset.exclude(profile_picture__isnull=True).exclude(
+                    profile_picture=""
+                )
+
+            # Text search
+            if filters.get("query"):
+                query = filters["query"]
+                queryset = queryset.filter(
+                    models.Q(name__icontains=query)
+                    | models.Q(bio__icontains=query)
+                    | models.Q(city__icontains=query)
+                    | models.Q(state__icontains=query)
+                    | models.Q(country__icontains=query)
+                )
+
+            # Interest and hobby filtering
+            if filters.get("interests"):
+                for interest in filters["interests"]:
+                    queryset = queryset.filter(interests__icontains=interest)
+
+            if filters.get("hobbies"):
+                for hobby in filters["hobbies"]:
+                    queryset = queryset.filter(hobbies__icontains=hobby)
+
+            # Distance filtering
+            if filters.get("max_distance") and request.user.has_location:
+                max_distance = filters["max_distance"]
+                nearby_users = []
+                for user in queryset:
+                    if user.has_location:
+                        distance = request.user.get_distance_to(user)
+                        if distance and distance <= max_distance:
+                            nearby_users.append(user)
+                queryset = User.objects.filter(id__in=[u.id for u in nearby_users])
+
+            # Order by relevance (can be enhanced with ML)
+            queryset = queryset.order_by("-date_joined")
+
+            # Pagination
+            page_size = int(request.GET.get("page_size", 20))
+            page = int(request.GET.get("page", 1))
+            start = (page - 1) * page_size
+            end = start + page_size
+
+            users = queryset[start:end]
+
+            # Serialize results
+            serializer = UserSearchSerializer(
+                users, many=True, context={"request": request}
+            )
+
+            # Store search query for analytics
+            SearchQuery.objects.create(
+                user=request.user,
+                query=filters.get("query", ""),
+                filters=filters,
+                results_count=queryset.count(),
+            )
+
             return Response(
                 {
-                    "message": "Invalid search parameters",
-                    "status": "error",
-                    "errors": filter_serializer.errors,
+                    "message": "Search completed successfully",
+                    "status": "success",
+                    "results": serializer.data,
+                    "total_count": queryset.count(),
+                    "page": page,
+                    "page_size": page_size,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_200_OK,
             )
-
-        filters = filter_serializer.validated_data
-
-        # Start with all active users except current user
-        queryset = User.objects.filter(is_active=True).exclude(id=request.user.id)
-
-        # Apply filters
-        if filters.get("gender"):
-            queryset = queryset.filter(gender=filters["gender"])
-
-        if filters.get("age_min"):
-            queryset = queryset.filter(age__gte=filters["age_min"])
-
-        if filters.get("age_max"):
-            queryset = queryset.filter(age__lte=filters["age_max"])
-
-        if filters.get("education_level"):
-            queryset = queryset.filter(education_level=filters["education_level"])
-
-        if filters.get("relationship_status"):
-            queryset = queryset.filter(
-                relationship_status=filters["relationship_status"]
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"An unexpected error occurred during search: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        if filters.get("smoking_preference"):
-            queryset = queryset.filter(smoking_preference=filters["smoking_preference"])
-
-        if filters.get("drinking_preference"):
-            queryset = queryset.filter(
-                drinking_preference=filters["drinking_preference"]
-            )
-
-        if filters.get("pet_preference"):
-            queryset = queryset.filter(pet_preference=filters["pet_preference"])
-
-        if filters.get("exercise_frequency"):
-            queryset = queryset.filter(exercise_frequency=filters["exercise_frequency"])
-
-        if filters.get("kids_preference"):
-            queryset = queryset.filter(kids_preference=filters["kids_preference"])
-
-        if filters.get("personality_type"):
-            queryset = queryset.filter(personality_type=filters["personality_type"])
-
-        if filters.get("love_language"):
-            queryset = queryset.filter(love_language=filters["love_language"])
-
-        if filters.get("dating_type"):
-            queryset = queryset.filter(dating_type=filters["dating_type"])
-
-        if filters.get("religion"):
-            queryset = queryset.filter(religion__icontains=filters["religion"])
-
-        if filters.get("is_matchmaker") is not None:
-            queryset = queryset.filter(is_matchmaker=filters["is_matchmaker"])
-
-        if filters.get("has_photos"):
-            queryset = queryset.exclude(profile_picture__isnull=True).exclude(
-                profile_picture=""
-            )
-
-        # Text search
-        if filters.get("query"):
-            query = filters["query"]
-            queryset = queryset.filter(
-                models.Q(name__icontains=query)
-                | models.Q(bio__icontains=query)
-                | models.Q(city__icontains=query)
-                | models.Q(state__icontains=query)
-                | models.Q(country__icontains=query)
-            )
-
-        # Interest and hobby filtering
-        if filters.get("interests"):
-            for interest in filters["interests"]:
-                queryset = queryset.filter(interests__icontains=interest)
-
-        if filters.get("hobbies"):
-            for hobby in filters["hobbies"]:
-                queryset = queryset.filter(hobbies__icontains=hobby)
-
-        # Distance filtering
-        if filters.get("max_distance") and request.user.has_location:
-            max_distance = filters["max_distance"]
-            nearby_users = []
-            for user in queryset:
-                if user.has_location:
-                    distance = request.user.get_distance_to(user)
-                    if distance and distance <= max_distance:
-                        nearby_users.append(user)
-            queryset = User.objects.filter(id__in=[u.id for u in nearby_users])
-
-        # Order by relevance (can be enhanced with ML)
-        queryset = queryset.order_by("-date_joined")
-
-        # Pagination
-        page_size = int(request.GET.get("page_size", 20))
-        page = int(request.GET.get("page", 1))
-        start = (page - 1) * page_size
-        end = start + page_size
-
-        users = queryset[start:end]
-
-        # Serialize results
-        serializer = UserSearchSerializer(
-            users, many=True, context={"request": request}
-        )
-
-        # Store search query for analytics
-        SearchQuery.objects.create(
-            user=request.user,
-            query=filters.get("query", ""),
-            filters=filters,
-            results_count=queryset.count(),
-        )
-
-        return Response(
-            {
-                "message": "Search completed successfully",
-                "status": "success",
-                "results": serializer.data,
-                "total_count": queryset.count(),
-                "page": page,
-                "page_size": page_size,
-            },
-            status=status.HTTP_200_OK,
-        )
 
 
 class UserProfileDetailView(APIView):
@@ -3770,7 +3985,6 @@ class UserInteractionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        from .serializers import UserInteractionSerializer
 
         serializer = UserInteractionSerializer(data=request.data)
         if serializer.is_valid():
@@ -3845,7 +4059,6 @@ class UserRecommendationsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from .serializers import RecommendationSerializer
 
         # Get user's preferences
         user = request.user
@@ -3966,8 +4179,6 @@ class UserInterestsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from .serializers import UserInterestSerializer
-
         interests = UserInterest.objects.filter(is_active=True).order_by("name")
         serializer = UserInterestSerializer(interests, many=True)
 
@@ -4021,10 +4232,8 @@ class ChatListView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == "POST":
-            from .serializers import ChatCreateSerializer
 
             return ChatCreateSerializer
-        from .serializers import ChatSerializer
 
         return ChatSerializer
 
@@ -4153,7 +4362,6 @@ class MessageListView(generics.ListCreateAPIView):
                 raise serializers.ValidationError("No recipient found for this tip")
 
             # Create Bondcoin transaction for the tip
-            from .models import BondcoinTransaction
 
             tip_transaction = BondcoinTransaction.objects.create(
                 user=user,
@@ -4193,10 +4401,6 @@ class MessageListView(generics.ListCreateAPIView):
 
     def _save_uploaded_file(self, file, folder):
         """Save uploaded file and return URL"""
-        from django.core.files.storage import default_storage
-        from django.core.files.base import ContentFile
-        import os
-        import uuid
 
         # Generate unique filename
         file_extension = os.path.splitext(file.name)[1]
@@ -4483,107 +4687,114 @@ class MatchmakerIntroView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if not request.user.is_matchmaker:
-            return Response(
-                {
-                    "message": "Only matchmakers can create introductions",
-                    "status": "error",
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        user1_id = request.data.get("user1_id")
-        user2_id = request.data.get("user2_id")
-        intro_message = request.data.get("intro_message", "")
-
-        if not user1_id or not user2_id:
-            return Response(
-                {
-                    "message": "Both user1_id and user2_id are required",
-                    "status": "error",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
-            user1 = User.objects.get(id=user1_id, is_active=True)
-            user2 = User.objects.get(id=user2_id, is_active=True)
-
-            # Check if chat already exists
-            existing_chat = (
-                Chat.objects.filter(participants=user1, chat_type="matchmaker_intro")
-                .filter(participants=user2)
-                .annotate(participant_count=models.Count("participants"))
-                .filter(participant_count=2)
-                .first()
-            )
-
-            if existing_chat:
+            if not request.user.is_matchmaker:
                 return Response(
-                    {"message": "Introduction chat already exists", "status": "error"},
+                    {
+                        "message": "Only matchmakers can create introductions",
+                        "status": "error",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            user1_id = request.data.get("user1_id")
+            user2_id = request.data.get("user2_id")
+            intro_message = request.data.get("intro_message", "")
+
+            if not user1_id or not user2_id:
+                return Response(
+                    {
+                        "message": "Both user1_id and user2_id are required",
+                        "status": "error",
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Create matchmaker introduction chat
-            chat = Chat.objects.create(
-                chat_type="matchmaker_intro",
-                created_by=request.user,
-                chat_name=f"Introduction: {user1.name} & {user2.name}",
-            )
-            chat.participants.set([user1, user2, request.user])
+            try:
+                user1 = User.objects.get(id=user1_id, is_active=True)
+                user2 = User.objects.get(id=user2_id, is_active=True)
 
-            # Create system messages
-            Message.objects.create(
-                chat=chat,
-                sender=None,
-                message_type="system",
-                content=f"{request.user.name} (moderator) made the match",
-            )
+                # Check if chat already exists
+                existing_chat = (
+                    Chat.objects.filter(participants=user1, chat_type="matchmaker_intro")
+                    .filter(participants=user2)
+                    .annotate(participant_count=models.Count("participants"))
+                    .filter(participant_count=2)
+                    .first()
+                )
 
-            Message.objects.create(
-                chat=chat,
-                sender=None,
-                message_type="system",
-                content=f"{user1.name} was matched",
-            )
+                if existing_chat:
+                    return Response(
+                        {"message": "Introduction chat already exists", "status": "error"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-            Message.objects.create(
-                chat=chat,
-                sender=None,
-                message_type="system",
-                content=f"{user2.name} was added",
-            )
+                # Create matchmaker introduction chat
+                chat = Chat.objects.create(
+                    chat_type="matchmaker_intro",
+                    created_by=request.user,
+                    chat_name=f"Introduction: {user1.name} & {user2.name}",
+                )
+                chat.participants.set([user1, user2, request.user])
 
-            # Create matchmaker introduction message
-            intro_content = (
-                intro_message
-                or f"Hi {user1.name} & {user2.name} 👋, I've matched you because I see a good fit. Please introduce yourselves and get to know each other."
-            )
+                # Create system messages
+                Message.objects.create(
+                    chat=chat,
+                    sender=None,
+                    message_type="system",
+                    content=f"{request.user.name} (moderator) made the match",
+                )
 
-            Message.objects.create(
-                chat=chat,
-                sender=request.user,
-                message_type="matchmaker_intro",
-                content=intro_content,
-            )
+                Message.objects.create(
+                    chat=chat,
+                    sender=None,
+                    message_type="system",
+                    content=f"{user1.name} was matched",
+                )
 
-            from .serializers import ChatDetailSerializer
+                Message.objects.create(
+                    chat=chat,
+                    sender=None,
+                    message_type="system",
+                    content=f"{user2.name} was added",
+                )
 
+                # Create matchmaker introduction message
+                intro_content = (
+                    intro_message
+                    or f"Hi {user1.name} & {user2.name} 👋, I've matched you because I see a good fit. Please introduce yourselves and get to know each other."
+                )
+
+                Message.objects.create(
+                    chat=chat,
+                    sender=request.user,
+                    message_type="matchmaker_intro",
+                    content=intro_content,
+                )
+
+                return Response(
+                    {
+                        "message": "Matchmaker introduction created successfully",
+                        "status": "success",
+                        "chat": ChatDetailSerializer(
+                            chat, context={"request": request}
+                        ).data,
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+
+            except User.DoesNotExist:
+                return Response(
+                    {"message": "One or both users not found", "status": "error"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        except Exception as e:
             return Response(
                 {
-                    "message": "Matchmaker introduction created successfully",
-                    "status": "success",
-                    "chat": ChatDetailSerializer(
-                        chat, context={"request": request}
-                    ).data,
+                    "message": f"An unexpected error occurred: {str(e)}",
+                    "status": "error",
                 },
-                status=status.HTTP_201_CREATED,
-            )
-
-        except User.DoesNotExist:
-            return Response(
-                {"message": "One or both users not found", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -5240,51 +5451,57 @@ class FeedSearchView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from .models import Post, FeedSearch
-        from django.db.models import Q
+        try:
+            query = request.GET.get("q", "").strip()
+            if not query:
+                return Response(
+                    {"message": "Search query is required", "status": "error"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        query = request.GET.get("q", "").strip()
-        if not query:
+            # Search posts by content, hashtags, and author name
+            posts = (
+                Post.objects.filter(
+                    Q(content__icontains=query)
+                    | Q(hashtags__icontains=query)
+                    | Q(author__name__icontains=query)
+                    | Q(location__icontains=query),
+                    is_active=True,
+                    visibility="public",
+                )
+                .select_related("author")
+                .prefetch_related("comments__author")
+                .order_by("-created_at")
+            )
+
+            # Store search query for analytics
+            FeedSearch.objects.create(
+                user=request.user, query=query, results_count=posts.count()
+            )
+
+            # Serialize results
+            from .serializers import PostSerializer
+
+            serializer = PostSerializer(posts, many=True, context={"request": request})
+
             return Response(
-                {"message": "Search query is required", "status": "error"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "message": "Search completed successfully",
+                    "status": "success",
+                    "query": query,
+                    "results_count": posts.count(),
+                    "posts": serializer.data,
+                },
+                status=status.HTTP_200_OK,
             )
-
-        # Search posts by content, hashtags, and author name
-        posts = (
-            Post.objects.filter(
-                Q(content__icontains=query)
-                | Q(hashtags__icontains=query)
-                | Q(author__name__icontains=query)
-                | Q(location__icontains=query),
-                is_active=True,
-                visibility="public",
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"An unexpected error occurred during search: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-            .select_related("author")
-            .prefetch_related("comments__author")
-            .order_by("-created_at")
-        )
-
-        # Store search query for analytics
-        FeedSearch.objects.create(
-            user=request.user, query=query, results_count=posts.count()
-        )
-
-        # Serialize results
-        from .serializers import PostSerializer
-
-        serializer = PostSerializer(posts, many=True, context={"request": request})
-
-        return Response(
-            {
-                "message": "Search completed successfully",
-                "status": "success",
-                "query": query,
-                "results_count": posts.count(),
-                "posts": serializer.data,
-            },
-            status=status.HTTP_200_OK,
-        )
 
 
 class FeedSuggestionsView(APIView):
@@ -5366,15 +5583,12 @@ class UserSocialHandleListView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == "POST":
-            from .serializers import UserSocialHandleCreateSerializer
 
             return UserSocialHandleCreateSerializer
-        from .serializers import UserSocialHandleSerializer
 
         return UserSocialHandleSerializer
 
     def get_queryset(self):
-        from .models import UserSocialHandle
 
         return UserSocialHandle.objects.filter(user=self.request.user)
 
@@ -5387,12 +5601,10 @@ class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import UserSocialHandleSerializer
 
         return UserSocialHandleSerializer
 
     def get_queryset(self):
-        from .models import UserSocialHandle
 
         return UserSocialHandle.objects.filter(user=self.request.user)
 
@@ -5411,15 +5623,12 @@ class UserSecurityQuestionListView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == "POST":
-            from .serializers import UserSecurityQuestionCreateSerializer
 
             return UserSecurityQuestionCreateSerializer
-        from .serializers import UserSecurityQuestionSerializer
 
         return UserSecurityQuestionSerializer
 
     def get_queryset(self):
-        from .models import UserSecurityQuestion
 
         return UserSecurityQuestion.objects.filter(user=self.request.user)
 
@@ -5432,8 +5641,6 @@ class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import UserSecurityQuestionSerializer
-
         return UserSecurityQuestionSerializer
 
     def get_queryset(self):
@@ -5456,15 +5663,12 @@ class DocumentVerificationListView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == "POST":
-            from .serializers import DocumentVerificationCreateSerializer
 
             return DocumentVerificationCreateSerializer
-        from .serializers import DocumentVerificationSerializer
 
         return DocumentVerificationSerializer
 
     def get_queryset(self):
-        from .models import DocumentVerification
 
         return DocumentVerification.objects.filter(user=self.request.user)
 
@@ -5514,10 +5718,6 @@ class DocumentUploadView(APIView):
                 )
 
             # Save uploaded files (in production, use cloud storage)
-            from django.core.files.storage import default_storage
-            from django.conf import settings
-            import os
-
             # Create directory if it doesn't exist
             upload_dir = os.path.join(
                 settings.MEDIA_ROOT, "documents", str(request.user.id)
@@ -5627,8 +5827,6 @@ class UsernameUpdateView(APIView):
     def put(self, request):
         """Update username"""
         try:
-            from .serializers import UsernameUpdateSerializer
-
             serializer = UsernameUpdateSerializer(
                 request.user, data=request.data, partial=True
             )
@@ -5672,12 +5870,10 @@ class SubscriptionPlanListView(generics.ListAPIView):
     permission_classes = [AllowAny]
 
     def get_serializer_class(self):
-        from .serializers import SubscriptionPlanSerializer
 
         return SubscriptionPlanSerializer
 
     def get_queryset(self):
-        from .models import SubscriptionPlan
 
         return SubscriptionPlan.objects.filter(is_active=True)
 
@@ -5691,15 +5887,12 @@ class UserSubscriptionListView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == "POST":
-            from .serializers import UserSubscriptionCreateSerializer
 
             return UserSubscriptionCreateSerializer
-        from .serializers import UserSubscriptionSerializer
 
         return UserSubscriptionSerializer
 
     def get_queryset(self):
-        from .models import UserSubscription
 
         return UserSubscription.objects.filter(user=self.request.user)
 
@@ -5712,12 +5905,10 @@ class UserSubscriptionDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import UserSubscriptionSerializer
 
         return UserSubscriptionSerializer
 
     def get_queryset(self):
-        from .models import UserSubscription
 
         return UserSubscription.objects.filter(user=self.request.user)
 
@@ -5733,8 +5924,6 @@ class UserCurrentSubscriptionView(APIView):
         try:
             subscription = request.user.get_current_subscription()
             if subscription:
-                from .serializers import UserSubscriptionSerializer
-
                 serializer = UserSubscriptionSerializer(subscription)
                 return Response(
                     {
@@ -5861,12 +6050,10 @@ class BondcoinTransactionListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import BondcoinTransactionSerializer
 
         return BondcoinTransactionSerializer
 
     def get_queryset(self):
-        from .models import BondcoinTransaction
 
         return BondcoinTransaction.objects.filter(user=self.request.user)
 
@@ -5879,13 +6066,10 @@ class BondcoinTransactionDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import BondcoinTransactionSerializer
 
         return BondcoinTransactionSerializer
 
     def get_queryset(self):
-        from .models import BondcoinTransaction
-
         return BondcoinTransaction.objects.filter(user=self.request.user)
 
 
@@ -5906,8 +6090,6 @@ class BondcoinPurchaseView(APIView):
                     {"message": "Package ID is required", "status": "error"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-
-            from .models import BondcoinPackage, BondcoinTransaction
 
             try:
                 package = BondcoinPackage.objects.get(id=package_id, is_active=True)
@@ -5931,8 +6113,6 @@ class BondcoinPurchaseView(APIView):
             # Update user balance
             request.user.bondcoin_balance += package.bondcoin_amount
             request.user.save(update_fields=["bondcoin_balance"])
-
-            from .serializers import BondcoinTransactionSerializer
 
             serializer = BondcoinTransactionSerializer(transaction)
 
@@ -6051,8 +6231,6 @@ class SendGiftView(APIView):
 
     def post(self, request):
         try:
-            from .serializers import GiftTransactionCreateSerializer
-
             serializer = GiftTransactionCreateSerializer(
                 data=request.data, context={"request": request}
             )
@@ -6211,7 +6389,7 @@ class LiveSessionGiftersView(APIView):
 
     def get(self, request, session_id):
         try:
-            from .models import LiveSession, LiveGift
+            # LiveSession already imported at top
             from django.db.models import Sum
 
             try:
@@ -6258,8 +6436,6 @@ class PaymentMethodListView(generics.ListAPIView):
         return PaymentMethodSerializer
 
     def get_queryset(self):
-        from .models import PaymentMethod
-
         return PaymentMethod.objects.filter(is_active=True)
 
 
@@ -6302,17 +6478,6 @@ class ProcessPaymentView(APIView):
 
     def post(self, request):
         try:
-            from .models import (
-                PaymentTransaction,
-                PaymentMethod,
-                UserSubscription,
-                BondcoinPackage,
-                BondcoinTransaction,
-            )
-            from .serializers import PaymentTransactionCreateSerializer
-            from django.utils import timezone
-            from decimal import Decimal
-
             # Validate payment data
             serializer = PaymentTransactionCreateSerializer(data=request.data)
             if not serializer.is_valid():
@@ -6395,8 +6560,6 @@ class ProcessPaymentView(APIView):
             payment_transaction.save()
 
             # Simulate successful payment after 1 second
-            import time
-
             time.sleep(1)
 
             payment_transaction.status = "completed"
@@ -6406,8 +6569,6 @@ class ProcessPaymentView(APIView):
                 f"txn_{payment_transaction.id}_{int(timezone.now().timestamp())}"
             )
             payment_transaction.save()
-
-            from .serializers import PaymentTransactionSerializer
 
             serializer = PaymentTransactionSerializer(payment_transaction)
 
@@ -6434,11 +6595,6 @@ class PaymentWebhookView(APIView):
 
     def post(self, request, provider):
         try:
-            from .models import PaymentWebhook, PaymentTransaction
-            from .serializers import PaymentWebhookCreateSerializer
-            from django.utils import timezone
-            import json
-
             # Get webhook data
             payload = request.body.decode("utf-8")
             event_data = json.loads(payload) if payload else {}
@@ -6489,8 +6645,6 @@ class PaymentWebhookView(APIView):
 
     def _process_stripe_webhook(self, webhook, event_data):
         """Process Stripe webhook events"""
-        from .models import PaymentTransaction
-        from django.utils import timezone
 
         event_type = event_data.get("type")
 
@@ -6527,8 +6681,6 @@ class PaymentWebhookView(APIView):
 
     def _process_paypal_webhook(self, webhook, event_data):
         """Process PayPal webhook events"""
-        from .models import PaymentTransaction
-        from django.utils import timezone
 
         event_type = event_data.get("event_type")
 
@@ -6648,5 +6800,226 @@ class RefundPaymentView(APIView):
         except Exception as e:
             return Response(
                 {"message": f"Refund processing failed: {str(e)}", "status": "error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+# Firebase Integration Views
+# These views integrate Firebase Auth and Firestore for
+# user authentication, profiles, and matches.
+
+
+class FirebaseLoginView(APIView):
+    """
+    Authenticate user with Firebase ID token.
+    Expects 'Authorization: Bearer <firebase_id_token>' header.
+    Returns user data and JWT token for Django session.
+    """
+
+    def post(self, request):
+        try:
+            auth_header = request.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
+                return Response(
+                    {"error": "Missing or invalid Authorization header"},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            id_token = auth_header.split(" ")[1]
+            decoded_token = verify_firebase_token(id_token)
+            if not decoded_token:
+                return Response(
+                    {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            # Get or create Django user
+            user = get_or_create_user_from_firebase(decoded_token)
+
+            # Generate Django JWT token from djangorestframework-simplejwt is installed)
+            from rest_framework_simplejwt.tokens import RefreshToken
+
+            refresh = RefreshToken.for_user(user)
+            access_token = str(refresh.access_token)
+
+            return Response(
+                {
+                    "message": "Login successful",
+                    "user": UserSerializer(user).data,
+                    "access_token": access_token,
+                    "refresh_token": str(refresh),
+                }
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Firebase login failed: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FirebaseUserProfileView(APIView):
+    """
+    Get or update user profile in Firestore.
+    Requires Firebase auth.
+    """
+
+    def get(self, request):
+        try:
+            # Extract UID from Firebase token
+            auth_header = request.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
+                return Response(
+                    {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            id_token = auth_header.split(" ")[1]
+            decoded_token = verify_firebase_token(id_token)
+            if not decoded_token:
+                return Response(
+                    {"error": "Invalid token"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            uid = decoded_token["uid"]
+            profile = get_user_profile_from_firestore(uid)
+            if profile:
+                return Response(profile)
+            return Response(
+                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to get profile: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def post(self, request):
+        try:
+            # Update profile
+            auth_header = request.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
+                return Response(
+                    {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            id_token = auth_header.split(" ")[1]
+            decoded_token = verify_firebase_token(id_token)
+            if not decoded_token:
+                return Response(
+                    {"error": "Invalid token"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            uid = decoded_token["uid"]
+            data = request.data  # Expect JSON with profile fields
+            success = update_user_profile_in_firestore(uid, data)
+            if success:
+                return Response({"message": "Profile updated"})
+            return Response(
+                {"error": "Update failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to update profile: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FirebaseMatchView(APIView):
+    """
+    Create a match between users.
+    Requires Firebase auth.
+    """
+
+    def post(self, request):
+        try:
+            auth_header = request.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
+                return Response(
+                    {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            id_token = auth_header.split(" ")[1]
+            decoded_token = verify_firebase_token(id_token)
+            if not decoded_token:
+                return Response(
+                    {"error": "Invalid token"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            user_uid = decoded_token["uid"]
+            matched_uid = request.data.get("matched_uid")
+            if not matched_uid:
+                return Response(
+                    {"error": "Matched UID required"}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            success = create_match_in_firestore(user_uid, matched_uid)
+            if success:
+                # Optionally send push notification
+                # send_push_notification(matched_uid, "New Match!", "Someone liked you!")
+                return Response({"message": "Match created"})
+            return Response(
+                {"error": "Match creation failed"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to create match: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FirebaseMatchesListView(APIView):
+    """
+    Get list of matches for the authenticated user.
+    """
+
+    def get(self, request):
+        try:
+            auth_header = request.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
+                return Response(
+                    {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            id_token = auth_header.split(" ")[1]
+            decoded_token = verify_firebase_token(id_token)
+            if not decoded_token:
+                return Response(
+                    {"error": "Invalid token"}, status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            uid = decoded_token["uid"]
+            matches = get_matches_for_user(uid)
+            return Response({"matches": matches})
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to get matches: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FirebasePushNotificationView(APIView):
+    """
+    Send a push notification (for testing or admin use).
+    """
+
+    def post(self, request):
+        try:
+            token = request.data.get("token")
+            title = request.data.get("title", "Notification")
+            body = request.data.get("body", "Message")
+            if not token:
+                return Response(
+                    {"error": "Device token required"}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            response = send_push_notification(token, title, body)
+            if response:
+                return Response({"message": "Notification sent", "response": response})
+            return Response(
+                {"error": "Failed to send notification"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to send notification: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
