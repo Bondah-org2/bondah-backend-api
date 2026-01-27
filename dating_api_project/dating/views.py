@@ -154,6 +154,8 @@ from deep_translator import GoogleTranslator
 from django.db import models
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from django.db.models import Q
 from .jwt_utils import generate_tokens, refresh_access_token, revoke_refresh_token
 from .permissions import AdminJWTPermission
@@ -395,12 +397,36 @@ class JoinWaitlistView(generics.CreateAPIView):
 
 
 class GetPuzzleView(APIView):
+    @extend_schema(
+        request=inline_serializer(
+            name="GetPuzzleRequest", fields={"user_id": serializers.IntegerField()}
+        ),
+        responses={
+            201: inline_serializer(
+                name="GetPuzzleResponse",
+                fields={
+                    "puzzle_id": serializers.IntegerField(),
+                    "question": serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            404: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            500: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+        },
+    )
     def post(self, request):
         try:
             user_id = request.data.get("user_id")
             if user_id is None:
                 return Response(
-                    {"error": "user_id is required."}, status=status.HTTP_400_BAD_REQUEST
+                    {"error": "user_id is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             try:
@@ -436,6 +462,33 @@ class GetPuzzleView(APIView):
 
 
 class SubmitPuzzleAnswerView(APIView):
+    @extend_schema(
+        request=inline_serializer(
+            name="SubmitPuzzleAnswerRequest",
+            fields={
+                "puzzle_id": serializers.IntegerField(),
+                "user_answer": serializers.CharField(),
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                name="SubmitPuzzleAnswerResponse",
+                fields={
+                    "correct": serializers.BooleanField(),
+                    "message": serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            404: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            500: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+        },
+    )
     def post(self, request):
         try:
             puzzle_id = request.data.get("puzzle_id")
@@ -481,13 +534,39 @@ def has_solved_puzzle(user):
 
 
 class EarnCoinsView(APIView):
+    @extend_schema(
+        request=inline_serializer(
+            name="EarnCoinsRequest",
+            fields={
+                "user_id": serializers.IntegerField(),
+                "amount": serializers.IntegerField(),
+            },
+        ),
+        responses={
+            201: CoinTransactionSerializer(),
+            400: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            403: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            404: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            500: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+        },
+    )
     def post(self, request):
         try:
             user_id = request.data.get("user_id")
             amount = int(request.data.get("amount", 0))
 
             if not user_id or not amount:
-                return Response({"error": "User ID and amount are required."}, status=400)
+                return Response(
+                    {"error": "User ID and amount are required."}, status=400
+                )
 
             try:
                 user = User.objects.get(id=user_id)
@@ -496,7 +575,8 @@ class EarnCoinsView(APIView):
 
             if not has_solved_puzzle(user):
                 return Response(
-                    {"error": "You must solve a puzzle before earning coins."}, status=403
+                    {"error": "You must solve a puzzle before earning coins."},
+                    status=403,
                 )
 
             transaction = CoinTransaction.objects.create(
@@ -512,13 +592,39 @@ class EarnCoinsView(APIView):
 
 
 class SpendCoinsView(APIView):
+    @extend_schema(
+        request=inline_serializer(
+            name="SpendCoinsRequest",
+            fields={
+                "user_id": serializers.IntegerField(),
+                "amount": serializers.IntegerField(),
+            },
+        ),
+        responses={
+            201: CoinTransactionSerializer(),
+            400: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            403: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            404: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+            500: inline_serializer(
+                name="ErrorResponse", fields={"error": serializers.CharField()}
+            ),
+        },
+    )
     def post(self, request):
         try:
             user_id = request.data.get("user_id")
             amount = int(request.data.get("amount", 0))
 
             if not user_id or not amount:
-                return Response({"error": "User ID and amount are required."}, status=400)
+                return Response(
+                    {"error": "User ID and amount are required."}, status=400
+                )
 
             try:
                 user = User.objects.get(id=user_id)
@@ -527,7 +633,8 @@ class SpendCoinsView(APIView):
 
             if not has_solved_puzzle(user):
                 return Response(
-                    {"error": "You must solve a puzzle before spending coins."}, status=403
+                    {"error": "You must solve a puzzle before spending coins."},
+                    status=403,
                 )
 
             total_earned = (
@@ -560,6 +667,33 @@ class SpendCoinsView(APIView):
 
 
 class SendNewsletterWelcomeEmailView(APIView):
+    @extend_schema(
+        request=NewsletterWelcomeEmailSerializer,
+        responses={
+            200: inline_serializer(
+                name="EmailResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                name="ValidationErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         serializer = NewsletterWelcomeEmailSerializer(data=request.data)
         if serializer.is_valid():
@@ -710,6 +844,33 @@ P.S. Share this with friends who might be interested in joining too!
 
 
 class SendGenericEmailView(APIView):
+    @extend_schema(
+        request=GenericEmailSerializer,
+        responses={
+            200: inline_serializer(
+                name="EmailResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                name="ValidationErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         serializer = GenericEmailSerializer(data=request.data)
         if serializer.is_valid():
@@ -938,7 +1099,9 @@ class AdminLoginView(APIView):
 
                         # Create OTP record
                         AdminOTP.objects.create(
-                            admin_user=admin_user, otp_code=otp_code, expires_at=expires_at
+                            admin_user=admin_user,
+                            otp_code=otp_code,
+                            expires_at=expires_at,
                         )
 
                         # Send OTP email
@@ -973,7 +1136,10 @@ P.S. Keep your admin credentials secure!
                             )
 
                             return Response(
-                                {"message": "OTP sent to your email", "status": "success"},
+                                {
+                                    "message": "OTP sent to your email",
+                                    "status": "success",
+                                },
                                 status=status.HTTP_200_OK,
                             )
                         except Exception as e:
@@ -999,7 +1165,11 @@ P.S. Keep your admin credentials secure!
                     )
 
             return Response(
-                {"message": "Invalid data", "status": "error", "errors": serializer.errors},
+                {
+                    "message": "Invalid data",
+                    "status": "error",
+                    "errors": serializer.errors,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
@@ -1063,7 +1233,11 @@ class AdminOTPVerificationView(APIView):
                     )
 
             return Response(
-                {"message": "Invalid data", "status": "error", "errors": serializer.errors},
+                {
+                    "message": "Invalid data",
+                    "status": "error",
+                    "errors": serializer.errors,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
@@ -1131,13 +1305,15 @@ class AdminJobUpdateView(generics.UpdateAPIView):
     queryset = Job.objects.all()
     serializer_class = AdminJobUpdateSerializer
     permission_classes = [AdminJWTPermission]
-    lookup_field = 'id'
+    lookup_field = "id"
 
     def update(self, request, *args, **kwargs):
         try:
-            partial = kwargs.pop('partial', False)
+            partial = kwargs.pop("partial", False)
             instance = self.get_object()
-            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer = self.get_serializer(
+                instance, data=request.data, partial=partial
+            )
             serializer.is_valid(raise_exception=True)
             updated_job = serializer.save()
 
@@ -1270,6 +1446,44 @@ class AdminJobApplicationDetailView(APIView):
 
 
 class TranslationView(APIView):
+    @extend_schema(
+        request=TranslationRequestSerializer,
+        responses={
+            200: inline_serializer(
+                name="TranslationResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "translation": inline_serializer(
+                        name="TranslationData",
+                        fields={
+                            "source_text": serializers.CharField(),
+                            "translated_text": serializers.CharField(),
+                            "source_language": serializers.CharField(),
+                            "target_language": serializers.CharField(),
+                            "character_count": serializers.IntegerField(),
+                            "translation_time": serializers.FloatField(),
+                        },
+                    ),
+                },
+            ),
+            400: inline_serializer(
+                name="ValidationErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         start_time = time.time()
 
@@ -1362,6 +1576,26 @@ class TranslationView(APIView):
 
 
 class SupportedLanguagesView(APIView):
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="SupportedLanguagesResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "languages": serializers.DictField(child=serializers.CharField()),
+                    "total_languages": serializers.IntegerField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        }
+    )
     def get(self, request):
         try:
             languages = {
@@ -1488,6 +1722,31 @@ class SupportedLanguagesView(APIView):
 
 
 class TranslationHistoryView(APIView):
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="source_language", type=OpenApiTypes.STR, required=False),
+            OpenApiParameter(name="target_language", type=OpenApiTypes.STR, required=False),
+            OpenApiParameter(name="limit", type=OpenApiTypes.INT, required=False, default=50),
+        ],
+        responses={
+            200: inline_serializer(
+                name="TranslationHistoryResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "translations": TranslationResponseSerializer(many=True),
+                    "total_count": serializers.IntegerField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def get(self, request):
         try:
             # Get query parameters for filtering
@@ -1588,6 +1847,50 @@ class TranslationStatsView(APIView):
 class JobOptionsView(APIView):
     """Provide job categories and types for frontend dropdowns"""
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="JobOptionsResponse",
+                fields={
+                    "categories": serializers.ListField(
+                        child=inline_serializer(
+                            name="CategoryOption",
+                            fields={
+                                "value": serializers.CharField(),
+                                "label": serializers.CharField(),
+                            },
+                        )
+                    ),
+                    "job_types": serializers.ListField(
+                        child=inline_serializer(
+                            name="JobTypeOption",
+                            fields={
+                                "value": serializers.CharField(),
+                                "label": serializers.CharField(),
+                            },
+                        )
+                    ),
+                    "statuses": serializers.ListField(
+                        child=inline_serializer(
+                            name="StatusOption",
+                            fields={
+                                "value": serializers.CharField(),
+                                "label": serializers.CharField(),
+                            },
+                        )
+                    ),
+                    "status": serializers.CharField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        }
+    )
     def get(self, request):
         """Get available job categories and types"""
         try:
@@ -1860,6 +2163,33 @@ class AdminDebugAuthView(APIView):
 # =============================================================================
 
 
+@extend_schema(
+    request=CustomRegisterSerializer,
+    responses={
+        201: inline_serializer(
+            name="UserRegisterResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+                "user": UserProfileSerializer(),
+                "tokens": inline_serializer(
+                    name="Tokens",
+                    fields={
+                        "access": serializers.CharField(),
+                        "refresh": serializers.CharField(),
+                    },
+                ),
+            },
+        ),
+        500: inline_serializer(
+            name="ErrorResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+    },
+)
 class UserRegisterView(generics.CreateAPIView):
     """ " User register for mobile app"""
 
@@ -1903,6 +2233,55 @@ class UserLoginView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=inline_serializer(
+            name="UserLoginRequest",
+            fields={
+                "firebase_token": serializers.CharField(required=False),
+                "email": serializers.EmailField(required=False),
+                "password": serializers.CharField(required=False),
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                name="UserLoginResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "user": UserProfileSerializer(),
+                    "tokens": inline_serializer(
+                        name="Tokens",
+                        fields={
+                            "access": serializers.CharField(),
+                            "refresh": serializers.CharField(),
+                        },
+                    ),
+                },
+            ),
+            400: inline_serializer(
+                name="ValidationErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                },
+            ),
+            401: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         try:
             # Check if Firebase token is provided
@@ -1960,6 +2339,28 @@ class UserLogoutView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=inline_serializer(
+            name="UserLogoutRequest",
+            fields={"refresh_token": serializers.CharField(required=False)},
+        ),
+        responses={
+            200: inline_serializer(
+                name="LogoutResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         try:
             refresh_token = request.data.get("refresh_token")
@@ -1984,6 +2385,42 @@ class TokenRefreshView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=inline_serializer(
+            name="TokenRefreshRequest",
+            fields={"refresh_token": serializers.CharField()},
+        ),
+        responses={
+            200: inline_serializer(
+                name="TokenRefreshResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "tokens": inline_serializer(
+                        name="Tokens",
+                        fields={
+                            "access": serializers.CharField(),
+                            "refresh": serializers.CharField(),
+                        },
+                    ),
+                },
+            ),
+            400: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            401: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         try:
             refresh_token = request.data.get("refresh_token")
@@ -2020,6 +2457,33 @@ class PasswordResetView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=PasswordResetSerializer,
+        responses={
+            200: inline_serializer(
+                name="PasswordResetResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+            400: inline_serializer(
+                name="ValidationErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                    "errors": serializers.DictField(),
+                },
+            ),
+            500: inline_serializer(
+                name="ErrorResponse",
+                fields={
+                    "message": serializers.CharField(),
+                    "status": serializers.CharField(),
+                },
+            ),
+        },
+    )
     def post(self, request):
         try:
             serializer = PasswordResetSerializer(data=request.data)
@@ -2030,7 +2494,10 @@ class PasswordResetView(APIView):
                 except User.DoesNotExist:
                     # Don't reveal if email exists or not for security
                     return Response(
-                        {"message": "If the email exists, a reset link has been sent", "status": "success"},
+                        {
+                            "message": "If the email exists, a reset link has been sent",
+                            "status": "success",
+                        },
                         status=status.HTTP_200_OK,
                     )
 
@@ -3835,7 +4302,9 @@ class UserSearchView(APIView):
                 )
 
             if filters.get("smoking_preference"):
-                queryset = queryset.filter(smoking_preference=filters["smoking_preference"])
+                queryset = queryset.filter(
+                    smoking_preference=filters["smoking_preference"]
+                )
 
             if filters.get("drinking_preference"):
                 queryset = queryset.filter(
@@ -3846,7 +4315,9 @@ class UserSearchView(APIView):
                 queryset = queryset.filter(pet_preference=filters["pet_preference"])
 
             if filters.get("exercise_frequency"):
-                queryset = queryset.filter(exercise_frequency=filters["exercise_frequency"])
+                queryset = queryset.filter(
+                    exercise_frequency=filters["exercise_frequency"]
+                )
 
             if filters.get("kids_preference"):
                 queryset = queryset.filter(kids_preference=filters["kids_preference"])
@@ -4716,7 +5187,9 @@ class MatchmakerIntroView(APIView):
 
                 # Check if chat already exists
                 existing_chat = (
-                    Chat.objects.filter(participants=user1, chat_type="matchmaker_intro")
+                    Chat.objects.filter(
+                        participants=user1, chat_type="matchmaker_intro"
+                    )
                     .filter(participants=user2)
                     .annotate(participant_count=models.Count("participants"))
                     .filter(participant_count=2)
@@ -4725,7 +5198,10 @@ class MatchmakerIntroView(APIView):
 
                 if existing_chat:
                     return Response(
-                        {"message": "Introduction chat already exists", "status": "error"},
+                        {
+                            "message": "Introduction chat already exists",
+                            "status": "error",
+                        },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
@@ -6829,7 +7305,8 @@ class FirebaseLoginView(APIView):
             decoded_token = verify_firebase_token(id_token)
             if not decoded_token:
                 return Response(
-                    {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
+                    {"error": "Invalid Firebase token"},
+                    status=status.HTTP_401_UNAUTHORIZED,
                 )
 
             # Get or create Django user
@@ -6947,7 +7424,8 @@ class FirebaseMatchView(APIView):
             matched_uid = request.data.get("matched_uid")
             if not matched_uid:
                 return Response(
-                    {"error": "Matched UID required"}, status=status.HTTP_400_BAD_REQUEST
+                    {"error": "Matched UID required"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             success = create_match_in_firestore(user_uid, matched_uid)
@@ -7008,7 +7486,8 @@ class FirebasePushNotificationView(APIView):
             body = request.data.get("body", "Message")
             if not token:
                 return Response(
-                    {"error": "Device token required"}, status=status.HTTP_400_BAD_REQUEST
+                    {"error": "Device token required"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             response = send_push_notification(token, title, body)

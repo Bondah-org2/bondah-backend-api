@@ -65,6 +65,7 @@ from .models import (
     PaymentTransaction,
     PaymentWebhook,
 )
+from drf_spectacular.utils import extend_schema_field
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -114,7 +115,7 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "bondcoin_balance",  # Financial data should be read-only
-            "is_matchmaker",     # Admin privilege should be read-only
+            "is_matchmaker",  # Admin privilege should be read-only
         ]
 
     def validate_profile_picture(self, value):
@@ -152,26 +153,40 @@ class UserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Invalid {field_name} URL format.")
 
         # Allow only HTTPS
-        if parsed.scheme != 'https':
+        if parsed.scheme != "https":
             raise serializers.ValidationError(f"{field_name} must use HTTPS protocol.")
 
         # Check for suspicious patterns
         suspicious_patterns = [
-            r'\.exe$', r'\.bat$', r'\.cmd$', r'\.scr$', r'\.pif$', r'\.com$',
-            r'\.vbs$', r'\.js$', r'\.jar$', r'<script', r'javascript:',
-            r'data:', r'vbscript:'
+            r"\.exe$",
+            r"\.bat$",
+            r"\.cmd$",
+            r"\.scr$",
+            r"\.pif$",
+            r"\.com$",
+            r"\.vbs$",
+            r"\.js$",
+            r"\.jar$",
+            r"<script",
+            r"javascript:",
+            r"data:",
+            r"vbscript:",
         ]
 
         url_lower = url.lower()
         for pattern in suspicious_patterns:
             if re.search(pattern, url_lower):
-                raise serializers.ValidationError(f"Potentially malicious content detected in {field_name}.")
+                raise serializers.ValidationError(
+                    f"Potentially malicious content detected in {field_name}."
+                )
 
         # Check file extensions (allow common image formats)
-        allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+        allowed_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
         path_lower = parsed.path.lower()
         if not any(path_lower.endswith(ext) for ext in allowed_extensions):
-            raise serializers.ValidationError(f"{field_name} must be a valid image file (jpg, png, gif, webp, bmp).")
+            raise serializers.ValidationError(
+                f"{field_name} must be a valid image file (jpg, png, gif, webp, bmp)."
+            )
 
         return url
 
@@ -188,15 +203,15 @@ class UserSerializer(serializers.ModelSerializer):
 
         # Remove or escape potentially dangerous patterns
         dangerous_patterns = [
-            r'<script[^>]*>.*?</script>',  # Script tags
-            r'javascript:',                # JavaScript URLs
-            r'vbscript:',                  # VBScript URLs
-            r'data:',                      # Data URLs
-            r'on\w+\s*=',                  # Event handlers
+            r"<script[^>]*>.*?</script>",  # Script tags
+            r"javascript:",  # JavaScript URLs
+            r"vbscript:",  # VBScript URLs
+            r"data:",  # Data URLs
+            r"on\w+\s*=",  # Event handlers
         ]
 
         for pattern in dangerous_patterns:
-            text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.DOTALL)
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE | re.DOTALL)
 
         return text
 
@@ -212,56 +227,6 @@ class UserSerializer(serializers.ModelSerializer):
             user.set_unusable_password()
         user.save()
         return user
-
-
-class UserProfileDetailSerializer(serializers.ModelSerializer):
-    """Enhanced user profile serializer with profile completion percentage"""
-
-    profile_completion_percentage = serializers.IntegerField(
-        source="get_profile_completion_percentage", read_only=True
-    )
-
-    class Meta:
-        model = User
-        fields = [
-            "id",
-            "name",
-            "email",
-            "gender",
-            "age",
-            "location",
-            "bio",
-            "is_matchmaker",
-            "profile_picture",
-            "profile_gallery",
-            "education_level",
-            "height",
-            "zodiac_sign",
-            "languages",
-            "relationship_status",
-            "smoking_preference",
-            "drinking_preference",
-            "pet_preference",
-            "exercise_frequency",
-            "kids_preference",
-            "personality_type",
-            "love_language",
-            "communication_style",
-            "hobbies",
-            "interests",
-            "marriage_plans",
-            "kids_plans",
-            "religion_importance",
-            "religion",
-            "dating_type",
-            "open_to_long_distance",
-            "looking_for",
-            "push_notifications_enabled",
-            "email_notifications_enabled",
-            "preferred_language",
-            "profile_completion_percentage",
-        ]
-        read_only_fields = ["id", "email", "profile_completion_percentage"]
 
 
 class NotificationSettingsSerializer(serializers.ModelSerializer):
@@ -564,26 +529,40 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Invalid {field_name} URL format.")
 
         # Allow only HTTPS
-        if parsed.scheme != 'https':
+        if parsed.scheme != "https":
             raise serializers.ValidationError(f"{field_name} must use HTTPS protocol.")
 
         # Check for suspicious patterns
         suspicious_patterns = [
-            r'\.exe$', r'\.bat$', r'\.cmd$', r'\.scr$', r'\.pif$', r'\.com$',
-            r'\.vbs$', r'\.js$', r'\.jar$', r'<script', r'javascript:',
-            r'data:', r'vbscript:'
+            r"\.exe$",
+            r"\.bat$",
+            r"\.cmd$",
+            r"\.scr$",
+            r"\.pif$",
+            r"\.com$",
+            r"\.vbs$",
+            r"\.js$",
+            r"\.jar$",
+            r"<script",
+            r"javascript:",
+            r"data:",
+            r"vbscript:",
         ]
 
         url_lower = url.lower()
         for pattern in suspicious_patterns:
             if re.search(pattern, url_lower):
-                raise serializers.ValidationError(f"Potentially malicious content detected in {field_name}.")
+                raise serializers.ValidationError(
+                    f"Potentially malicious content detected in {field_name}."
+                )
 
         # Check file extensions (allow common image formats)
-        allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+        allowed_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
         path_lower = parsed.path.lower()
         if not any(path_lower.endswith(ext) for ext in allowed_extensions):
-            raise serializers.ValidationError(f"{field_name} must be a valid image file (jpg, png, gif, webp, bmp).")
+            raise serializers.ValidationError(
+                f"{field_name} must be a valid image file (jpg, png, gif, webp, bmp)."
+            )
 
         return url
 
@@ -921,6 +900,7 @@ class AdminJobListSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
+    @extend_schema_field(serializers.IntegerField())
     def get_applications_count(self, obj):
         return obj.applications.count()
 
@@ -1477,15 +1457,15 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 
         # Remove or escape potentially dangerous patterns
         dangerous_patterns = [
-            r'<script[^>]*>.*?</script>',  # Script tags
-            r'javascript:',                # JavaScript URLs
-            r'vbscript:',                  # VBScript URLs
-            r'data:',                      # Data URLs
-            r'on\w+\s*=',                  # Event handlers
+            r"<script[^>]*>.*?</script>",  # Script tags
+            r"javascript:",  # JavaScript URLs
+            r"vbscript:",  # VBScript URLs
+            r"data:",  # Data URLs
+            r"on\w+\s*=",  # Event handlers
         ]
 
         for pattern in dangerous_patterns:
-            text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.DOTALL)
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE | re.DOTALL)
 
         return text
 
@@ -2000,6 +1980,9 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
     is_online = serializers.SerializerMethodField()
     distance = serializers.SerializerMethodField()
     compatibility_score = serializers.SerializerMethodField()
+    profile_completion_percentage = serializers.IntegerField(
+        source="get_profile_completion_percentage", read_only=True
+    )
 
     class Meta:
         model = User
@@ -2039,6 +2022,12 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "is_online",
             "distance",
             "compatibility_score",
+            "profile_completion_percentage",
+            "looking_for",
+            "push_notifications_enabled",
+            "email_notifications_enabled",
+            "preferred_language",
+            "profile_completion_percentage",
         ]
         read_only_fields = [
             "id",
@@ -2046,21 +2035,26 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "is_online",
             "distance",
             "compatibility_score",
+            "profile_completion_percentage",
         ]
 
+    @extend_schema_field(serializers.IntegerField())
     def get_profile_views_count(self, obj):
         return UserProfileView.objects.filter(viewed_user=obj).count()
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_online(self, obj):
         # Simple online status - can be enhanced with last_seen tracking
         return False
 
+    @extend_schema_field(serializers.FloatField())
     def get_distance(self, obj):
         request = self.context.get("request")
         if request and request.user.has_location and obj.has_location:
             return request.user.get_distance_to(obj)
         return None
 
+    @extend_schema_field(serializers.IntegerField())
     def get_compatibility_score(self, obj):
         request = self.context.get("request")
         if request and request.user != obj:
@@ -2553,15 +2547,15 @@ class MessageCreateSerializer(serializers.ModelSerializer):
 
         # Remove or escape potentially dangerous patterns
         dangerous_patterns = [
-            r'<script[^>]*>.*?</script>',  # Script tags
-            r'javascript:',                # JavaScript URLs
-            r'vbscript:',                  # VBScript URLs
-            r'data:',                      # Data URLs
-            r'on\w+\s*=',                  # Event handlers
+            r"<script[^>]*>.*?</script>",  # Script tags
+            r"javascript:",  # JavaScript URLs
+            r"vbscript:",  # VBScript URLs
+            r"data:",  # Data URLs
+            r"on\w+\s*=",  # Event handlers
         ]
 
         for pattern in dangerous_patterns:
-            text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.DOTALL)
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE | re.DOTALL)
 
         return text
 
