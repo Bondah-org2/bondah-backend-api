@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 import dj_database_url
+
 # Firebase Configuration
 import firebase_admin
 from firebase_admin import credentials
@@ -74,9 +75,6 @@ INSTALLED_APPS = [
     "rest_framework.authtoken",
     "dating",
     "corsheaders",
-    # API Documentation
-    "drf_spectacular",
-    "drf_spectacular_sidecar",
     # OAuth and Social Authentication
     "allauth",
     "allauth.account",
@@ -85,7 +83,13 @@ INSTALLED_APPS = [
     "allauth.socialaccount.providers.apple",
     "dj_rest_auth",
     "dj_rest_auth.registration",
+    # API Documentation
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
+    # Development Tools
+    "django_extensions",
 ]
+
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -416,35 +420,175 @@ CACHES = {
     }
 }
 
-# DRF Spectacular Settings for API Documentation
+# Location Services Configuration
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+LOCATION_SERVICES_ENABLED = True
+DEFAULT_MAX_DISTANCE = 50  # kilometers
+LOCATION_UPDATE_FREQUENCY = "manual"  # manual, hourly, daily, realtime
+LOCATION_HISTORY_RETENTION_DAYS = 30
+
+# API Documentation Configuration
 SPECTACULAR_SETTINGS = {
     "TITLE": "Bondah Dating API",
-    "DESCRIPTION": "Comprehensive API for Bondah Dating Mobile App",
+    "DESCRIPTION": """
+    # 🚀 Bondah Dating API Documentation
+
+    ## Overview
+    Comprehensive dating platform API with advanced features including:
+    - User Authentication & OAuth Integration
+    - Real-time Chat & Video Calling
+    - Social Feed & Stories
+    - Live Streaming & Virtual Gifting
+    - Advanced Matching & Discovery
+    - Subscription Plans & Payment Processing
+    - Location-based Services
+    - Document Verification & Security
+
+    ## Authentication
+    Most endpoints require JWT authentication. Include the access token in the Authorization header:
+    ```
+    Authorization: Bearer <your-access-token>
+    ```
+    
+    ## Base URL
+    - **Production**: https://bondah-backend-api-production.up.railway.app/api/
+    - **Development**: http://localhost:8000/api/
+    
+    ## Features
+    - 🔐 **Authentication**: JWT, OAuth (Google, Apple), Social Login
+    - 💬 **Communication**: Real-time chat, voice/video calls, messaging
+    - 📱 **Social**: Feed, stories, posts, comments, reactions
+    - 🎁 **Monetization**: Subscriptions, virtual gifts, Bondcoins
+    - 📍 **Location**: GPS tracking, nearby users, location-based matching
+    - 🎥 **Live Streaming**: Live sessions, audience interaction, gifts
+    - 🔒 **Security**: Document verification, facial recognition, OTP
+    - 🎯 **Matching**: AI-powered recommendations, advanced filters
+    """,
     "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
+    "SWAGGER_UI_DIST": "SIDECAR",  # Use sidecar for static files
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "COMPONENT_SPLIT_REQUEST": True,
+    "COMPONENT_NO_READ_ONLY_REQUIRED": True,
     "SCHEMA_PATH_PREFIX": "/api/",
-    "TAGS": [
-        {"name": "Authentication", "description": "User authentication and OAuth"},
-        {"name": "Users", "description": "User management and profiles"},
-        {"name": "Chat", "description": "Messaging and chat functionality"},
-        {"name": "Calls", "description": "Voice and video calling"},
-        {"name": "Live Sessions", "description": "Live streaming functionality"},
-        {"name": "Matching", "description": "User matching and discovery"},
-        {"name": "Verification", "description": "User verification systems"},
-        {"name": "Monetization", "description": "Subscriptions and payments"},
-        {"name": "Admin", "description": "Administrative functions"},
-    ],
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,
         "persistAuthorization": True,
         "displayOperationId": True,
         "filter": True,
-        "tryItOutEnabled": True,
+        "tagsSorter": "alpha",
+        "operationsSorter": "alpha",
+        "docExpansion": "none",
+        "showExtensions": True,
+        "showCommonExtensions": True,
+        "tryItOutEnabled": True,  # Enable "Try it out" button
+        "requestInterceptor": "",
+        "responseInterceptor": "",
+        "displayRequestDuration": True,
+        "defaultModelRendering": "model",
+        "defaultModelExpandDepth": 1,
+        "defaultModelsExpandDepth": 1,
+        "showMutatedRequest": True,
+        "syntaxHighlight": {"activate": True, "theme": "arta"},
+        "validatorUrl": None,
+        "supportedSubmitMethods": [
+            "get",
+            "put",
+            "post",
+            "delete",
+            "options",
+            "head",
+            "patch",
+            "trace",
+        ],
     },
     "REDOC_UI_SETTINGS": {
         "hideDownloadButton": False,
-        "expandResponses": "200,201",
-        "pathInMiddlePanel": True,
+        "hideHostname": False,
+        "hideLoading": False,
+        "nativeScrollbars": False,
+        "disableSearch": False,
+        "onlyRequiredInSamples": False,
+        "sortPropsAlphabetically": True,
+        "showObjectSchemaExamples": True,
     },
+    "PREPROCESSING_HOOKS": [],
+    "POSTPROCESSING_HOOKS": [],
+    "SORT_OPERATIONS": False,
+    "ENUM_NAME_OVERRIDES": {
+        "ValidationErrorEnum": "drf_spectacular.openapi.AutoSchema",
+    },
+    "ENUM_ADD_EXPLICIT_BLANK_NULL_CHOICE": False,
+    "ENUM_GENERATE_CHOICE_DESCRIPTION": True,
+    "GENERIC_ADDITIONAL_PROPERTIES": None,
+    "SCHEMA_PATH_PREFIX_TRIM": True,
+    "APPEND_COMPONENTS": {},
+    "PREPEND_COMPONENTS": {},
+    "SERVE_AUTHENTICATION": None,
+    "SERVE_PERMISSIONS": [],
+    "SECURITY": [{"Bearer": []}],
+    "SECURITY_DEFINITIONS": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": 'JWT Authorization header using the Bearer scheme. Example: "Authorization: Bearer {token}"',
+        }
+    },
+    "EXTENSIONS_INFO": {
+        "x-logo": {
+            "url": "https://bondah-backend-api-production.up.railway.app/static/admin/img/icon-hires.svg",
+            "altText": "Bondah Dating API",
+        }
+    },
+    "TAGS": [
+        {
+            "name": "Authentication",
+            "description": "User authentication and OAuth endpoints",
+        },
+        {
+            "name": "User Management",
+            "description": "User profiles, settings, and account management",
+        },
+        {
+            "name": "Chat & Messaging",
+            "description": "Real-time chat, voice/video calls, and messaging",
+        },
+        {
+            "name": "Social Feed",
+            "description": "Posts, stories, comments, and social interactions",
+        },
+        {
+            "name": "Live Streaming",
+            "description": "Live sessions, audience interaction, and streaming",
+        },
+        {
+            "name": "Matching & Discovery",
+            "description": "User search, recommendations, and matching",
+        },
+        {
+            "name": "Location Services",
+            "description": "Location tracking, nearby users, and geo features",
+        },
+        {
+            "name": "Monetization",
+            "description": "Subscriptions, payments, and virtual currency",
+        },
+        {
+            "name": "Virtual Gifting",
+            "description": "Virtual gifts, transactions, and gifting features",
+        },
+        {
+            "name": "Verification",
+            "description": "Document verification, facial recognition, OTP",
+        },
+        {"name": "Admin", "description": "Administrative endpoints and management"},
+        {
+            "name": "Translation",
+            "description": "Multi-language support and translation services",
+        },
+    ],
 }
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "CSRF_TRUSTED_ORIGINS",
+    "https://bondah-backend-api-production.up.railway.app,https://bondah.org,https://www.bondah.org",
+).split(",")

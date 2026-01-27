@@ -86,6 +86,8 @@ INSTALLED_APPS = [
     # API Documentation
     "drf_spectacular",
     "drf_spectacular_sidecar",
+    # Development Tools
+    "django_extensions",
 ]
 
 MIDDLEWARE = [
@@ -347,7 +349,8 @@ SPECTACULAR_SETTINGS = {
     - 🎯 **Matching**: AI-powered recommendations, advanced filters
     """,
     "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
+    "SWAGGER_UI_DIST": "SIDECAR",  # Use sidecar for static files
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "COMPONENT_SPLIT_REQUEST": True,
     "COMPONENT_NO_READ_ONLY_REQUIRED": True,
     "SCHEMA_PATH_PREFIX": "/api/",
@@ -361,6 +364,26 @@ SPECTACULAR_SETTINGS = {
         "docExpansion": "none",
         "showExtensions": True,
         "showCommonExtensions": True,
+        "tryItOutEnabled": True,  # Enable "Try it out" button
+        "requestInterceptor": "",
+        "responseInterceptor": "",
+        "displayRequestDuration": True,
+        "defaultModelRendering": "model",
+        "defaultModelExpandDepth": 1,
+        "defaultModelsExpandDepth": 1,
+        "showMutatedRequest": True,
+        "syntaxHighlight": {"activate": True, "theme": "arta"},
+        "validatorUrl": None,
+        "supportedSubmitMethods": [
+            "get",
+            "put",
+            "post",
+            "delete",
+            "options",
+            "head",
+            "patch",
+            "trace",
+        ],
     },
     "REDOC_UI_SETTINGS": {
         "hideDownloadButton": False,
@@ -386,6 +409,15 @@ SPECTACULAR_SETTINGS = {
     "PREPEND_COMPONENTS": {},
     "SERVE_AUTHENTICATION": None,
     "SERVE_PERMISSIONS": [],
+    "SECURITY": [{"Bearer": []}],
+    "SECURITY_DEFINITIONS": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": 'JWT Authorization header using the Bearer scheme. Example: "Authorization: Bearer {token}"',
+        }
+    },
     "EXTENSIONS_INFO": {
         "x-logo": {
             "url": "https://bondah-backend-api-production.up.railway.app/static/admin/img/icon-hires.svg",
