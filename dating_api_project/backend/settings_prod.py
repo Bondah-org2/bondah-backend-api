@@ -351,12 +351,12 @@ CORS_ALLOW_HEADERS = [
 CSRF_TRUSTED_ORIGINS = ["https://bondah-backend-api-production-881c.up.railway.app"]
 CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "None"
 
 # Session settings for production
 SESSION_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "None"
 
 # Security settings for production
 SECURE_BROWSER_XSS_FILTER = True
@@ -590,7 +590,7 @@ SPECTACULAR_SETTINGS = {
 }
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
-    "https://bondah-backend-api-production.up.railway.app,https://bondah.org,https://www.bondah.org",
+    "https://*.up.railway.app,https://bondah.org,https://www.bondah.org",
 ).split(",")
 
 
