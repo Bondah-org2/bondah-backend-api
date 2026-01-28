@@ -1203,20 +1203,35 @@ class UserLoginView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         firebase_token = serializer.validated_data.get("firebase_token")
+        email = serializer.validated_data.get("email")
+        password = serializer.validated_data.get("password")
+
         try:
+            user = None
+
+            # Case 1: Firebase login
             if firebase_token:
                 decoded_token = verify_firebase_token(firebase_token)
-                if not decoded_token:
+                if decoded_token:
+                    user = get_or_create_user_from_firebase(decoded_token)
+                else:
+                    # Ignore Firebase failure and fallback to email/password
+                    pass
+
+            # Case 2: Email/password login (fallback or if no Firebase token)
+            if not user:
+                if not email or not password:
                     return Response(
-                        {"message": "Invalid Firebase token", "status": "error"},
-                        status=status.HTTP_401_UNAUTHORIZED,
+                        {"message": "Email and password required", "status": "error"},
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
-                user = get_or_create_user_from_firebase(decoded_token)
-            else:
-                login_serializer = CustomLoginSerializer(data=request.data)
+                login_serializer = CustomLoginSerializer(
+                    data={"email": email, "password": password}
+                )
                 login_serializer.is_valid(raise_exception=True)
                 user = login_serializer.validated_data["user"]
 
+            # Issue JWT tokens
             refresh = RefreshToken.for_user(user)
             return Response(
                 {
@@ -1230,6 +1245,7 @@ class UserLoginView(GenericAPIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
         except Exception as e:
             return Response(
                 {"message": f"Login failed: {str(e)}", "status": "error"},
