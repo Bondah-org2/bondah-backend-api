@@ -11,10 +11,10 @@ from .views import (
     SendNewsletterWelcomeEmailView,
     SendWaitlistConfirmationEmailView,
     SendGenericEmailView,
-    JobListView,
-    JobDetailView,
-    JobApplicationView,
-    JobOptionsView,
+    # JobListView,
+    # JobDetailView,
+    # JobApplicationView,
+    # JobOptionsView,
     AdminLoginView,
     AdminOTPVerificationView,
     AdminJobListView,
@@ -30,7 +30,7 @@ from .views import (
     AdminVerifyTokenView,
     AdminDebugAuthView,
     TranslationView,
-    SupportedLanguagesView,
+    # SupportedLanguagesView,
     TranslationHistoryView,
     TranslationStatsView,
     # Mobile App Authentication Views
@@ -61,7 +61,7 @@ from .views import (
     NearbyUsersView,
     MatchPreferencesView,
     UserLocationProfileView,
-    LocationStatisticsView,
+    # LocationStatisticsView,
     # Email and Phone Verification Views
     EmailOTPRequestView,
     EmailOTPVerifyView,
@@ -179,15 +179,15 @@ urlpatterns = [
         name="send-waitlist-confirmation",
     ),
     path("email/send/", SendGenericEmailView.as_view(), name="send-generic-email"),
-    path("jobs/", JobListView.as_view(), name="job-list"),
-    path("jobs/<int:id>/", JobDetailView.as_view(), name="job-detail"),
-    path("jobs/apply/", JobApplicationView.as_view(), name="job-application"),
-    path("jobs/options/", JobOptionsView.as_view(), name="job-options"),
-    # Translation API endpoints
-    path("translate/", TranslationView.as_view(), name="translate"),
+    # path("jobs/", JobListView.as_view(), name="job-list"),
+    # path("jobs/<int:id>/", JobDetailView.as_view(), name="job-detail"),
+    # path("jobs/apply/", JobApplicationView.as_view(), name="job-application"),
+    # path("jobs/options/", JobOptionsView.as_view(), name="job-options"),
+    # # Translation API endpoints
+    # path("translate/", TranslationView.as_view(), name="translate"),
     path(
         "translate/languages/",
-        SupportedLanguagesView.as_view(),
+        TranslationView.as_view(),
         name="supported-languages",
     ),
     path(
@@ -380,11 +380,11 @@ urlpatterns = [
         UserLocationProfileView.as_view(),
         name="user-location-profile",
     ),
-    path(
-        "location/statistics/",
-        LocationStatisticsView.as_view(),
-        name="location-statistics",
-    ),
+    # path(
+    #     "location/statistics/",
+    #     LocationStatisticsView.as_view(),
+    #     name="location-statistics",
+    # ),
     # Chat and Messaging Endpoints (NEW)
     path("chat/", ChatListView.as_view(), name="chat-list"),
     path("chat/<int:pk>/", ChatDetailView.as_view(), name="chat-detail"),

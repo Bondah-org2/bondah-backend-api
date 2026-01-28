@@ -4,6 +4,9 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
+from lang import SUPPORTED_LANGUAGES
+from django.utils.timezone import now
+from datetime import timedelta
 from .models import (
     User,
     NewsletterSubscriber,
@@ -66,6 +69,7 @@ from .models import (
     PaymentWebhook,
 )
 from drf_spectacular.utils import extend_schema_field
+from typing import List, Dict, Any
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -613,21 +617,16 @@ class UsernameUpdateSerializer(serializers.ModelSerializer):
 
     def validate_username(self, value):
         """Validate username format and availability"""
-        # Remove @ symbol if present
-        clean_username = value.lstrip("@")
+        clean_username = value.strip().lstrip("@")  # strip spaces too
 
         # Check if username is available (excluding current user)
         request = self.context.get("request")
+        user_qs = User.objects.filter(username=clean_username)
         if request and request.user.is_authenticated:
-            if (
-                User.objects.filter(username=clean_username)
-                .exclude(id=request.user.id)
-                .exists()
-            ):
-                raise serializers.ValidationError("Username already taken.")
-        else:
-            if User.objects.filter(username=clean_username).exists():
-                raise serializers.ValidationError("Username already taken.")
+            user_qs = user_qs.exclude(id=request.user.id)
+
+        if user_qs.exists():
+            raise serializers.ValidationError("Username already taken.")
 
         # Validate format
         from .models import validate_username_format
@@ -700,111 +699,148 @@ class GenericEmailSerializer(serializers.Serializer):
     template_name = serializers.CharField(required=False, default="")
 
 
-class JobListSerializer(serializers.ModelSerializer):
-    jobType = serializers.CharField(source="job_type")
-    salaryRange = serializers.CharField(source="salary_range")
-    createdAt = serializers.DateTimeField(source="created_at")
+# class JobListSerializer(serializers.ModelSerializer):
+#     jobType = serializers.CharField(source="job_type")
+#     salaryRange = serializers.CharField(source="salary_range")
+#     createdAt = serializers.DateTimeField(source="created_at")
 
-    class Meta:
-        model = Job
-        fields = [
-            "id",
-            "title",
-            "jobType",
-            "category",
-            "status",
-            "salaryRange",
-            "createdAt",
-        ]
-
-
-class JobDetailSerializer(serializers.ModelSerializer):
-    jobType = serializers.CharField(source="job_type")
-    salaryRange = serializers.CharField(source="salary_range")
-    createdAt = serializers.DateTimeField(source="created_at")
-
-    class Meta:
-        model = Job
-        fields = [
-            "id",
-            "title",
-            "jobType",
-            "category",
-            "status",
-            "description",
-            "location",
-            "salaryRange",
-            "requirements",
-            "createdAt",
-        ]
+#     class Meta:
+#         model = Job
+#         fields = [
+#             "id",
+#             "title",
+#             "jobType",
+#             "category",
+#             "status",
+#             "salaryRange",
+#             "createdAt",
+#         ]
 
 
-class JobApplicationSerializer(serializers.ModelSerializer):
-    jobId = serializers.IntegerField(source="job.id", write_only=True)
-    firstName = serializers.CharField(source="first_name")
-    lastName = serializers.CharField(source="last_name")
-    resumeUrl = serializers.URLField(
-        source="resume_url", required=False, allow_blank=True
-    )
-    coverLetter = serializers.CharField(
-        source="cover_letter", required=False, allow_blank=True
-    )
-    experienceYears = serializers.IntegerField(
-        source="experience_years", required=False
-    )
-    currentCompany = serializers.CharField(
-        source="current_company", required=False, allow_blank=True
-    )
-    expectedSalary = serializers.CharField(
-        source="expected_salary", required=False, allow_blank=True
-    )
-    appliedAt = serializers.DateTimeField(source="applied_at", read_only=True)
+class UserLoginRequestSerializer(serializers.Serializer):
+    firebase_token = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False)
+    password = serializers.CharField(required=False)
 
-    class Meta:
-        model = JobApplication
-        fields = [
-            "id",
-            "jobId",
-            "firstName",
-            "lastName",
-            "email",
-            "phone",
-            "resumeUrl",
-            "coverLetter",
-            "experienceYears",
-            "currentCompany",
-            "expectedSalary",
-            "status",
-            "appliedAt",
-        ]
-        read_only_fields = ["id", "status", "appliedAt"]
 
-    def validate(self, data):
-        # Check if job exists
-        job_id = data.get("job", {}).get("id")
-        try:
-            job = Job.objects.get(id=job_id)
-            if job.status != "open":
-                raise serializers.ValidationError(
-                    "This job is not currently accepting applications."
-                )
-        except Job.DoesNotExist:
-            raise serializers.ValidationError("Job not found.")
+class UserLogoutRequestSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField(required=False)
 
-        # Check for duplicate application
-        email = data.get("email")
-        if JobApplication.objects.filter(job=job, email=email).exists():
-            raise serializers.ValidationError("You have already applied for this job.")
 
-        return data
+# class JobDetailSerializer(serializers.ModelSerializer):
+#     jobType = serializers.CharField(source="job_type")
+#     salaryRange = serializers.CharField(source="salary_range")
+#     createdAt = serializers.DateTimeField(source="created_at")
 
-    def to_representation(self, instance):
-        # Return success message format
-        return {
-            "message": "Job application submitted successfully!",
-            "status": "success",
-            "applicationId": instance.id,
-        }
+#     class Meta:
+#         model = Job
+#         fields = [
+#             "id",
+#             "title",
+#             "jobType",
+#             "category",
+#             "status",
+#             "description",
+#             "location",
+#             "salaryRange",
+#             "requirements",
+#             "createdAt",
+#         ]
+
+
+# class JobApplicationSerializer(serializers.ModelSerializer):
+#     # Input fields (write)
+#     jobId = serializers.IntegerField(write_only=True)
+#     firstName = serializers.CharField(source="first_name")
+#     lastName = serializers.CharField(source="last_name")
+#     email = serializers.EmailField()
+#     phone = serializers.CharField()
+#     resumeUrl = serializers.URLField(
+#         write_only=True, required=False, allow_blank=True, source="resume_url"
+#     )
+#     coverLetter = serializers.CharField(
+#         write_only=True, required=False, allow_blank=True, source="cover_letter"
+#     )
+#     experienceYears = serializers.IntegerField(
+#         source="experience_years", required=False
+#     )
+#     currentCompany = serializers.CharField(
+#         source="current_company", required=False, allow_blank=True
+#     )
+#     expectedSalary = serializers.CharField(
+#         source="expected_salary", required=False, allow_blank=True
+#     )
+
+#     # Output fields (read-only, camelCase)
+#     appliedAt = serializers.DateTimeField(source="applied_at", read_only=True)
+#     resumeUrlOut = serializers.SerializerMethodField()
+#     coverLetterOut = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model = JobApplication
+#         fields = [
+#             "id",
+#             "jobId",
+#             "firstName",
+#             "lastName",
+#             "email",
+#             "phone",
+#             "resumeUrl",
+#             "coverLetter",
+#             "resumeUrlOut",
+#             "coverLetterOut",
+#             "experienceYears",
+#             "currentCompany",
+#             "expectedSalary",
+#             "status",
+#             "appliedAt",
+#         ]
+#         read_only_fields = [
+#             "id",
+#             "status",
+#             "appliedAt",
+#             "resumeUrlOut",
+#             "coverLetterOut",
+#         ]
+
+#     # Output camelCase methods
+#     def get_resumeUrlOut(self, obj) -> str | None:
+#         return obj.resume_url
+
+#     def get_coverLetterOut(self, obj) -> str | None:
+#         return obj.cover_letter
+
+#     # Validation
+#     def validate(self, data):
+#         job_id = data.get("jobId") or data.get("job", {}).get("id")
+#         try:
+#             job = Job.objects.get(id=job_id)
+#             if job.status != "open":
+#                 raise serializers.ValidationError(
+#                     "This job is not currently accepting applications."
+#                 )
+#         except Job.DoesNotExist:
+#             raise serializers.ValidationError("Job not found.")
+
+#         email = data.get("email")
+#         if JobApplication.objects.filter(job=job, email=email).exists():
+#             raise serializers.ValidationError("You have already applied for this job.")
+
+#         data["job"] = job  # attach Job instance for creation
+#         return data
+
+#     # Ensure jobId is removed before saving
+#     def create(self, validated_data):
+#         validated_data.pop("jobId", None)
+#         return super().create(validated_data)
+
+#     # Optional: standard success response
+#     def to_representation(self, instance):
+#         return {
+#             "message": "Job application submitted successfully!",
+#             "status": "success",
+#             "applicationId": instance.id,
+#         }
 
 
 class AdminLoginSerializer(serializers.Serializer):
@@ -815,6 +851,51 @@ class AdminLoginSerializer(serializers.Serializer):
 class AdminOTPVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp_code = serializers.CharField(max_length=6)
+
+
+class AdminTokenRefreshSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField()
+
+
+class AdminLogoutSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField(required=False)
+
+
+class TokensSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+
+
+class UserRoleSelectionSerializer(serializers.Serializer):
+    selected_role = serializers.ChoiceField(
+        choices=[("bondmaker", "Bondmaker"), ("seeker", "Seeker")]
+    )
+    is_matchmaker = serializers.BooleanField(read_only=True)
+
+
+class ResendOTPSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["email", "phone"])
+    identifier = serializers.CharField(required=False)
+    phone_number = serializers.CharField(required=False)
+    country_code = serializers.CharField(default="+1", required=False)
+
+
+class TokenRefreshRequestSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField()
+
+
+class FirebaseMatchSerializer(serializers.Serializer):
+    matched_uid = serializers.CharField(
+        max_length=128,
+        required=True,
+        help_text="Firebase UID of the user to match with",
+    )
+
+    def validate_matched_uid(self, value):
+        # Optional: add custom validation rules, e.g., ensure UID format
+        if not value.strip():
+            raise serializers.ValidationError("matched_uid cannot be empty")
+        return value
 
 
 class AdminJobCreateSerializer(serializers.ModelSerializer):
@@ -905,8 +986,7 @@ class AdminJobListSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
-    @extend_schema_field(serializers.IntegerField())
-    def get_applications_count(self, obj):
+    def get_applications_count(self, obj) -> int:
         return obj.applications.count()
 
 
@@ -932,8 +1012,19 @@ class AdminJobApplicationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "applied_at"]
 
-    def get_applicant_name(self, obj):
+    def get_applicant_name(self, obj) -> str:
+
         return f"{obj.first_name} {obj.last_name}"
+
+
+class AdminUpdateApplicationStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=JobApplication.STATUS_CHOICES)
+
+
+class WaitlistEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Waitlist
+        fields = "__all__"
 
 
 class AdminJobApplicationDetailSerializer(serializers.ModelSerializer):
@@ -942,9 +1033,8 @@ class AdminJobApplicationDetailSerializer(serializers.ModelSerializer):
     job_type = serializers.CharField(source="job.job_type", read_only=True)
     job_location = serializers.CharField(source="job.location", read_only=True)
     job_salary_range = serializers.CharField(source="job.salary_range", read_only=True)
+
     applicant_name = serializers.SerializerMethodField()
-    cover_letter = serializers.CharField(source="cover_letter", read_only=True)
-    resume_url = serializers.URLField(source="resume_url", read_only=True)
 
     class Meta:
         model = JobApplication
@@ -969,127 +1059,27 @@ class AdminJobApplicationDetailSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "applied_at", "updated_at"]
 
-    def get_applicant_name(self, obj):
+    def get_applicant_name(self, obj) -> str:
         return f"{obj.first_name} {obj.last_name}"
 
 
 class TranslationRequestSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=5000)  # Limit text length
-    source_language = serializers.CharField(
-        max_length=10, required=False, default="auto"
-    )
-    target_language = serializers.CharField(max_length=10)
+    text = serializers.CharField(max_length=5000)
+    source_language = serializers.CharField(required=False, default="auto")
+    target_language = serializers.CharField()
 
     def validate_target_language(self, value):
-        # Supported languages
-        supported_languages = {
-            "en": "English",
-            "en-US": "English (US)",
-            "en-GB": "English (UK)",
-            "es": "Spanish",
-            "fr": "French",
-            "de": "German",
-            "nl": "Dutch",
-            "ar": "Arabic",
-            "zh": "Chinese (Simplified)",
-            "zh-TW": "Chinese (Traditional)",
-            "ja": "Japanese",
-            "ko": "Korean",
-            "pt": "Portuguese",
-            "it": "Italian",
-            "ru": "Russian",
-            "hi": "Hindi",
-            "bn": "Bengali",
-            "tr": "Turkish",
-            "pl": "Polish",
-            "vi": "Vietnamese",
-            "th": "Thai",
-            "id": "Indonesian",
-            "ms": "Malay",
-            "fa": "Persian",
-            "he": "Hebrew",
-            "sv": "Swedish",
-            "da": "Danish",
-            "no": "Norwegian",
-            "fi": "Finnish",
-            "cs": "Czech",
-            "sk": "Slovak",
-            "hu": "Hungarian",
-            "ro": "Romanian",
-            "bg": "Bulgarian",
-            "hr": "Croatian",
-            "sl": "Slovenian",
-            "et": "Estonian",
-            "lv": "Latvian",
-            "lt": "Lithuanian",
-            "mt": "Maltese",
-            "el": "Greek",
-            "uk": "Ukrainian",
-            "be": "Belarusian",
-            "mk": "Macedonian",
-            "sq": "Albanian",
-            "bs": "Bosnian",
-            "sr": "Serbian",
-            "me": "Montenegrin",
-            "ka": "Georgian",
-            "hy": "Armenian",
-            "az": "Azerbaijani",
-            "kk": "Kazakh",
-            "ky": "Kyrgyz",
-            "uz": "Uzbek",
-            "tg": "Tajik",
-            "mn": "Mongolian",
-            "ne": "Nepali",
-            "si": "Sinhala",
-            "my": "Burmese",
-            "km": "Khmer",
-            "lo": "Lao",
-            "gl": "Galician",
-            "eu": "Basque",
-            "ca": "Catalan",
-            "cy": "Welsh",
-            "ga": "Irish",
-            "is": "Icelandic",
-            "fo": "Faroese",
-            "kl": "Greenlandic",
-            "sm": "Samoan",
-            "to": "Tongan",
-            "fj": "Fijian",
-            "haw": "Hawaiian",
-            "mi": "Maori",
-            "sw": "Swahili",
-            "yo": "Yoruba",
-            "ig": "Igbo",
-            "ha": "Hausa",
-            "zu": "Zulu",
-            "xh": "Xhosa",
-            "af": "Afrikaans",
-            "am": "Amharic",
-            "ti": "Tigrinya",
-            "so": "Somali",
-            "om": "Oromo",
-            "rw": "Kinyarwanda",
-            "lg": "Ganda",
-            "ak": "Akan",
-            "tw": "Twi",
-            "ee": "Ewe",
-            "fon": "Fon",
-            "sn": "Shona",
-            "ny": "Chichewa",
-            "st": "Southern Sotho",
-            "tn": "Tswana",
-            "ts": "Tsonga",
-            "ve": "Venda",
-            "ss": "Swati",
-            "nr": "Southern Ndebele",
-            "nd": "Northern Ndebele",
-        }
-
-        if value not in supported_languages:
+        if value not in SUPPORTED_LANGUAGES:
             raise serializers.ValidationError(
-                f"Unsupported language: {value}. Supported languages: {', '.join(supported_languages.keys())}"
+                f"Unsupported language: {value}. Supported languages: {', '.join(SUPPORTED_LANGUAGES.keys())}"
             )
+        return value
 
+    def validate_source_language(self, value):
+        if value not in SUPPORTED_LANGUAGES:
+            raise serializers.ValidationError(
+                f"Unsupported source language: {value}. Supported languages: {', '.join(SUPPORTED_LANGUAGES.keys())}"
+            )
         return value
 
 
@@ -1113,216 +1103,13 @@ class TranslationResponseSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at"]
 
-    def get_source_language_name(self, obj):
-        language_names = {
-            "en": "English",
-            "en-US": "English (US)",
-            "en-GB": "English (UK)",
-            "es": "Spanish",
-            "fr": "French",
-            "de": "German",
-            "nl": "Dutch",
-            "ar": "Arabic",
-            "zh": "Chinese (Simplified)",
-            "zh-TW": "Chinese (Traditional)",
-            "ja": "Japanese",
-            "ko": "Korean",
-            "pt": "Portuguese",
-            "it": "Italian",
-            "ru": "Russian",
-            "hi": "Hindi",
-            "bn": "Bengali",
-            "tr": "Turkish",
-            "pl": "Polish",
-            "vi": "Vietnamese",
-            "th": "Thai",
-            "id": "Indonesian",
-            "ms": "Malay",
-            "fa": "Persian",
-            "he": "Hebrew",
-            "sv": "Swedish",
-            "da": "Danish",
-            "no": "Norwegian",
-            "fi": "Finnish",
-            "cs": "Czech",
-            "sk": "Slovak",
-            "hu": "Hungarian",
-            "ro": "Romanian",
-            "bg": "Bulgarian",
-            "hr": "Croatian",
-            "sl": "Slovenian",
-            "et": "Estonian",
-            "lv": "Latvian",
-            "lt": "Lithuanian",
-            "mt": "Maltese",
-            "el": "Greek",
-            "uk": "Ukrainian",
-            "be": "Belarusian",
-            "mk": "Macedonian",
-            "sq": "Albanian",
-            "bs": "Bosnian",
-            "sr": "Serbian",
-            "me": "Montenegrin",
-            "ka": "Georgian",
-            "hy": "Armenian",
-            "az": "Azerbaijani",
-            "kk": "Kazakh",
-            "ky": "Kyrgyz",
-            "uz": "Uzbek",
-            "tg": "Tajik",
-            "mn": "Mongolian",
-            "ne": "Nepali",
-            "si": "Sinhala",
-            "my": "Burmese",
-            "km": "Khmer",
-            "lo": "Lao",
-            "gl": "Galician",
-            "eu": "Basque",
-            "ca": "Catalan",
-            "cy": "Welsh",
-            "ga": "Irish",
-            "is": "Icelandic",
-            "fo": "Faroese",
-            "kl": "Greenlandic",
-            "sm": "Samoan",
-            "to": "Tongan",
-            "fj": "Fijian",
-            "haw": "Hawaiian",
-            "mi": "Maori",
-            "sw": "Swahili",
-            "yo": "Yoruba",
-            "ig": "Igbo",
-            "ha": "Hausa",
-            "zu": "Zulu",
-            "xh": "Xhosa",
-            "af": "Afrikaans",
-            "am": "Amharic",
-            "ti": "Tigrinya",
-            "so": "Somali",
-            "om": "Oromo",
-            "rw": "Kinyarwanda",
-            "lg": "Ganda",
-            "ak": "Akan",
-            "tw": "Twi",
-            "ee": "Ewe",
-            "fon": "Fon",
-            "sn": "Shona",
-            "ny": "Chichewa",
-            "st": "Southern Sotho",
-            "tn": "Tswana",
-            "ts": "Tsonga",
-            "ve": "Venda",
-            "ss": "Swati",
-            "nr": "Southern Ndebele",
-            "nd": "Northern Ndebele",
-            "auto": "Auto-detect",
-        }
-        return language_names.get(obj.source_language, obj.source_language)
+    @extend_schema_field(serializers.CharField())
+    def get_source_language_name(self, obj) -> str:
+        return SUPPORTED_LANGUAGES.get(obj.source_language, obj.source_language)
 
-    def get_target_language_name(self, obj):
-        language_names = {
-            "en": "English",
-            "en-US": "English (US)",
-            "en-GB": "English (UK)",
-            "es": "Spanish",
-            "fr": "French",
-            "de": "German",
-            "nl": "Dutch",
-            "ar": "Arabic",
-            "zh": "Chinese (Simplified)",
-            "zh-TW": "Chinese (Traditional)",
-            "ja": "Japanese",
-            "ko": "Korean",
-            "pt": "Portuguese",
-            "it": "Italian",
-            "ru": "Russian",
-            "hi": "Hindi",
-            "bn": "Bengali",
-            "tr": "Turkish",
-            "pl": "Polish",
-            "vi": "Vietnamese",
-            "th": "Thai",
-            "id": "Indonesian",
-            "ms": "Malay",
-            "fa": "Persian",
-            "he": "Hebrew",
-            "sv": "Swedish",
-            "da": "Danish",
-            "no": "Norwegian",
-            "fi": "Finnish",
-            "cs": "Czech",
-            "sk": "Slovak",
-            "hu": "Hungarian",
-            "ro": "Romanian",
-            "bg": "Bulgarian",
-            "hr": "Croatian",
-            "sl": "Slovenian",
-            "et": "Estonian",
-            "lv": "Latvian",
-            "lt": "Lithuanian",
-            "mt": "Maltese",
-            "el": "Greek",
-            "uk": "Ukrainian",
-            "be": "Belarusian",
-            "mk": "Macedonian",
-            "sq": "Albanian",
-            "bs": "Bosnian",
-            "sr": "Serbian",
-            "me": "Montenegrin",
-            "ka": "Georgian",
-            "hy": "Armenian",
-            "az": "Azerbaijani",
-            "kk": "Kazakh",
-            "ky": "Kyrgyz",
-            "uz": "Uzbek",
-            "tg": "Tajik",
-            "mn": "Mongolian",
-            "ne": "Nepali",
-            "si": "Sinhala",
-            "my": "Burmese",
-            "km": "Khmer",
-            "lo": "Lao",
-            "gl": "Galician",
-            "eu": "Basque",
-            "ca": "Catalan",
-            "cy": "Welsh",
-            "ga": "Irish",
-            "is": "Icelandic",
-            "fo": "Faroese",
-            "kl": "Greenlandic",
-            "sm": "Samoan",
-            "to": "Tongan",
-            "fj": "Fijian",
-            "haw": "Hawaiian",
-            "mi": "Maori",
-            "sw": "Swahili",
-            "yo": "Yoruba",
-            "ig": "Igbo",
-            "ha": "Hausa",
-            "zu": "Zulu",
-            "xh": "Xhosa",
-            "af": "Afrikaans",
-            "am": "Amharic",
-            "ti": "Tigrinya",
-            "so": "Somali",
-            "om": "Oromo",
-            "rw": "Kinyarwanda",
-            "lg": "Ganda",
-            "ak": "Akan",
-            "tw": "Twi",
-            "ee": "Ewe",
-            "fon": "Fon",
-            "sn": "Shona",
-            "ny": "Chichewa",
-            "st": "Southern Sotho",
-            "tn": "Tswana",
-            "ts": "Tsonga",
-            "ve": "Venda",
-            "ss": "Swati",
-            "nr": "Southern Ndebele",
-            "nd": "Northern Ndebele",
-        }
-        return language_names.get(obj.target_language, obj.target_language)
+    @extend_schema_field(serializers.CharField())
+    def get_target_language_name(self, obj) -> str:
+        return SUPPORTED_LANGUAGES.get(obj.target_language, obj.target_language)
 
 
 class SupportedLanguagesSerializer(serializers.Serializer):
@@ -1357,7 +1144,13 @@ class CustomRegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop("password_confirm")
-        user = User.objects.create_user(**validated_data)
+        password = validated_data.pop("password")
+
+        # Generate a username if not provided
+        username = validated_data.get("email") or validated_data.get("name")
+        user = User.objects.create_user(
+            username=username, password=password, **validated_data
+        )
         return user
 
 
@@ -1814,10 +1607,12 @@ class LivenessVerificationSerializer(serializers.ModelSerializer):
             "provider",
         ]
 
-    def get_is_expired(self, obj):
+    def get_is_expired(self, obj) -> bool:
+
         return obj.is_expired()
 
-    def get_can_retry(self, obj):
+    def get_can_retry(self, obj) -> bool:
+
         return obj.can_retry()
 
 
@@ -1855,7 +1650,8 @@ class UserVerificationStatusSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def get_verification_badges(self, obj):
+    def get_verification_badges(self, obj) -> List[Dict[str, Any]]:
+
         """Return user's verification badges for display"""
         badges = []
         if obj.email_verified:
@@ -2049,8 +1845,10 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_online(self, obj):
-        # Simple online status - can be enhanced with last_seen tracking
-        return False
+        if not obj.last_seen:
+            return False
+
+        return obj.last_seen >= now() - timedelta(minutes=3)
 
     @extend_schema_field(serializers.FloatField())
     def get_distance(self, obj):
@@ -2096,13 +1894,13 @@ class UserSearchSerializer(serializers.ModelSerializer):
             "match_score",
         ]
 
-    def get_distance(self, obj):
+    def get_distance(self, obj) -> float | None:
         request = self.context.get("request")
         if request and request.user.has_location and obj.has_location:
             return request.user.get_distance_to(obj)
         return None
 
-    def get_match_score(self, obj):
+    def get_match_score(self, obj) -> float | None:
         request = self.context.get("request")
         if request and request.user != obj:
             from .location_utils import calculate_match_score
@@ -2224,6 +2022,7 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
         source="user.profile_picture", read_only=True
     )
     is_online = serializers.SerializerMethodField()
+    is_muted = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatParticipant
@@ -2248,10 +2047,14 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
             "last_seen_at",
         ]
 
-    def get_is_online(self, obj):
+    def get_is_online(self, obj) -> bool:
         """Check if user is online (placeholder - implement with real-time status)"""
-        # This would typically check last activity or WebSocket connection
         return False
+
+    @extend_schema_field({"type": "boolean"})
+    def get_is_muted(self, obj) -> bool:
+        """Check if chat is muted for this participant"""
+        return obj.is_muted
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -2311,14 +2114,14 @@ class MessageSerializer(serializers.ModelSerializer):
             "is_from_current_user",
         ]
 
-    def get_is_from_current_user(self, obj):
+    def get_is_from_current_user(self, obj) -> bool:
         """Check if message is from the current user"""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return obj.sender == request.user
         return False
 
-    def get_reply_to_message(self, obj):
+    def get_reply_to_message(self, obj) -> str:
         """Get the message being replied to"""
         if obj.reply_to:
             return {
@@ -2336,7 +2139,7 @@ class MessageSerializer(serializers.ModelSerializer):
             }
         return None
 
-    def get_formatted_timestamp(self, obj):
+    def get_formatted_timestamp(self, obj) -> str:
         """Get formatted timestamp for display"""
         from django.utils import timezone
 
@@ -2387,7 +2190,7 @@ class ChatSerializer(serializers.ModelSerializer):
             "other_participant",
         ]
 
-    def get_last_message(self, obj):
+    def get_last_message(self, obj) -> str:
         """Get the last message in the chat"""
         last_msg = obj.messages.order_by("-timestamp").first()
         if last_msg:
@@ -2405,14 +2208,14 @@ class ChatSerializer(serializers.ModelSerializer):
             }
         return None
 
-    def get_unread_count(self, obj):
+    def get_unread_count(self, obj) -> str:
         """Get unread message count for current user"""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return obj.get_unread_count(request.user)
         return 0
 
-    def get_other_participant(self, obj):
+    def get_other_participant(self, obj) -> str:
         """Get the other participant in direct message chats"""
         request = self.context.get("request")
         if request and request.user.is_authenticated and obj.chat_type == "direct":
@@ -2459,7 +2262,7 @@ class ChatDetailSerializer(serializers.ModelSerializer):
             "messages",
         ]
 
-    def get_other_participant(self, obj):
+    def get_other_participant(self, obj) -> str:
         """Get the other participant in direct message chats"""
         request = self.context.get("request")
         if request and request.user.is_authenticated and obj.chat_type == "direct":
@@ -2800,14 +2603,14 @@ class PostCommentSerializer(serializers.ModelSerializer):
             "is_from_current_user",
         ]
 
-    def get_is_from_current_user(self, obj):
+    def get_is_from_current_user(self, obj) -> bool:
         """Check if comment is from the current user"""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return obj.author == request.user
         return False
 
-    def get_formatted_timestamp(self, obj):
+    def get_formatted_timestamp(self, obj) -> str:
         """Get formatted timestamp for display"""
         from django.utils import timezone
 
@@ -2893,14 +2696,16 @@ class PostSerializer(serializers.ModelSerializer):
             "user_interactions",
         ]
 
-    def get_is_from_current_user(self, obj):
+    def get_is_from_current_user(self, obj) -> bool:
+
         """Check if post is from the current user"""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             return obj.author == request.user
         return False
 
-    def get_formatted_timestamp(self, obj):
+    def get_formatted_timestamp(self, obj) -> str:
+
         """Get formatted timestamp for display"""
         from django.utils import timezone
 
@@ -2920,16 +2725,19 @@ class PostSerializer(serializers.ModelSerializer):
         else:
             return obj.created_at.strftime("%m/%d/%Y")
 
-    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
-    def get_user_interactions(self, obj):
-        """Get current user's interactions with this post"""
+    def get_user_interactions(self, obj) -> Dict[str, Any]:
+        """Return user interactions for the post (likes, comments, etc.)"""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            interactions = obj.interactions.filter(user=request.user).values_list(
-                "interaction_type", flat=True
-            )
-            return list(interactions)
-        return []
+            # Example: check if user liked the post
+            return {
+                "liked": obj.likes.filter(id=request.user.id).exists(),
+                "comments_count": obj.comments.count(),
+            }
+        return {
+            "liked": False,
+            "comments_count": obj.comments.count(),
+        }
 
 
 class PostCreateSerializer(serializers.ModelSerializer):
@@ -3222,6 +3030,25 @@ class FeedSearchSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             validated_data["user"] = request.user
         return super().create(validated_data)
+
+
+class FeedSuggestionSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    count = serializers.IntegerField(required=False)
+
+
+class FeedSuggestionsResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    status = serializers.CharField()
+    suggestions = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    hashtags = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    popular_searches = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
 
 
 # =============================================================================
@@ -3806,3 +3633,29 @@ class PaymentWebhookCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentWebhook
         fields = ["provider", "event_type", "event_id", "transaction", "payload"]
+
+
+class TranslationStatsResponseSerializer(serializers.Serializer):
+    total_translations = serializers.IntegerField()
+    approved_translations = serializers.IntegerField()
+    pending_translations = serializers.IntegerField()
+    rejected_translations = serializers.IntegerField()
+    user_id = serializers.IntegerField(required=False)
+    username = serializers.CharField(max_length=150, required=False)
+
+    class Meta:
+        # Optional, for documentation or hints
+        fields = [
+            "total_translations",
+            "approved_translations",
+            "pending_translations",
+            "rejected_translations",
+            "user_id",
+            "username",
+        ]
+
+
+class PushNotificationSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    title = serializers.CharField(default="Notification")
+    body = serializers.CharField(default="Message")

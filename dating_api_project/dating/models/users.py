@@ -137,6 +137,9 @@ class User(AbstractUser):
             ("quit", "Quit"),
         ],
     )
+
+    last_seen = models.DateTimeField(null=True, blank=True)
+
     drinking_preference = models.CharField(
         max_length=20,
         blank=True,
@@ -432,18 +435,44 @@ class NewsletterSubscriber(models.Model):
 
 
 class PuzzleVerification(models.Model):
-    user = models.ForeignKey("User", on_delete=models.CASCADE)
+    """
+    Tracks a user's attempt at solving a puzzle.
+    Also includes a static method to generate new random puzzles.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="puzzle_attempts"
+    )
     question = models.CharField(max_length=255)
     answer = models.CharField(max_length=50)  # correct answer (hidden from user)
     user_answer = models.CharField(max_length=50, blank=True)
     is_correct = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        verbose_name = "Puzzle Verification"
+        verbose_name_plural = "Puzzle Verifications"
+        ordering = ["-created_at"]
+
     def __str__(self):
-        return f"Puzzle for {self.user.username} – {'Correct' if self.is_correct else 'Pending'}"
+        status = "Correct" if self.is_correct else "Pending"
+        return f"Puzzle for {self.user.username} – {status}"
+
+    def verify_answer(self):
+        """
+        Compares user's answer with the correct answer and updates is_correct.
+        Returns True if correct, False otherwise.
+        """
+        self.is_correct = self.user_answer.strip() == self.answer.strip()
+        self.save(update_fields=["is_correct"])
+        return self.is_correct
 
     @staticmethod
     def generate_puzzle():
+        """
+        Generates a simple random addition puzzle.
+        Returns a tuple: (question, answer)
+        """
         num1 = random.randint(1, 20)
         num2 = random.randint(1, 20)
         question = f"What is {num1} + {num2}?"

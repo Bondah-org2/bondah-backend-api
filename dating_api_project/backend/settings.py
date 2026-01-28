@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from clean_enums import cleanup_openapi_schema
 
 # Firebase Configuration
 import firebase_admin
@@ -101,6 +102,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "core.middleware.UpdateLastSeenMiddleware",
 ]
 
 ROOT_URLCONF = "backend.urls"
@@ -476,3 +478,13 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
     "https://bondah-backend-api-production.up.railway.app,https://bondah.org,https://www.bondah.org",
 ).split(",")
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Bondah Dating API",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "POSTPROCESSING_HOOKS": [
+        "clean_enums.cleanup_openapi_schema",
+    ],
+}
