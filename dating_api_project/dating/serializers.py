@@ -866,13 +866,6 @@ class TokensSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
-class UserRoleSelectionSerializer(serializers.Serializer):
-    selected_role = serializers.ChoiceField(
-        choices=[("bondmaker", "Bondmaker"), ("seeker", "Seeker")]
-    )
-    is_matchmaker = serializers.BooleanField(read_only=True)
-
-
 class ResendOTPSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["email", "phone"])
     identifier = serializers.CharField(required=False)
@@ -1725,17 +1718,19 @@ class PhoneOTPVerifySerializer(serializers.Serializer):
 
 
 class UserRoleSelectionSerializer(serializers.ModelSerializer):
+    is_matchmaker = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = UserRoleSelection
-        fields = ["selected_role"]
+        fields = ["selected_role", "is_matchmaker"]
 
-    def validate_selected_role(self, value):
-        valid_roles = ["looking_for_love", "bondmaker"]
-        if value not in valid_roles:
-            raise serializers.ValidationError(
-                f"Invalid role. Must be one of: {', '.join(valid_roles)}"
-            )
-        return value
+
+class UserRoleStatusSerializer(serializers.Serializer):
+    selected_role = serializers.ChoiceField(choices=UserRoleSelection.ROLE_CHOICES)
+    is_matchmaker = serializers.BooleanField()
+    verification_status = serializers.ChoiceField(
+        choices=DocumentVerification.STATUS_CHOICES, allow_null=True, required=False
+    )
 
 
 class EmailVerificationSerializer(serializers.ModelSerializer):

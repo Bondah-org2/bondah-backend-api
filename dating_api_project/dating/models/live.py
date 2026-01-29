@@ -126,7 +126,7 @@ class UserRoleSelection(models.Model):
 
     ROLE_CHOICES = (
         ("looking_for_love", "Looking for Love"),
-        ("bondmaker", "Become a Bondmaker"),
+        ("bondmaker", "Bondmaker"),
     )
 
     user = models.OneToOneField(

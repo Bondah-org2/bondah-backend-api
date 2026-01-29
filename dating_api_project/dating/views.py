@@ -182,6 +182,7 @@ from .serializers import (
     PaymentWebhookSerializer,
     FirebaseMatchSerializer,
     PushNotificationSerializer,
+    UserRoleStatusSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -204,7 +205,7 @@ from .schema import (
 )
 from deep_translator import GoogleTranslator
 from django.db import models
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -2632,54 +2633,66 @@ class UserRoleSelectionView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UserRoleSelectionSerializer
 
-    @extend_schema(
-        request=UserRoleSelectionSerializer,
-        responses={200: UserRoleSelectionSerializer},
-    )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
         selected_role = serializer.validated_data["selected_role"]
 
-        role_selection, created = UserRoleSelection.objects.get_or_create(
-            user=request.user, defaults={"selected_role": selected_role}
+        role_selection, _ = UserRoleSelection.objects.update_or_create(
+            user=request.user,
+            defaults={"selected_role": selected_role},
         )
-        if not created:
-            role_selection.selected_role = selected_role
-            role_selection.save()
 
-        request.user.is_matchmaker = selected_role == "bondmaker"
-        request.user.save()
-
-        response_data = {
-            "selected_role": role_selection.selected_role,
-            "is_matchmaker": request.user.is_matchmaker,
-        }
+        # If user chose bondmaker, create or reuse pending verification
+        if selected_role == "bondmaker":
+            DocumentVerification.objects.get_or_create(
+                user=request.user,
+                status="pending",
+                defaults={"document_type": "passport"},  # or wait for upload
+            )
 
         return Response(
-            {"message": "Role selection saved", "status": "success", **response_data}
+            {
+                "message": "Role selection saved",
+                "status": "success",
+                "selected_role": selected_role,
+                "is_matchmaker": request.user.is_matchmaker,  # still False
+            }
         )
 
-    @extend_schema(responses={200: UserRoleSelectionSerializer})
+
+class UserRoleStatusView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserRoleStatusSerializer
+
     def get(self, request):
-        try:
-            role_selection = UserRoleSelection.objects.get(user=request.user)
-            serializer = self.get_serializer(role_selection)
-            return Response(
-                {
-                    "message": "Role selection retrieved",
-                    "status": "success",
-                    "role_selection": serializer.data,
-                }
-            )
-        except UserRoleSelection.DoesNotExist:
-            return Response(
-                {
-                    "message": "No role selection found",
-                    "status": "success",
-                    "role_selection": None,
-                }
-            )
+        user = request.user
+
+        # Role selection
+        role_selection = UserRoleSelection.objects.filter(user=user).first()
+        selected_role = (
+            role_selection.selected_role if role_selection else "looking_for_love"
+        )
+
+        # Latest verification (if any)
+        verification = (
+            DocumentVerification.objects.filter(user=user)
+            .order_by("-uploaded_at")
+            .first()
+        )
+        verification_status = verification.status if verification else None
+
+        data = {
+            "selected_role": selected_role,
+            "is_matchmaker": user.is_matchmaker,
+            "verification_status": verification_status,
+        }
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+
+        return Response(serializer.data)
 
 
 class ResendOTPView(GenericAPIView):
@@ -4421,51 +4434,33 @@ class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
         return DocumentVerification.objects.filter(user=self.request.user)
 
 
-class DocumentUploadView(generics.CreateAPIView):
-    """
-    Upload document images for verification
-    """
-
+class DocumentUploadView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = DocumentVerificationCreateSerializer
 
-    def create(self, request, *args, **kwargs):
-        """Upload document images"""
-        front_image = request.FILES.get("front_image")
-        back_image = request.FILES.get("back_image")
-        document_type = request.data.get("document_type")
-
-        if not document_type:
-            return Response(
-                {"message": "Document type is required", "status": "error"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not front_image:
-            return Response(
-                {"message": "Front image is required", "status": "error"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+    def post(self, request):
         serializer = self.get_serializer(
-            data={
-                "document_type": document_type,
-                "front_image": front_image,
-                "back_image": back_image,
-            },
-            context={"request": request},
+            data=request.data, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
-        instance = serializer.save()
+
+        verification, _ = DocumentVerification.objects.get_or_create(
+            user=request.user,
+            status="pending",
+        )
+
+        for field, value in serializer.validated_data.items():
+            setattr(verification, field, value)
+
+        verification.save()
 
         return Response(
             {
-                "message": "Document uploaded successfully",
+                "message": "Document uploaded. Awaiting admin review.",
                 "status": "success",
-                "verification_id": instance.id,
-                "front_image_url": serializer.data["front_image_url"],
-                "back_image_url": serializer.data.get("back_image_url"),
+                "verification_id": verification.id,
             },
-            status=status.HTTP_201_CREATED,
+            status=201,
         )
 
 
@@ -5896,3 +5891,53 @@ class AdminNewsletterListView(GenericAPIView):
                 "data": serializer.data,
             }
         )
+
+
+class AdminBondmakerReviewView(GenericAPIView):
+    permission_classes = [IsAdminUser]
+
+    class InputSerializer(serializers.Serializer):
+        action = serializers.ChoiceField(choices=["approve", "reject"])
+        reason = serializers.CharField(required=False, allow_blank=True)
+
+    serializer_class = InputSerializer
+
+    def post(self, request, verification_id):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        action = serializer.validated_data["action"]
+        reason = serializer.validated_data.get("reason", "")
+
+        verification = get_object_or_404(DocumentVerification, id=verification_id)
+
+        user = verification.user
+
+        if action == "approve":
+            verification.status = "approved"
+            verification.is_authentic = True
+            verification.verified_at = timezone.now()
+            verification.save()
+
+            user.is_matchmaker = True
+            user.save(update_fields=["is_matchmaker"])
+
+            return Response({"message": "User approved as bondmaker"})
+
+        if action == "reject":
+            verification.status = "rejected"
+            verification.rejection_reason = reason or "Rejected by admin"
+            verification.save()
+
+            user.is_matchmaker = False
+            user.save(update_fields=["is_matchmaker"])
+
+            return Response({"message": "Bondmaker request rejected"})
+
+
+class AdminPendingBondmakersView(generics.ListAPIView):
+    permission_classes = [IsAdminUser]
+    serializer_class = DocumentVerificationSerializer
+
+    def get_queryset(self):
+        return DocumentVerification.objects.filter(status="pending")

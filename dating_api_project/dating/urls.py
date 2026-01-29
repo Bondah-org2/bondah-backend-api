@@ -150,6 +150,9 @@ from .views import (
     FirebaseMatchView,
     FirebaseMatchesListView,
     FirebasePushNotificationView,
+    AdminBondmakerReviewView,
+    AdminPendingBondmakersView,
+    UserRoleStatusView,
 )
 
 urlpatterns = [
@@ -338,7 +341,7 @@ urlpatterns = [
     ),
     path("verification/resend/", ResendOTPView.as_view(), name="resend-otp"),
     path(
-        "onboarding/role/", UserRoleSelectionView.as_view(), name="user-role-selection"
+        "roleselection/role/", UserRoleSelectionView.as_view(), name="user-role-selection"
     ),
     # Advanced Search and Discovery Endpoints
     path("search/users/", UserSearchView.as_view(), name="user-search"),
@@ -620,4 +623,15 @@ urlpatterns = [
         FirebasePushNotificationView.as_view(),
         name="firebase-notify",
     ),
+    path(
+        "admin/bondmakers/review/<int:verification_id>/",
+        AdminBondmakerReviewView.as_view(),
+        name="bondmaker-review",
+    ),
+    path(
+        "admin/bondmakers/pending_list/",
+        AdminPendingBondmakersView.as_view(),
+        name="bondmaker-pennding_list",
+    ),
+    path("user/role-status/", UserRoleStatusView.as_view(), name="role_status"),
 ]
