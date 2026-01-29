@@ -1,22 +1,26 @@
 """
 Location utilities for dating app - GPS, geocoding, and distance calculations
+NO GeoDjango. NO GDAL. Pure Python implementation.
 """
 
 import math
 import requests
 from typing import Tuple, Optional, Dict, List
 from django.conf import settings
-from django.contrib.gis.geos import Point
-from django.contrib.gis.measure import Distance
-from django.contrib.gis.db.models.functions import Distance as DistanceFunction
-from .models import User, LocationHistory, UserMatch
 from django.utils import timezone
-from django.db.models import Q 
+from django.db.models import Q
+
+from .models import User, LocationHistory, UserMatch
+
+
+# =========================================================
+# DISTANCE CALCULATION (HAVERSINE)
+# =========================================================
 
 
 def calculate_distance(
     coord1: Tuple[float, float], coord2: Tuple[float, float]
-) -> float:
+) -> Optional[float]:
     """
     Calculate distance between two GPS coordinates using Haversine formula
     Returns distance in kilometers
@@ -33,16 +37,20 @@ def calculate_distance(
     # Haversine formula
     dlat = lat2 - lat1
     dlon = lon2 - lon1
+
     a = (
         math.sin(dlat / 2) ** 2
         + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     )
-    c = 2 * math.asin(math.sqrt(a))
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-    # Radius of earth in kilometers
-    earth_radius = 6371
-
+    earth_radius = 6371  # KM
     return earth_radius * c
+
+
+# =========================================================
+# GEOCODING
+# =========================================================
 
 
 def geocode_address(address: str) -> Optional[Dict]:
@@ -50,30 +58,25 @@ def geocode_address(address: str) -> Optional[Dict]:
     Convert address to GPS coordinates using Google Geocoding API
     """
     try:
-        # You can use Google Geocoding API or other services
-        # For now, we'll use a simple mock implementation
-        # In production, use: https://developers.google.com/maps/documentation/geocoding
+        api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "")
 
-        geocoding_api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "")
-
-        if not geocoding_api_key:
+        if not api_key:
             # Mock response for development
             return {
-                "latitude": 40.7128,  # New York City coordinates
+                "latitude": 40.7128,
                 "longitude": -74.0060,
                 "address": address,
                 "formatted_address": f"{address}, New York, NY, USA",
                 "accuracy": "APPROXIMATE",
             }
 
-        # Real Google Geocoding API call
         url = "https://maps.googleapis.com/maps/api/geocode/json"
-        params = {"address": address, "key": geocoding_api_key}
+        params = {"address": address, "key": api_key}
 
         response = requests.get(url, params=params, timeout=10)
         data = response.json()
 
-        if data["status"] == "OK" and data["results"]:
+        if data.get("status") == "OK" and data.get("results"):
             result = data["results"][0]
             location = result["geometry"]["location"]
 
@@ -97,10 +100,9 @@ def reverse_geocode(latitude: float, longitude: float) -> Optional[Dict]:
     Convert GPS coordinates to address using reverse geocoding
     """
     try:
-        geocoding_api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "")
+        api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "")
 
-        if not geocoding_api_key:
-            # Mock response for development
+        if not api_key:
             return {
                 "address": f"{latitude}, {longitude}",
                 "formatted_address": f"Mock Address for {latitude}, {longitude}",
@@ -110,17 +112,15 @@ def reverse_geocode(latitude: float, longitude: float) -> Optional[Dict]:
                 "postal_code": "12345",
             }
 
-        # Real Google Reverse Geocoding API call
         url = "https://maps.googleapis.com/maps/api/geocode/json"
-        params = {"latlng": f"{latitude},{longitude}", "key": geocoding_api_key}
+        params = {"latlng": f"{latitude},{longitude}", "key": api_key}
 
         response = requests.get(url, params=params, timeout=10)
         data = response.json()
 
-        if data["status"] == "OK" and data["results"]:
+        if data.get("status") == "OK" and data.get("results"):
             result = data["results"][0]
 
-            # Parse address components
             address_components = {}
             for component in result.get("address_components", []):
                 types = component.get("types", [])
@@ -149,60 +149,73 @@ def reverse_geocode(latitude: float, longitude: float) -> Optional[Dict]:
         return None
 
 
+# =========================================================
+# NEARBY USER SEARCH (PURE PYTHON)
+# =========================================================
+
+
 def find_nearby_users(user: User, max_distance: Optional[int] = None) -> List[Dict]:
     if not user.has_location:
         return []
 
     max_distance = max_distance or user.max_distance
 
-    # Use database distance calculation
-    user_point = Point(user.longitude, user.latitude)
-    nearby_users = (
-        User.objects.filter(
-            latitude__isnull=False, longitude__isnull=False, is_active=True
-        )
-        .exclude(id=user.id)
-        .annotate(distance=DistanceFunction("location_point", user_point))
-        .filter(distance__lte=max_distance)
-        .order_by("distance")
-    )
+    users = User.objects.filter(
+        latitude__isnull=False,
+        longitude__isnull=False,
+        is_active=True,
+    ).exclude(id=user.id)
 
     results = []
-    for nearby_user in nearby_users:
-        if can_view_location(user, nearby_user):
+
+    for other in users:
+        if not can_view_location(user, other):
+            continue
+
+        distance = calculate_distance(
+            (user.latitude, user.longitude),
+            (other.latitude, other.longitude),
+        )
+
+        if distance is None:
+            continue
+
+        if distance <= max_distance:
             results.append(
                 {
-                    "user": nearby_user,
-                    "distance": nearby_user.distance.km,  # Convert to km
-                    "coordinates": nearby_user.location_coordinates,
+                    "user": other,
+                    "distance": distance,
+                    "coordinates": (other.latitude, other.longitude),
                 }
             )
 
+    results.sort(key=lambda x: x["distance"])
     return results
 
 
+# =========================================================
+# LOCATION PRIVACY
+# =========================================================
+
+
 def can_view_location(viewer: User, target: User) -> bool:
-    """
-    Check if viewer can see target user's location based on privacy settings
-    """
     if not target.location_sharing_enabled:
         return False
 
     if target.location_privacy == "public":
         return True
-    elif target.location_privacy == "friends":
-        # Check if users are friends (implement friend system later)
-        return False
     elif target.location_privacy == "private":
-        # Only show to matched users
         return UserMatch.objects.filter(
             Q(user1=viewer, user2=target) | Q(user1=target, user2=viewer),
             status="matched",
         ).exists()
-    elif target.location_privacy == "hidden":
-        return False
 
     return False
+
+
+# =========================================================
+# UPDATE LOCATION
+# =========================================================
 
 
 def update_user_location(
@@ -212,17 +225,11 @@ def update_user_location(
     accuracy: Optional[float] = None,
     source: str = "gps",
 ) -> bool:
-    """
-    Update user's location and create location history entry
-    """
     try:
-
-        # Update user's current location
         user.latitude = latitude
         user.longitude = longitude
         user.last_location_update = timezone.now()
 
-        # Reverse geocode to get address
         address_data = reverse_geocode(latitude, longitude)
         if address_data:
             user.address = address_data.get("address", "")
@@ -233,7 +240,6 @@ def update_user_location(
 
         user.save()
 
-        # Create location history entry
         LocationHistory.objects.create(
             user=user,
             latitude=latitude,
@@ -253,39 +259,68 @@ def update_user_location(
         return False
 
 
+# =========================================================
+# MATCH SCORE
+# =========================================================
+
+
 def calculate_match_score(user1: User, user2: User) -> float:
     """
-    Calculate compatibility score between two users
-    Based on age, gender preferences, distance, and other factors
+    Calculate compatibility score between two users (0 - 100)
     """
     score = 0.0
 
-    # Distance factor (closer is better)
+    # Distance factor (0 - 40)
     distance = user1.get_distance_to(user2)
     if distance is not None and user1.max_distance > 0:
         distance_score = max(0, 40 - (distance / user1.max_distance * 40))
         score += distance_score
 
-    # Age compatibility (0-30 points)
+    # Age factor (0 - 30)
     if user1.age and user2.age:
         age_diff = abs(user1.age - user2.age)
-        age_score = max(0, 30 - (age_diff * 2))  # 2 points lost per year difference
+        age_score = max(0, 30 - (age_diff * 2))
         score += age_score
 
-    # Gender preference (0-20 points)
+    # Gender preference (0 - 30)
     if user1.preferred_gender and user1.preferred_gender == user2.gender:
-        score += 20
-    elif user2.preferred_gender and user2.preferred_gender == user1.gender:
-        score += 20
-
-    # Mutual preferences (0-10 points)
-    if (
-        user1.preferred_gender == user2.gender
-        and user2.preferred_gender == user1.gender
-    ):
-        score += 10
+        score += 15
+    if user2.preferred_gender and user2.preferred_gender == user1.gender:
+        score += 15
 
     return min(100.0, score)
+
+
+# =========================================================
+# VALIDATION
+# =========================================================
+
+
+def validate_coordinates(latitude: float, longitude: float) -> bool:
+    return (-90 <= latitude <= 90) and (-180 <= longitude <= 180)
+
+
+def get_approximate_location_from_ip(ip_address: str) -> Optional[Dict]:
+    try:
+        url = f"http://ip-api.com/json/{ip_address}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+
+        if data.get("status") == "success":
+            return {
+                "latitude": data.get("lat"),
+                "longitude": data.get("lon"),
+                "city": data.get("city", ""),
+                "state": data.get("regionName", ""),
+                "country": data.get("country", ""),
+                "accuracy": "low",
+            }
+
+        return None
+
+    except Exception as e:
+        print(f"IP geolocation error: {e}")
+        return None
 
 
 def get_location_statistics() -> Dict:
@@ -323,38 +358,3 @@ def get_location_statistics() -> Dict:
     }
 
     return stats
-
-
-def validate_coordinates(latitude: float, longitude: float) -> bool:
-    """
-    Validate GPS coordinates
-    """
-    return (-90 <= latitude <= 90) and (-180 <= longitude <= 180)
-
-
-def get_approximate_location_from_ip(ip_address: str) -> Optional[Dict]:
-    """
-    Get approximate location from IP address
-    """
-    try:
-        # Using a free IP geolocation service
-        # In production, consider using a more reliable service
-        url = f"http://ip-api.com/json/{ip_address}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-
-        if data.get("status") == "success":
-            return {
-                "latitude": data.get("lat"),
-                "longitude": data.get("lon"),
-                "city": data.get("city", ""),
-                "state": data.get("regionName", ""),
-                "country": data.get("country", ""),
-                "accuracy": "low",  # IP-based location is not very accurate
-            }
-
-        return None
-
-    except Exception as e:
-        print(f"IP geolocation error: {e}")
-        return None

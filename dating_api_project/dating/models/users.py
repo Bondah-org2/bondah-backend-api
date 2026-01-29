@@ -5,6 +5,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 import re
 from django.core.exceptions import ValidationError
+from datetime import timedelta
 
 
 class User(AbstractUser):
@@ -12,6 +13,7 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     gender = models.CharField(max_length=10, blank=True, null=True)
     age = models.PositiveIntegerField(blank=True, null=True)
+    phone_number = models.CharField(blank=True, null=True)
 
     # Location Fields
     location = models.CharField(
@@ -31,6 +33,16 @@ class User(AbstractUser):
         null=True,
         validators=[MinValueValidator(-180), MaxValueValidator(180)],
     )
+
+    AVAILABILITY_CHOICES = (
+        ("online", "Online"),
+        ("offline", "Offline"),
+    )
+
+    availability_status = models.CharField(
+        max_length=10, choices=AVAILABILITY_CHOICES, default="offline", null=True
+    )
+
     address = models.TextField(blank=True, null=True)
     city = models.CharField(max_length=100, blank=True, null=True)
     state = models.CharField(max_length=100, blank=True, null=True)
@@ -953,3 +965,52 @@ class LocationPermission(models.Model):
 
     class Meta:
         ordering = ["-updated_at"]
+
+
+class BondmakerSubscription(models.Model):
+    """A user subscribed to a bondmaker"""
+
+    bondmaker = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="subscribed_users"
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="bondmaker_subscription"
+    )
+    start_date = models.DateTimeField(auto_now_add=True)
+    end_date = models.DateTimeField()
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = (
+            "bondmaker",
+            "user",
+        )  # One active subscription per user per bondmaker
+
+    def save(self, *args, **kwargs):
+        if not self.end_date:
+            self.end_date = self.start_date + timedelta(days=30)  # 1 month default
+        super().save(*args, **kwargs)
+
+    def is_active(self):
+        if timezone.now() > self.end_date:
+            self.active = False
+            self.save(update_fields=["active"])
+        return self.active
+
+
+class SuggestedMatch(models.Model):
+    """Bondmaker suggested matches for a subscribed user"""
+
+    bondmaker = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="suggested_matches"
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="suggested_for"
+    )
+    suggested_user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="suggested_to"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("bondmaker", "user", "suggested_user")

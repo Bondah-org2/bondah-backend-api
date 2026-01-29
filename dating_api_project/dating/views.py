@@ -19,6 +19,7 @@ from django.shortcuts import get_object_or_404
 import uuid
 from django.core.files.base import ContentFile
 from rest_framework import serializers
+from pagination import BondmakerPagination, BondmakerPublicPagination
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -65,6 +66,8 @@ from .models import (
     UserVerificationStatus,
     PostComment,
     LiveParticipant,
+    BondmakerSubscription,
+    SuggestedMatch,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -183,6 +186,10 @@ from .serializers import (
     FirebaseMatchSerializer,
     PushNotificationSerializer,
     UserRoleStatusSerializer,
+    BondmakerListSerializer,
+    PublicBondmakerProfileSerializer,
+    BondmakerSubscriptionSerializer,
+    BondmakerSuggestedMatchSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -195,7 +202,7 @@ from .firebase_utils import (
 )
 from rest_framework import permissions
 from django.db.models import Count, Avg
-
+from .location_utils import calculate_match_score, get_location_statistics
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
 from .schema import (
@@ -2388,38 +2395,38 @@ class UserLocationProfileView(generics.RetrieveAPIView):
 # --------------------------
 # 4. Location Statistics (Admin Only)
 # --------------------------
-# class LocationStatisticsView(generics.GenericAPIView):
-#     """
-#     Retrieve location-related statistics (admin only).
-#     """
+class LocationStatisticsView(generics.GenericAPIView):
+    """
+    Retrieve location-related statistics (admin only).
+    """
 
-#     permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
-#     def get(self, request):
-#         if not request.user.is_staff:
-#             return Response(
-#                 {"message": "Admin access required", "status": "error"},
-#                 status=status.HTTP_403_FORBIDDEN,
-#             )
+    def get(self, request):
+        if not request.user.is_staff:
+            return Response(
+                {"message": "Admin access required", "status": "error"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-#         try:
-#             stats = get_location_statistics()
-#             return Response(
-#                 {
-#                     "message": "Location statistics retrieved successfully",
-#                     "status": "success",
-#                     "statistics": stats,
-#                 },
-#                 status=status.HTTP_200_OK,
-#             )
-#         except Exception as e:
-#             return Response(
-#                 {
-#                     "message": f"Failed to retrieve statistics: {str(e)}",
-#                     "status": "error",
-#                 },
-#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             )
+        try:
+            stats = get_location_statistics()
+            return Response(
+                {
+                    "message": "Location statistics retrieved successfully",
+                    "status": "success",
+                    "statistics": stats,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to retrieve statistics: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 # =============================================================================
@@ -2649,7 +2656,7 @@ class UserRoleSelectionView(GenericAPIView):
             DocumentVerification.objects.get_or_create(
                 user=request.user,
                 status="pending",
-                defaults={"document_type": "passport"},  # or wait for upload
+                defaults={"document_type": "passport"},
             )
 
         return Response(
@@ -5941,3 +5948,295 @@ class AdminPendingBondmakersView(generics.ListAPIView):
 
     def get_queryset(self):
         return DocumentVerification.objects.filter(status="pending")
+
+
+# Bondmaker List View (Admin, Filterable, Searchable)
+class AdminBondmakerListView(generics.ListAPIView):
+    serializer_class = BondmakerListSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = BondmakerPagination
+
+    def get_queryset(self):
+        queryset = User.objects.select_related("documentverification").all()
+
+        #  Search
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(phone_number__icontains=search)
+            )
+
+        #  Filter by status
+        status = self.request.query_params.get("status")  # pending / approved / rejected
+        if status:
+            queryset = queryset.filter(documentverification__status=status)
+
+        #  Optional: only bondmakers or applicants
+        role = self.request.query_params.get("role")
+        if role == "bondmaker":
+            queryset = queryset.filter(is_matchmaker=True)
+        elif role == "applicant":
+            queryset = queryset.filter(is_matchmaker=False)
+
+        return queryset.order_by("-id")
+
+
+# bondmaker profile view
+class BondmakerProfileDetailView(generics.RetrieveAPIView):
+    serializer_class = PublicBondmakerProfileSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        return User.objects.filter(
+            is_matchmaker=True,
+            document_verifications__status="approved",
+            document_verifications__is_authentic=True,
+        ).distinct().prefetch_related("document_verifications")
+
+
+# Bondmaker List view
+class PublicBondmakerListView(generics.ListAPIView):
+    serializer_class = PublicBondmakerProfileSerializer
+    permission_classes = [AllowAny]
+    pagination_class = BondmakerPublicPagination
+
+    def get_queryset(self):
+        qs = (
+            User.objects.filter(
+                is_matchmaker=True,
+                document_verifications__status="approved",
+                document_verifications__is_authentic=True,
+            )
+            .distinct()
+            .prefetch_related("document_verifications")
+        )
+
+        # Search
+        search = self.request.query_params.get("search")
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search) |
+                Q(location__icontains=search)
+            )
+
+        # Filter by availability
+        availability = self.request.query_params.get("availability")  # online / offline
+        if availability in ["online", "offline"]:
+            qs = qs.filter(availability_status=availability)
+
+        return qs.order_by("-id")
+
+
+# List View of User Subscribed to a Bondmaker
+class SubscribedUsersForBondmakerView(generics.ListAPIView):
+    serializer_class = BondmakerSubscriptionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        bondmaker = self.request.user
+        if not bondmaker.is_matchmaker:
+            return User.objects.none()  # Only bondmakers can access
+
+        # Get all users subscribed to this bondmaker
+        subscriptions = BondmakerSubscription.objects.filter(
+            bondmaker=bondmaker,
+            active=True
+        ).select_related("user")
+
+        subscribed_user_ids = subscriptions.values_list("user_id", flat=True)
+
+        # Return users who are subscribed to this bondmaker
+        return User.objects.filter(id__in=subscribed_user_ids, looking_for_love=True)
+
+
+class SubscribeBondmakerView(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        bondmaker_id = request.data.get("bondmaker_id")
+        try:
+            bondmaker = User.objects.get(id=bondmaker_id, is_matchmaker=True)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Bondmaker not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        subscription, created = BondmakerSubscription.objects.get_or_create(
+            bondmaker=bondmaker,
+            user=request.user,
+            defaults={
+                "start_date": timezone.now(),
+                "end_date": timezone.now() + timedelta(days=30),
+                "active": True,
+            },
+        )
+
+        if not created:
+            # Renew subscription if it expired or update dates
+            if not subscription.is_active():
+                subscription.start_date = timezone.now()
+                subscription.end_date = timezone.now() + timedelta(days=30)
+                subscription.active = True
+                subscription.save()
+
+        return Response(
+            {
+                "message": "Subscribed successfully",
+                "subscription_id": subscription.id,
+                "start_date": subscription.start_date,
+                "end_date": subscription.end_date,
+                "active": subscription.active,
+            }
+        )
+
+
+# End Bondmaker Subscription
+class EndBondmakerSubscriptionView(generics.UpdateAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, subscription_id, *args, **kwargs):
+        try:
+            subscription = BondmakerSubscription.objects.get(
+                id=subscription_id,
+                user=request.user,
+                active=True
+            )
+        except BondmakerSubscription.DoesNotExist:
+            return Response({"error": "Active subscription not found"}, status=404)
+
+        subscription.active = False
+        subscription.end_date = timezone.now()
+        subscription.save()
+
+        return Response({"message": "Subscription ended successfully"})
+
+
+# All Subscribed User list view
+class AllSubscribedUsersListView(generics.ListAPIView):
+    serializer_class = BondmakerSubscriptionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Get all active subscriptions
+        subscriptions = BondmakerSubscription.objects.filter(active=True).select_related("user")
+
+        # Return all users subscribed to any bondmaker
+        subscribed_user_ids = subscriptions.values_list("user_id", flat=True)
+        return User.objects.filter(id__in=subscribed_user_ids, looking_for_love=True)
+
+
+class BondmakerCreateSuggestedMatchView(generics.CreateAPIView):
+    """
+    Bondmaker can:
+    1. Create a match between two subscribed users who like each other.
+    2. Create a match between a subscribed user and a nearby user suggested by the bondmaker.
+    Compatibility score >50 enforced unless override_score_check=True.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = BondmakerSuggestedMatchSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        bondmaker = request.user
+        if not bondmaker.is_matchmaker:
+            return Response({"error": "Only bondmakers can create matches"}, status=403)
+
+        user_id = serializer.validated_data["user_id"]
+        suggested_user_id = serializer.validated_data["suggested_user_id"]
+        override_score_check = serializer.validated_data.get(
+            "override_score_check", False
+        )
+
+        # Validate users exist
+        try:
+            user = User.objects.get(id=user_id)
+            suggested_user = User.objects.get(id=suggested_user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User or suggested user not found"}, status=404)
+
+        # Ensure the main user is subscribed to this bondmaker
+        if not BondmakerSubscription.objects.filter(
+            bondmaker=bondmaker, user=user, active=True
+        ).exists():
+            return Response(
+                {"error": "Main user must be subscribed to you"}, status=400
+            )
+
+        # Check if suggested user is subscribed
+        suggested_subscribed = BondmakerSubscription.objects.filter(
+            bondmaker=bondmaker, user=suggested_user, active=True
+        ).exists()
+
+        # Case 1: Both users subscribed → require mutual like
+        if suggested_subscribed:
+            mutual_like = (
+                UserInteraction.objects.filter(
+                    user=user, target_user=suggested_user, interaction_type="like"
+                ).exists()
+                and UserInteraction.objects.filter(
+                    user=suggested_user, target_user=user, interaction_type="like"
+                ).exists()
+            )
+
+            if not mutual_like and not override_score_check:
+                return Response(
+                    {
+                        "error": "Both subscribed users must have liked each other or set override_score_check=True"
+                    },
+                    status=400,
+                )
+
+        # Case 2: Suggested user is nearby → allow bondmaker to suggest
+        else:
+            if not suggested_user.looking_for_love:
+                return Response(
+                    {"error": "Suggested nearby user is not available for matching"},
+                    status=400,
+                )
+
+        # Compute compatibility score
+        compatibility_score = calculate_match_score(user, suggested_user)
+
+        # Enforce score >50 unless overridden
+        if compatibility_score <= 50 and not override_score_check:
+            return Response(
+                {
+                    "error": "Compatibility score too low (≤50). Set override_score_check=True to force match."
+                },
+                status=400,
+            )
+
+        # Create or get match
+        match, created = UserMatch.objects.get_or_create(
+            user1=user,
+            user2=suggested_user,
+            defaults={
+                "distance": user.get_distance_to(suggested_user) or 0,
+                "status": "matched",
+                "match_score": compatibility_score,
+            },
+        )
+
+        # Record bondmaker suggestion
+        SuggestedMatch.objects.get_or_create(
+            bondmaker=bondmaker, user=user, suggested_user=suggested_user
+        )
+
+        return Response(
+            {
+                "message": (
+                    "Match created successfully" if created else "Match already exists"
+                ),
+                "match_id": match.id,
+                "user1": user.name,
+                "user2": suggested_user.name,
+                "compatibility_score": match.match_score,
+                "status": match.status,
+                "suggested_user_subscribed": suggested_subscribed,
+            }
+        )

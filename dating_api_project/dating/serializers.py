@@ -67,6 +67,8 @@ from .models import (
     PaymentMethod,
     PaymentTransaction,
     PaymentWebhook,
+    BondmakerSubscription,
+    SuggestedMatch,
 )
 from drf_spectacular.utils import extend_schema_field
 from typing import List, Dict, Any
@@ -1118,12 +1120,8 @@ class CustomRegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             "email",
-            "name",
             "password",
             "password_confirm",
-            "gender",
-            "age",
-            "location",
         )
         extra_kwargs = {
             "email": {"required": True},
@@ -1779,6 +1777,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
     profile_completion_percentage = serializers.IntegerField(
         source="get_profile_completion_percentage", read_only=True
     )
+    selected_role = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -1824,6 +1823,8 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "email_notifications_enabled",
             "preferred_language",
             "profile_completion_percentage",
+            "phone_number",
+            "selected_role",
         ]
         read_only_fields = [
             "id",
@@ -1860,6 +1861,23 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
 
             return calculate_match_score(request.user, obj)
         return None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_selected_role(self, obj):
+        role_selection = getattr(obj, "role_selection", None)
+        return role_selection.selected_role if role_selection else None
+
+    def validate_phone_number(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must contain only digits.")
+
+        if len(value) != 11:
+            raise serializers.ValidationError("Phone number must be exactly 11 digits.")
+
+        if not value.startswith("0"):
+            raise serializers.ValidationError("Phone number must start with 0.")
+
+        return value
 
 
 class UserSearchSerializer(serializers.ModelSerializer):
@@ -3654,3 +3672,91 @@ class PushNotificationSerializer(serializers.Serializer):
     token = serializers.CharField()
     title = serializers.CharField(default="Notification")
     body = serializers.CharField(default="Message")
+
+
+class BondmakerListSerializer(serializers.ModelSerializer):
+    verification_status = serializers.CharField(
+        source="documentverification.status", read_only=True
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "name",
+            "email",
+            "phone_number",
+            "location",
+            "verification_status",
+        )
+
+
+class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
+    verification_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "name",
+            "phone_number",
+            "location",
+            "gender",
+            "age",
+            "availability_status",
+            "verification_status",
+        )
+
+    def get_verification_status(self, obj):
+        verification = obj.document_verifications.first()
+        if not verification:
+            return "not_submitted"
+        return verification.status
+
+
+class BondmakerSubscriptionSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    bondmaker_name = serializers.CharField(source="bondmaker.name", read_only=True)
+
+    class Meta:
+        model = BondmakerSubscription
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "bondmaker",
+            "bondmaker_name",
+            "start_date",
+            "end_date",
+            "active",
+        ]
+
+
+class SuggestedMatchSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    suggested_user_name = serializers.CharField(
+        source="suggested_user.name", read_only=True
+    )
+
+    class Meta:
+        model = SuggestedMatch
+        fields = [
+            "id",
+            "bondmaker",
+            "user",
+            "user_name",
+            "suggested_user",
+            "suggested_user_name",
+            "created_at",
+        ]
+
+
+class BondmakerSuggestedMatchSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="ID of the subscribed user")
+    suggested_user_id = serializers.IntegerField(
+        help_text="ID of the suggested user (subscribed or nearby)"
+    )
+    override_score_check = serializers.BooleanField(
+        default=False,
+        help_text="Set True to override mutual like or compatibility score restrictions",
+    )

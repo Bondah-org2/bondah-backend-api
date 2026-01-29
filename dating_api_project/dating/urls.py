@@ -61,7 +61,7 @@ from .views import (
     NearbyUsersView,
     MatchPreferencesView,
     UserLocationProfileView,
-    # LocationStatisticsView,
+    LocationStatisticsView,
     # Email and Phone Verification Views
     EmailOTPRequestView,
     EmailOTPVerifyView,
@@ -153,6 +153,14 @@ from .views import (
     AdminBondmakerReviewView,
     AdminPendingBondmakersView,
     UserRoleStatusView,
+    AdminBondmakerListView,
+    PublicBondmakerListView,
+    BondmakerProfileDetailView,
+    SubscribeBondmakerView,
+    EndBondmakerSubscriptionView,
+    AllSubscribedUsersListView,
+    SubscribedUsersForBondmakerView,
+    BondmakerCreateSuggestedMatchView,
 )
 
 urlpatterns = [
@@ -341,7 +349,9 @@ urlpatterns = [
     ),
     path("verification/resend/", ResendOTPView.as_view(), name="resend-otp"),
     path(
-        "roleselection/role/", UserRoleSelectionView.as_view(), name="user-role-selection"
+        "roleselection/role/",
+        UserRoleSelectionView.as_view(),
+        name="user-role-selection",
     ),
     # Advanced Search and Discovery Endpoints
     path("search/users/", UserSearchView.as_view(), name="user-search"),
@@ -383,11 +393,11 @@ urlpatterns = [
         UserLocationProfileView.as_view(),
         name="user-location-profile",
     ),
-    # path(
-    #     "location/statistics/",
-    #     LocationStatisticsView.as_view(),
-    #     name="location-statistics",
-    # ),
+    path(
+        "location/statistics/",
+        LocationStatisticsView.as_view(),
+        name="location-statistics",
+    ),
     # Chat and Messaging Endpoints (NEW)
     path("chat/", ChatListView.as_view(), name="chat-list"),
     path("chat/<int:pk>/", ChatDetailView.as_view(), name="chat-detail"),
@@ -634,4 +644,47 @@ urlpatterns = [
         name="bondmaker-pennding_list",
     ),
     path("user/role-status/", UserRoleStatusView.as_view(), name="role_status"),
+    path(
+        "admin/bondmakers/",
+        AdminBondmakerListView.as_view(),
+        name="admin-bondmaker-list",
+    ),
+    # List all public bondmakers
+    path(
+        "bondmakers/", PublicBondmakerListView.as_view(), name="public-bondmaker-list"
+    ),
+    # Retrieve a single bondmaker profile by ID
+    path(
+        "bondmakers/<int:pk>/",
+        BondmakerProfileDetailView.as_view(),
+        name="bondmaker-profile-detail",
+    ),
+    path(
+        "bondmaker/subscribe/",
+        SubscribeBondmakerView.as_view(),
+        name="subscribe-bondmaker",
+    ),
+    path(
+        "bondmaker/unsubscribe/<int:subscription_id>/",
+        EndBondmakerSubscriptionView.as_view(),
+        name="end-subscription",
+    ),
+    # List all users subscribed to any bondmaker (for swiping/liking)
+    path(
+        "users/subscribed/",
+        AllSubscribedUsersListView.as_view(),
+        name="all-subscribed-users",
+    ),
+    # List all users subscribed to the logged-in bondmaker
+    path(
+        "bondmaker/subscribed-users/",
+        SubscribedUsersForBondmakerView.as_view(),
+        name="bondmaker-subscribed-users",
+    ),
+    # Bondmaker creates a suggested match between subscribed or nearby user
+    path(
+        "bondmaker/create-suggested-match/",
+        BondmakerCreateSuggestedMatchView.as_view(),
+        name="bondmaker-create-suggested-match",
+    ),
 ]

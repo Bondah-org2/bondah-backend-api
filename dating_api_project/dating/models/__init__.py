@@ -58,6 +58,8 @@ from .users import (
     SearchQuery,
     RecommendationEngine,
     LocationPermission,
+    BondmakerSubscription,
+    SuggestedMatch,
 )
 from .username import UsernameValidation, validate_username_format
 
@@ -129,6 +131,8 @@ __all__ = [
     "SearchQuery",
     "RecommendationEngine",
     "LocationPermission",
+    "BondmakerSubscription",
+    "SuggestedMatch",
     # Username
     "UsernameValidation",
     "validate_username_format",
