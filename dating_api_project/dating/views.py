@@ -5900,6 +5900,7 @@ class AdminNewsletterListView(GenericAPIView):
         )
 
 
+# Bondmaker Application Review View
 class AdminBondmakerReviewView(GenericAPIView):
     permission_classes = [IsAdminUser]
 
@@ -5942,6 +5943,7 @@ class AdminBondmakerReviewView(GenericAPIView):
             return Response({"message": "Bondmaker request rejected"})
 
 
+# View for admin to check pending bondamker Application
 class AdminPendingBondmakersView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
     serializer_class = DocumentVerificationSerializer
@@ -5983,10 +5985,10 @@ class AdminBondmakerListView(generics.ListAPIView):
         return queryset.order_by("-id")
 
 
-# bondmaker profile view
+# bondmaker profile Detail view
 class BondmakerProfileDetailView(generics.RetrieveAPIView):
     serializer_class = PublicBondmakerProfileSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return User.objects.filter(
@@ -5999,7 +6001,7 @@ class BondmakerProfileDetailView(generics.RetrieveAPIView):
 # Bondmaker List view
 class PublicBondmakerListView(generics.ListAPIView):
     serializer_class = PublicBondmakerProfileSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = BondmakerPublicPagination
 
     def get_queryset(self):
@@ -6124,119 +6126,213 @@ class AllSubscribedUsersListView(generics.ListAPIView):
 
         # Return all users subscribed to any bondmaker
         subscribed_user_ids = subscriptions.values_list("user_id", flat=True)
-        return User.objects.filter(id__in=subscribed_user_ids, looking_for_love=True)
+        return UserRoleSelection.objects.filter(
+            id__in=subscribed_user_ids, selected_role="looking_for_love"
+        )
 
 
-class BondmakerCreateSuggestedMatchView(generics.CreateAPIView):
+#           MATCH CREATE VIEW
+
+class BondmakerMatchCreateView(APIView):
     """
-    Bondmaker can:
-    1. Create a match between two subscribed users who like each other.
-    2. Create a match between a subscribed user and a nearby user suggested by the bondmaker.
-    Compatibility score >50 enforced unless override_score_check=True.
+    Bondmaker creates a match between:
+    1. Two subscribed users who liked each other
+    2. One subscribed user and one suggested user (subscribed or not)
+
+    Conditions:
+    - Mutual like required
+    - Compatibility score > 50            Not Complimented YET
     """
 
     permission_classes = [IsAuthenticated]
-    serializer_class = BondmakerSuggestedMatchSerializer
 
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
+    def post(self, request):
         bondmaker = request.user
+
+        # Inline bondmaker check
         if not bondmaker.is_matchmaker:
-            return Response({"error": "Only bondmakers can create matches"}, status=403)
+            return Response(
+                {"error": "Only bondmakers can create matches"},
+                status=403,
+            )
 
-        user_id = serializer.validated_data["user_id"]
-        suggested_user_id = serializer.validated_data["suggested_user_id"]
-        override_score_check = serializer.validated_data.get(
-            "override_score_check", False
-        )
+        user_a_id = request.data.get("user_a_id")
+        user_b_id = request.data.get("user_b_id")
 
-        # Validate users exist
-        try:
-            user = User.objects.get(id=user_id)
-            suggested_user = User.objects.get(id=suggested_user_id)
-        except User.DoesNotExist:
-            return Response({"error": "User or suggested user not found"}, status=404)
+        if not user_a_id or not user_b_id:
+            return Response(
+                {"error": "user_a_id and user_b_id are required"},
+                status=400,
+            )
 
-        # Ensure the main user is subscribed to this bondmaker
-        if not BondmakerSubscription.objects.filter(
-            bondmaker=bondmaker, user=user, active=True
+        if user_a_id == user_b_id:
+            return Response(
+                {"error": "Cannot create match with the same user"},
+                status=400,
+            )
+
+        user_a = get_object_or_404(User, id=user_a_id)
+        user_b = get_object_or_404(User, id=user_b_id)
+
+        # ------------------------------------------------
+        # Prevent duplicate matches (order-safe)
+        # ------------------------------------------------
+        if UserMatch.objects.filter(
+            Q(user1=user_a, user2=user_b) | Q(user1=user_b, user2=user_a)
         ).exists():
             return Response(
-                {"error": "Main user must be subscribed to you"}, status=400
+                {"error": "Match already exists"},
+                status=400,
             )
 
-        # Check if suggested user is subscribed
-        suggested_subscribed = BondmakerSubscription.objects.filter(
-            bondmaker=bondmaker, user=suggested_user, active=True
+        # ------------------------------------------------
+        # Subscription checks
+        # ------------------------------------------------
+        user_a_subscribed = BondmakerSubscription.objects.filter(
+            bondmaker=bondmaker,
+            user=user_a,
+            active=True,
         ).exists()
 
-        # Case 1: Both users subscribed → require mutual like
-        if suggested_subscribed:
-            mutual_like = (
-                UserInteraction.objects.filter(
-                    user=user, target_user=suggested_user, interaction_type="like"
-                ).exists()
-                and UserInteraction.objects.filter(
-                    user=suggested_user, target_user=user, interaction_type="like"
-                ).exists()
-            )
+        user_b_subscribed = BondmakerSubscription.objects.filter(
+            bondmaker=bondmaker,
+            user=user_b,
+            active=True,
+        ).exists()
 
-            if not mutual_like and not override_score_check:
+        # CASE 1: both subscribed
+        if user_a_subscribed and user_b_subscribed:
+            pass
+
+        # CASE 2: one subscribed + one suggested
+        elif user_a_subscribed or user_b_subscribed:
+            subscriber = user_a if user_a_subscribed else user_b
+            suggested = user_b if user_a_subscribed else user_a
+
+            is_suggested = SuggestedMatch.objects.filter(
+                bondmaker=bondmaker,
+                user=subscriber,
+                suggested_user=suggested,
+            ).exists()
+
+            if not is_suggested:
                 return Response(
                     {
-                        "error": "Both subscribed users must have liked each other or set override_score_check=True"
+                        "error": (
+                            "Unsubscribed user must be explicitly suggested "
+                            "by the bondmaker"
+                        )
                     },
                     status=400,
                 )
 
-        # Case 2: Suggested user is nearby → allow bondmaker to suggest
+        # INVALID CASE
         else:
-            if not suggested_user.looking_for_love:
-                return Response(
-                    {"error": "Suggested nearby user is not available for matching"},
-                    status=400,
-                )
-
-        # Compute compatibility score
-        compatibility_score = calculate_match_score(user, suggested_user)
-
-        # Enforce score >50 unless overridden
-        if compatibility_score <= 50 and not override_score_check:
             return Response(
-                {
-                    "error": "Compatibility score too low (≤50). Set override_score_check=True to force match."
-                },
+                {"error": ("At least one user must be subscribed " "to the bondmaker")},
                 status=400,
             )
 
-        # Create or get match
-        match, created = UserMatch.objects.get_or_create(
-            user1=user,
-            user2=suggested_user,
-            defaults={
-                "distance": user.get_distance_to(suggested_user) or 0,
-                "status": "matched",
-                "match_score": compatibility_score,
-            },
+        # ------------------------------------------------
+        # Mutual like check
+        # ------------------------------------------------
+        mutual_like = (
+            UserInteraction.objects.filter(
+                user=user_a,
+                target_user=user_b,
+                interaction_type="like",
+            ).exists()
+            and UserInteraction.objects.filter(
+                user=user_b,
+                target_user=user_a,
+                interaction_type="like",
+            ).exists()
         )
 
-        # Record bondmaker suggestion
-        SuggestedMatch.objects.get_or_create(
-            bondmaker=bondmaker, user=user, suggested_user=suggested_user
+        if not mutual_like:
+            return Response(
+                {"error": "Users have not liked each other"},
+                status=400,
+            )
+
+        # ------------------------------------------------
+        # Compatibility score
+        # ------------------------------------------------
+        match_score = calculate_match_score(user_a, user_b)
+
+        #        NOT IMPLEMENTING FOR NOW (For Future Consideration)
+        # if match_score <= 50:
+        #     return Response(
+        #         {
+        #             "error": "Compatibility score must be greater than 50",
+        #             "score": match_score,
+        #         },
+        #         status=400,
+        #     )
+
+        # ------------------------------------------------
+        # Distance
+        # ------------------------------------------------
+        distance = user_a.get_distance_to(user_b) or 0
+
+        # ------------------------------------------------
+        # Create match (canonical ordering)
+        # ------------------------------------------------
+        user1, user2 = sorted([user_a, user_b], key=lambda u: u.id)
+
+        match = UserMatch.objects.create(
+            user1=user1,
+            user2=user2,
+            distance=distance,
+            match_score=match_score,
+            status="matched",
         )
 
         return Response(
             {
-                "message": (
-                    "Match created successfully" if created else "Match already exists"
-                ),
+                "message": "Match created successfully",
                 "match_id": match.id,
-                "user1": user.name,
-                "user2": suggested_user.name,
-                "compatibility_score": match.match_score,
+                "match_score": match.match_score,
+                "distance_km": match.distance,
                 "status": match.status,
-                "suggested_user_subscribed": suggested_subscribed,
-            }
+            },
+            status=201,
         )
+
+
+#           MATCH SUGGESTION VIEW
+
+class BondmakerSuggestionView(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        bondmaker = request.user
+
+        if not bondmaker.is_matchmaker:
+            return Response({"error": "Only bondmakers can suggest users"}, status=403)
+
+        subscriber_id = request.data.get("subscriber_id")
+        suggested_user_id = request.data.get("suggested_user_id")
+
+        try:
+            subscriber = User.objects.get(id=subscriber_id)
+            suggested_user = User.objects.get(id=suggested_user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        # Ensure subscriber is subscribed to bondmaker
+        if not BondmakerSubscription.objects.filter(
+            bondmaker=bondmaker, user=subscriber, active=True
+        ).exists():
+            return Response({"error": "User is not subscribed to you"}, status=400)
+
+        # Optional: enforce nearby logic
+        if subscriber.has_location and suggested_user.has_location:
+            if subscriber.get_distance_to(suggested_user) > 50:  # km
+                return Response({"error": "Suggested user is too far away"}, status=400)
+
+        SuggestedMatch.objects.get_or_create(
+            bondmaker=bondmaker, user=subscriber, suggested_user=suggested_user
+        )
+
+        return Response({"status": "Suggestion created"}, status=201)

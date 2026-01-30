@@ -160,7 +160,8 @@ from .views import (
     EndBondmakerSubscriptionView,
     AllSubscribedUsersListView,
     SubscribedUsersForBondmakerView,
-    BondmakerCreateSuggestedMatchView,
+    BondmakerMatchCreateView,
+    BondmakerSuggestionView,
 )
 
 urlpatterns = [
@@ -683,8 +684,10 @@ urlpatterns = [
     ),
     # Bondmaker creates a suggested match between subscribed or nearby user
     path(
-        "bondmaker/create-suggested-match/",
-        BondmakerCreateSuggestedMatchView.as_view(),
+        "bondmaker/create-match/",
+        BondmakerMatchCreateView.as_view(),
         name="bondmaker-create-suggested-match",
     ),
+    # BONDMAKER MATCH SUGGESTION VIEW
+    path("bondmaker/suggest-match", BondmakerSuggestionView.as_view(), name='match_suggest'),
 ]
