@@ -189,7 +189,8 @@ from .serializers import (
     BondmakerListSerializer,
     PublicBondmakerProfileSerializer,
     BondmakerSubscriptionSerializer,
-    BondmakerSuggestedMatchSerializer,
+    BondmakerSuggestionSerializer,
+    SubscribeBondmakerSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -6055,7 +6056,7 @@ class SubscribedUsersForBondmakerView(generics.ListAPIView):
 
 # Subcription view for Bondmaker
 class SubscribeBondmakerView(generics.CreateAPIView):
-    serializer_class = BondmakerSubscriptionSerializer
+    serializer_class = SubscribeBondmakerSerializer
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
@@ -6306,37 +6307,26 @@ class BondmakerMatchCreateView(APIView):
 
 #           MATCH SUGGESTION VIEW
 
-class BondmakerSuggestionView(generics.CreateAPIView):
+
+class BondmakerSuggestionView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = BondmakerSuggestionSerializer
 
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         bondmaker = request.user
-
-        if not bondmaker.is_matchmaker:
-            return Response({"error": "Only bondmakers can suggest users"}, status=403)
-
-        subscriber_id = request.data.get("subscriber_id")
-        suggested_user_id = request.data.get("suggested_user_id")
-
-        try:
-            subscriber = User.objects.get(id=subscriber_id)
-            suggested_user = User.objects.get(id=suggested_user_id)
-        except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=404)
-
-        # Ensure subscriber is subscribed to bondmaker
-        if not BondmakerSubscription.objects.filter(
-            bondmaker=bondmaker, user=subscriber, active=True
-        ).exists():
-            return Response({"error": "User is not subscribed to you"}, status=400)
-
-        # Optional: enforce nearby logic
-        if subscriber.has_location and suggested_user.has_location:
-            if subscriber.get_distance_to(suggested_user) > 50:  # km
-                return Response({"error": "Suggested user is too far away"}, status=400)
+        subscriber = serializer.validated_data["subscriber"]
+        suggested_user = serializer.validated_data["suggested_user"]
 
         SuggestedMatch.objects.get_or_create(
-            bondmaker=bondmaker, user=subscriber, suggested_user=suggested_user
+            bondmaker=bondmaker,
+            user=subscriber,
+            suggested_user=suggested_user,
         )
 
-        return Response({"status": "Suggestion created"}, status=201)
+        return Response(
+            {"status": "Suggestion created"},
+            status=status.HTTP_201_CREATED,
+        )

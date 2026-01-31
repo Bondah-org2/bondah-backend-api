@@ -689,5 +689,5 @@ urlpatterns = [
         name="bondmaker-create-suggested-match",
     ),
     # BONDMAKER MATCH SUGGESTION VIEW
-    path("bondmaker/suggest-match", BondmakerSuggestionView.as_view(), name='match_suggest'),
+    path("bondmaker/suggest-match/", BondmakerSuggestionView.as_view(), name='match_suggest'),
 ]

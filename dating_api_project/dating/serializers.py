@@ -3732,31 +3732,44 @@ class BondmakerSubscriptionSerializer(serializers.ModelSerializer):
         ]
 
 
-class SuggestedMatchSerializer(serializers.ModelSerializer):
-    user_name = serializers.CharField(source="user.name", read_only=True)
-    suggested_user_name = serializers.CharField(
-        source="suggested_user.name", read_only=True
-    )
-
-    class Meta:
-        model = SuggestedMatch
-        fields = [
-            "id",
-            "bondmaker",
-            "user",
-            "user_name",
-            "suggested_user",
-            "suggested_user_name",
-            "created_at",
-        ]
+class SubscribeBondmakerSerializer(serializers.Serializer):
+    bondmaker_id = serializers.IntegerField()
 
 
-class BondmakerSuggestedMatchSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField(help_text="ID of the subscribed user")
-    suggested_user_id = serializers.IntegerField(
-        help_text="ID of the suggested user (subscribed or nearby)"
-    )
-    override_score_check = serializers.BooleanField(
-        default=False,
-        help_text="Set True to override mutual like or compatibility score restrictions",
-    )
+class BondmakerSuggestionSerializer(serializers.Serializer):
+    subscriber_id = serializers.IntegerField()
+    suggested_user_id = serializers.IntegerField()
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        bondmaker = request.user
+
+        if not bondmaker.is_matchmaker:
+            raise serializers.ValidationError("Only bondmakers can suggest users.")
+
+        try:
+            subscriber = User.objects.get(id=attrs["subscriber_id"])
+        except User.DoesNotExist:
+            raise serializers.ValidationError({"subscriber_id": "User not found"})
+
+        try:
+            suggested_user = User.objects.get(id=attrs["suggested_user_id"])
+        except User.DoesNotExist:
+            raise serializers.ValidationError({"suggested_user_id": "User not found"})
+
+        # Ensure subscriber is subscribed to this bondmaker
+        if not BondmakerSubscription.objects.filter(
+            bondmaker=bondmaker, user=subscriber, active=True
+        ).exists():
+            raise serializers.ValidationError("User is not subscribed to you.")
+
+        # Optional distance rule
+        # if subscriber.has_location and suggested_user.has_location:
+        #     if subscriber.get_distance_to(suggested_user) > 50:
+        #         raise serializers.ValidationError("Suggested user is too far away.")
+
+        # attach objects so view doesn't query again
+        attrs["subscriber"] = subscriber
+        attrs["suggested_user"] = suggested_user
+
+        return attrs
