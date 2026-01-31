@@ -3707,7 +3707,7 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
             "verification_status",
         )
 
-    def get_verification_status(self, obj):
+    def get_verification_status(self, obj) -> str:
         verification = obj.document_verifications.first()
         if not verification:
             return "not_submitted"

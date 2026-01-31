@@ -2395,7 +2395,7 @@ class UserLocationProfileView(generics.RetrieveAPIView):
 # --------------------------
 # 4. Location Statistics (Admin Only)
 # --------------------------
-class LocationStatisticsView(generics.GenericAPIView):
+class LocationStatisticsView(APIView):
     """
     Retrieve location-related statistics (admin only).
     """
@@ -6053,7 +6053,9 @@ class SubscribedUsersForBondmakerView(generics.ListAPIView):
         return User.objects.filter(id__in=subscribed_user_ids, looking_for_love=True)
 
 
+# Subcription view for Bondmaker
 class SubscribeBondmakerView(generics.CreateAPIView):
+    serializer_class = BondmakerSubscriptionSerializer
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
@@ -6096,6 +6098,7 @@ class SubscribeBondmakerView(generics.CreateAPIView):
 
 # End Bondmaker Subscription
 class EndBondmakerSubscriptionView(generics.UpdateAPIView):
+    serializer_class = BondmakerSubscriptionSerializer
     permission_classes = [IsAuthenticated]
 
     def post(self, request, subscription_id, *args, **kwargs):
@@ -6145,6 +6148,7 @@ class BondmakerMatchCreateView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    serializer_class = UserMatchSerializer
 
     def post(self, request):
         bondmaker = request.user

@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.views import View
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import (
@@ -83,10 +84,9 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/docs/",
-        SpectacularSwaggerView.as_view(
-            url_name="schema", template_name="drf_spectacular/swagger_ui.html"
-        ),
+        SpectacularSwaggerView.as_view(),
         name="swagger-ui",
+
     ),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 ]
