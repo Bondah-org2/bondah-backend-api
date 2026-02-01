@@ -1139,10 +1139,14 @@ class CustomRegisterSerializer(serializers.ModelSerializer):
 
         # Generate a username if not provided
         username = validated_data.get("email") or validated_data.get("name")
-        user = User.objects.create_user(
-            username=username, password=password, **validated_data
-        )
-        return user
+        if not User.objects.filter(username=username).exists():
+            print("Creating user...")
+            user = User.objects.create_user(
+                username=username, password=password, **validated_data
+            )
+            return user
+        else:
+            raise serializers.ValidationError('User Already exist')
 
 
 class CustomLoginSerializer(serializers.Serializer):

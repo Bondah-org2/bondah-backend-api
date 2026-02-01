@@ -5529,6 +5529,7 @@ class FirebaseMatchesListView(generics.ListAPIView):
     """
     Get list of matches for the authenticated user.
     """
+
     permission_classes = [IsAuthenticated]
     serializer_class = FirebaseMatchSerializer
 
@@ -5966,13 +5967,15 @@ class AdminBondmakerListView(generics.ListAPIView):
         search = self.request.query_params.get("search")
         if search:
             queryset = queryset.filter(
-                Q(name__icontains=search) |
-                Q(email__icontains=search) |
-                Q(phone_number__icontains=search)
+                Q(name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone_number__icontains=search)
             )
 
         #  Filter by status
-        status = self.request.query_params.get("status")  # pending / approved / rejected
+        status = self.request.query_params.get(
+            "status"
+        )  # pending / approved / rejected
         if status:
             queryset = queryset.filter(documentverification__status=status)
 
@@ -5992,11 +5995,15 @@ class BondmakerProfileDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return User.objects.filter(
-            is_matchmaker=True,
-            document_verifications__status="approved",
-            document_verifications__is_authentic=True,
-        ).distinct().prefetch_related("document_verifications")
+        return (
+            User.objects.filter(
+                is_matchmaker=True,
+                document_verifications__status="approved",
+                document_verifications__is_authentic=True,
+            )
+            .distinct()
+            .prefetch_related("document_verifications")
+        )
 
 
 # Bondmaker List view
@@ -6019,10 +6026,7 @@ class PublicBondmakerListView(generics.ListAPIView):
         # Search
         search = self.request.query_params.get("search")
         if search:
-            qs = qs.filter(
-                Q(name__icontains=search) |
-                Q(location__icontains=search)
-            )
+            qs = qs.filter(Q(name__icontains=search) | Q(location__icontains=search))
 
         # Filter by availability
         availability = self.request.query_params.get("availability")  # online / offline
@@ -6044,8 +6048,7 @@ class SubscribedUsersForBondmakerView(generics.ListAPIView):
 
         # Get all users subscribed to this bondmaker
         subscriptions = BondmakerSubscription.objects.filter(
-            bondmaker=bondmaker,
-            active=True
+            bondmaker=bondmaker, active=True
         ).select_related("user")
 
         subscribed_user_ids = subscriptions.values_list("user_id", flat=True)
@@ -6105,9 +6108,7 @@ class EndBondmakerSubscriptionView(generics.UpdateAPIView):
     def post(self, request, subscription_id, *args, **kwargs):
         try:
             subscription = BondmakerSubscription.objects.get(
-                id=subscription_id,
-                user=request.user,
-                active=True
+                id=subscription_id, user=request.user, active=True
             )
         except BondmakerSubscription.DoesNotExist:
             return Response({"error": "Active subscription not found"}, status=404)
@@ -6125,17 +6126,16 @@ class AllSubscribedUsersListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Get all active subscriptions
-        subscriptions = BondmakerSubscription.objects.filter(active=True).select_related("user")
-
-        # Return all users subscribed to any bondmaker
-        subscribed_user_ids = subscriptions.values_list("user_id", flat=True)
-        return UserRoleSelection.objects.filter(
-            id__in=subscribed_user_ids, selected_role="looking_for_love"
+        # Return all active subscriptions
+        return (
+            BondmakerSubscription.objects.filter(active=True)
+            .select_related("user", "bondmaker")
+            .distinct()
         )
 
 
 #           MATCH CREATE VIEW
+
 
 class BondmakerMatchCreateView(APIView):
     """
