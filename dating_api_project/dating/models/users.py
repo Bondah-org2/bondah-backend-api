@@ -793,12 +793,15 @@ class UserMatch(models.Model):
         return f"{self.user1.email} <-> {self.user2.email} ({self.distance:.2f}km)"
 
     class Meta:
-        unique_together = ["user1", "user2"]
+        # unique_together = ["user1", "user2"]
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["user1", "status"]),
             models.Index(fields=["user2", "status"]),
             models.Index(fields=["distance"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["user1", "user2"], name="unique_user_match")
         ]
 
 
@@ -976,7 +979,7 @@ class BondmakerSubscription(models.Model):
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="bondmaker_subscription"
     )
-    start_date = models.DateTimeField(auto_now_add=True)
+    start_date = models.DateTimeField(auto_now=True)
     end_date = models.DateTimeField()
     active = models.BooleanField(default=True)
 
@@ -998,6 +1001,35 @@ class BondmakerSubscription(models.Model):
         return self.active
 
 
+class Visibility(models.Model):
+
+    VISIBILITY_CHOICES = (
+            ('private', 'Private'),
+            ('public', 'Public')
+    )
+    owner = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="visibility_settings"
+    )
+    bondmaker = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="visible_to_users"
+    )
+    visibility = models.CharField(
+        max_length=20, choices=VISIBILITY_CHOICES, default="public"
+    )
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("owner", "bondmaker")
+
+    def activate(self):
+        self.is_active = True
+        self.expires_at = timezone.now() + timedelta(days=7)
+        self.save()
+
+
 class SuggestedMatch(models.Model):
     """Bondmaker suggested matches for a subscribed user"""
 
@@ -1014,3 +1046,50 @@ class SuggestedMatch(models.Model):
 
     class Meta:
         unique_together = ("bondmaker", "user", "suggested_user")
+
+
+class UserRoleSelection(models.Model):
+    """Track user role selection during onboarding"""
+
+    ROLE_CHOICES = (
+        ("looking_for_love", "Looking for Love"),
+        ("bondmaker", "Bondmaker"),
+    )
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="role_selection"
+    )
+    selected_role = models.CharField(
+        max_length=20, choices=ROLE_CHOICES, default="looking_for_love"
+    )
+    selected_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} - {self.get_selected_role_display()}"
+
+    class Meta:
+        ordering = ["-selected_at"]
+
+
+class MatchRequest(models.Model):
+    STATUS = (
+        ("pending", "Pending"),
+        ("accepted", "Accepted"),
+        ("rejected", "Rejected"),
+        ("completed", "Completed"),
+    )
+
+    requester = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="sent_requests"
+    )
+    bondmaker = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="received_requests"
+    )
+
+    coins_charged = models.IntegerField()
+    platform_revenue = models.DecimalField(max_digits=10, decimal_places=2)
+    bondmaker_earning = models.DecimalField(max_digits=10, decimal_places=2)
+
+    status = models.CharField(max_length=20, choices=STATUS, default="pending")
+
+    created_at = models.DateTimeField(auto_now_add=True)

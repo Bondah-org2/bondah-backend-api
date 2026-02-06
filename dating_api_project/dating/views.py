@@ -20,6 +20,7 @@ import uuid
 from django.core.files.base import ContentFile
 from rest_framework import serializers
 from pagination import BondmakerPagination, BondmakerPublicPagination
+from django.core.exceptions import ValidationError
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -47,7 +48,7 @@ from .models import (
     PaymentMethod,
     UserSubscription,
     BondcoinPackage,
-    BondcoinTransaction,
+    WalletTransaction,
     LiveSession,
     LiveGift,
     SubscriptionPlan,
@@ -68,6 +69,11 @@ from .models import (
     LiveParticipant,
     BondmakerSubscription,
     SuggestedMatch,
+    Visibility,
+    RevenueRecord,
+    MatchRequest,
+    MatchRevenueSplit,
+    VirtualGift,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -130,8 +136,8 @@ from .serializers import (
     PaymentTransactionSerializer,
     PaymentTransactionCreateSerializer,
     GiftTransactionCreateSerializer,
-    BondcoinTransactionCreateSerializer,
-    BondcoinTransactionSerializer,
+    WalletTransactionSerializer,
+    WalletSerializer,
     UserSubscriptionSerializer,
     UserSubscriptionCreateSerializer,
     SubscriptionPlanSerializer,
@@ -191,6 +197,15 @@ from .serializers import (
     BondmakerSubscriptionSerializer,
     BondmakerSuggestionSerializer,
     SubscribeBondmakerSerializer,
+    VisibilitySerializer,
+    LocationStatisticsSerializer,
+    MatchRequestSerializer,
+    PurchaseSerializer,
+    SendGiftSerializer,
+    ConvertGiftSerializer,
+    BondcoinPackageSerializer,
+    MatchRequestActionSerializer,
+    VirtualGiftSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -203,7 +218,11 @@ from .firebase_utils import (
 )
 from rest_framework import permissions
 from django.db.models import Count, Avg
-from .location_utils import calculate_match_score, get_location_statistics
+from .location_utils import (
+    calculate_match_score,
+    get_location_statistics,
+    is_user_visible_to,
+)
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
 from .schema import (
@@ -211,6 +230,12 @@ from .schema import (
     paginated_list_schema,
     BondahSchemaMixin,
 )
+from .services.match_service import charge_match_request
+from .services.payment_service import process_apple_purchase, process_google_purchase
+from .services.gift_service import send_gift, convert_gift_to_coins
+from .services.wallet_service import credit_wallet
+from .services.match_service import charge_match_request, accept_match_request
+from django.db import transaction
 from deep_translator import GoogleTranslator
 from django.db import models
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
@@ -2396,14 +2421,19 @@ class UserLocationProfileView(generics.RetrieveAPIView):
 # --------------------------
 # 4. Location Statistics (Admin Only)
 # --------------------------
-class LocationStatisticsView(APIView):
-    """
-    Retrieve location-related statistics (admin only).
-    """
-
+class LocationStatisticsView(GenericAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = LocationStatisticsSerializer
 
-    def get(self, request):
+    @extend_schema(
+        responses={
+            200: LocationStatisticsSerializer,
+            403: OpenApiResponse(description="Admin access required"),
+            500: OpenApiResponse(description="Server error"),
+        },
+        description="Retrieve location-related statistics (admin only)",
+    )
+    def get(self, request, *args, **kwargs):
         if not request.user.is_staff:
             return Response(
                 {"message": "Admin access required", "status": "error"},
@@ -2411,12 +2441,13 @@ class LocationStatisticsView(APIView):
             )
 
         try:
-            stats = get_location_statistics()
+            stats = get_location_statistics()  # your function
+            serializer = self.get_serializer(stats)
             return Response(
                 {
                     "message": "Location statistics retrieved successfully",
                     "status": "success",
-                    "statistics": stats,
+                    "statistics": serializer.data,
                 },
                 status=status.HTTP_200_OK,
             )
@@ -2459,7 +2490,7 @@ class EmailOTPRequestView(GenericAPIView):
             )
 
         verification = EmailVerification.create_verification(user, email)
-        subject = "🔐 Verify Your Email - Bondah Dating"
+        subject = "Verify Your Email - Bondah Dating"
         message = f"Your OTP is: {verification.otp_code} (expires in 10 minutes)"
         send_mail(
             subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False
@@ -4715,45 +4746,15 @@ class UserFeatureAccessView(generics.GenericAPIView):
 
 class BondcoinPackageListView(generics.ListAPIView):
     """
-    List all available Bondcoin packages
+    List all active Bondcoin packages available for purchase
     """
 
-    permission_classes = [AllowAny]
-
-    def get_serializer_class(self):
-        from .serializers import BondcoinPackageSerializer
-
-        return BondcoinPackageSerializer
-
-    def get_queryset(self):
-        from .models import BondcoinPackage
-
-        return BondcoinPackage.objects.filter(is_active=True)
-
-
-class UserBondcoinBalanceView(generics.GenericAPIView):
-    """
-    Retrieve the current user's Bondcoin balance
-    """
-
+    serializer_class = BondcoinPackageSerializer
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        responses={
-            200: OpenApiResponse(
-                description="Bondcoin balance retrieved successfully",
-            ),
-            500: OpenApiResponse(description="Server error"),
-        },
-    )
-    def get(self, request, *args, **kwargs):
-        return Response(
-            {
-                "message": "Bondcoin balance retrieved",
-                "status": "success",
-                "balance": request.user.bondcoin_balance,
-            },
-            status=status.HTTP_200_OK,
+    def get_queryset(self):
+        return BondcoinPackage.objects.filter(is_active=True).order_by(
+            "bondcoin_amount"
         )
 
 
@@ -4766,103 +4767,26 @@ class BondcoinTransactionListView(generics.ListAPIView):
 
     def get_serializer_class(self):
 
-        return BondcoinTransactionSerializer
+        return WalletTransactionSerializer
 
     def get_queryset(self):
 
-        return BondcoinTransaction.objects.filter(user=self.request.user)
+        return WalletTransaction.objects.filter(user=self.request.user)
 
 
-class BondcoinTransactionDetailView(generics.RetrieveAPIView):
-    """
-    Retrieve a specific Bondcoin transaction
-    """
+# class BondcoinTransactionDetailView(generics.RetrieveAPIView):
+#     """
+#     Retrieve a specific Bondcoin transaction
+#     """
 
-    permission_classes = [IsAuthenticated]
+#     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
+#     def get_serializer_class(self):
 
-        return BondcoinTransactionSerializer
+#         return BondcoinTransactionSerializer
 
-    def get_queryset(self):
-        return BondcoinTransaction.objects.filter(user=self.request.user)
-
-
-class BondcoinPurchaseView(generics.CreateAPIView):
-    """
-    Purchase Bondcoins
-    """
-
-    permission_classes = [IsAuthenticated]
-    serializer_class = BondcoinTransactionCreateSerializer
-
-    def create(self, request, *args, **kwargs):
-        try:
-            package_id = request.data.get("package_id")
-            payment_method = request.data.get("payment_method", "bondcoin")
-
-            if not package_id:
-                return Response(
-                    {"message": "Package ID is required", "status": "error"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            try:
-                package = BondcoinPackage.objects.get(id=package_id, is_active=True)
-            except BondcoinPackage.DoesNotExist:
-                return Response(
-                    {"message": "Package not found", "status": "error"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            # Create serializer data
-            serializer_data = {
-                "transaction_type": "purchase",
-                "amount": package.bondcoin_amount,
-                "package": package.id,
-                "payment_method": payment_method,
-                "description": f"Purchased {package.name}",
-                "status": "completed",
-            }
-
-            serializer = self.get_serializer(data=serializer_data)
-            serializer.is_valid(raise_exception=True)
-            transaction = serializer.save()
-
-            # Update user balance
-            request.user.bondcoin_balance += package.bondcoin_amount
-            request.user.save(update_fields=["bondcoin_balance"])
-
-            # Return full transaction data
-            response_serializer = BondcoinTransactionSerializer(transaction)
-
-            return Response(
-                {
-                    "message": "Bondcoins purchased successfully",
-                    "status": "success",
-                    "data": response_serializer.data,
-                    "new_balance": request.user.bondcoin_balance,
-                },
-                status=status.HTTP_201_CREATED,
-            )
-
-        except serializers.ValidationError as e:
-            return Response(
-                {
-                    "message": "Invalid data provided",
-                    "status": "error",
-                    "errors": e.detail,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except Exception as e:
-            return Response(
-                {
-                    "message": f"Failed to purchase Bondcoins: {str(e)}",
-                    "status": "error",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+#     def get_queryset(self):
+#         return BondcoinTransaction.objects.filter(user=self.request.user)
 
 
 # =============================================================================
@@ -4916,105 +4840,52 @@ class VirtualGiftDetailView(generics.RetrieveAPIView):
     """
     Retrieve a specific virtual gift
     """
-
     permission_classes = [AllowAny]
-
-    def get_serializer_class(self):
-        from .serializers import VirtualGiftSerializer
-
-        return VirtualGiftSerializer
+    serializer_class = VirtualGiftSerializer
 
     def get_queryset(self):
-        from .models import VirtualGift
-
         return VirtualGift.objects.filter(is_active=True)
 
 
-class GiftTransactionListView(generics.ListAPIView):
-    """
-    List user's gift transactions (sent and received)
-    """
-
+class SendGiftView(generics.GenericAPIView):
+    serializer_class = SendGiftSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
-        from .serializers import GiftTransactionSerializer
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        return GiftTransactionSerializer
+        receiver_id = serializer.validated_data["receiver_id"]
+        gift_id = serializer.validated_data["gift_id"]
+        user = request.user
+        receiver = User.objects.get(id=receiver_id)
 
-    def get_queryset(self):
-        from .models import GiftTransaction
-        from django.db import models
-
-        return GiftTransaction.objects.filter(
-            models.Q(sender=self.request.user) | models.Q(recipient=self.request.user)
-        )
-
-
-class SendGiftView(generics.CreateAPIView):
-    """
-    Send a virtual gift to another user
-    """
-
-    permission_classes = [IsAuthenticated]
-    serializer_class = GiftTransactionCreateSerializer
-
-    def create(self, request, *args, **kwargs):
         try:
-            serializer = self.get_serializer(data=request.data)
-            if serializer.is_valid():
-                # Check if user has enough Bondcoins
-                gift = serializer.validated_data["gift"]
-                quantity = serializer.validated_data.get("quantity", 1)
-                total_cost = gift.cost_bondcoins * quantity
+            send_gift(user, receiver, gift_id)
+        except ValidationError as e:
+            return Response({"Failed to send gift": str(e)}, status=400)
 
-                if request.user.bondcoin_balance < total_cost:
-                    return Response(
-                        {
-                            "message": "Insufficient Bondcoin balance",
-                            "status": "error",
-                            "required": total_cost,
-                            "current_balance": request.user.bondcoin_balance,
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        return Response({"message": "Gift sent successfully"}, status=201)
 
-                # Create gift transaction
-                gift_transaction = serializer.save()
 
-                # Update user balance
-                request.user.bondcoin_balance -= total_cost
-                request.user.save(update_fields=["bondcoin_balance"])
+# Convert Gift Cards
+class ConvertGiftView(generics.GenericAPIView):
+    serializer_class = ConvertGiftSerializer
+    permission_classes = [IsAuthenticated]
 
-                from .serializers import GiftTransactionSerializer
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-                response_serializer = GiftTransactionSerializer(gift_transaction)
+        gift_id = serializer.validated_data["gift_id"]
+        user = request.user
 
-                return Response(
-                    {
-                        "message": "Gift sent successfully",
-                        "status": "success",
-                        "data": response_serializer.data,
-                        "new_balance": request.user.bondcoin_balance,
-                    },
-                    status=status.HTTP_201_CREATED,
-                )
+        try:
+            convert_gift_to_coins(user, gift_id)
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=400)
 
-            return Response(
-                {
-                    "message": "Invalid data provided",
-                    "status": "error",
-                    "errors": serializer.errors,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        except Exception as e:
-            return Response(
-                {"message": f"Failed to send gift: {str(e)}", "status": "error"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
+        return Response({"message": "Gift converted to coins successfully"}, status=201)
 
 # =============================================================================
 # LIVE STREAMING ENHANCEMENT VIEWS (NEW FROM FIGMA)
@@ -6110,7 +5981,7 @@ class EndBondmakerSubscriptionView(generics.UpdateAPIView):
             subscription = BondmakerSubscription.objects.get(
                 id=subscription_id, user=request.user, active=True
             )
-        except BondmakerSubscription.DoesNotExist:
+        except subscription.DoesNotExist:
             return Response({"error": "Active subscription not found"}, status=404)
 
         subscription.active = False
@@ -6137,30 +6008,26 @@ class AllSubscribedUsersListView(generics.ListAPIView):
 #           MATCH CREATE VIEW
 
 
-class BondmakerMatchCreateView(APIView):
-    """
-    Bondmaker creates a match between:
-    1. Two subscribed users who liked each other
-    2. One subscribed user and one suggested user (subscribed or not)
-
-    Conditions:
-    - Mutual like required
-    - Compatibility score > 50            Not Complimented YET
-    """
-
+class BondmakerMatchCreateView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UserMatchSerializer
 
+    # @extend_schema(
+    #     request=None,
+    #     responses=UserMatchSerializer,
+    #     description="Bondmaker creates a valid match between two users.",
+    # )
     def post(self, request):
         bondmaker = request.user
 
-        # Inline bondmaker check
+        # Only bondmakers allowed
         if not bondmaker.is_matchmaker:
             return Response(
                 {"error": "Only bondmakers can create matches"},
                 status=403,
             )
 
+        # Validate input IDs
         user_a_id = request.data.get("user_a_id")
         user_b_id = request.data.get("user_b_id")
 
@@ -6176,43 +6043,27 @@ class BondmakerMatchCreateView(APIView):
                 status=400,
             )
 
+        # Fetch users
         user_a = get_object_or_404(User, id=user_a_id)
         user_b = get_object_or_404(User, id=user_b_id)
 
-        # ------------------------------------------------
-        # Prevent duplicate matches (order-safe)
-        # ------------------------------------------------
-        if UserMatch.objects.filter(
-            Q(user1=user_a, user2=user_b) | Q(user1=user_b, user2=user_a)
-        ).exists():
+        # -----------------------------------
+        # Visibility check
+        # -----------------------------------
+        user_a_visible = is_user_visible_to(bondmaker, user_a)
+        user_b_visible = is_user_visible_to(bondmaker, user_b)
+
+        # At least one user must be visible to bondmaker
+        if not (user_a_visible or user_b_visible):
             return Response(
-                {"error": "Match already exists"},
+                {"error": "At least one user must be visible to this bondmaker"},
                 status=400,
             )
 
-        # ------------------------------------------------
-        # Subscription checks
-        # ------------------------------------------------
-        user_a_subscribed = BondmakerSubscription.objects.filter(
-            bondmaker=bondmaker,
-            user=user_a,
-            active=True,
-        ).exists()
-
-        user_b_subscribed = BondmakerSubscription.objects.filter(
-            bondmaker=bondmaker,
-            user=user_b,
-            active=True,
-        ).exists()
-
-        # CASE 1: both subscribed
-        if user_a_subscribed and user_b_subscribed:
-            pass
-
-        # CASE 2: one subscribed + one suggested
-        elif user_a_subscribed or user_b_subscribed:
-            subscriber = user_a if user_a_subscribed else user_b
-            suggested = user_b if user_a_subscribed else user_a
+        # If only one is visible, the other must be suggested
+        if user_a_visible ^ user_b_visible:
+            subscriber = user_a if user_a_visible else user_b
+            suggested = user_b if user_a_visible else user_a
 
             is_suggested = SuggestedMatch.objects.filter(
                 bondmaker=bondmaker,
@@ -6223,24 +6074,14 @@ class BondmakerMatchCreateView(APIView):
             if not is_suggested:
                 return Response(
                     {
-                        "error": (
-                            "Unsubscribed user must be explicitly suggested "
-                            "by the bondmaker"
-                        )
+                        "error": "Unsubscribed user must be explicitly suggested by the bondmaker"
                     },
                     status=400,
                 )
 
-        # INVALID CASE
-        else:
-            return Response(
-                {"error": ("At least one user must be subscribed " "to the bondmaker")},
-                status=400,
-            )
-
-        # ------------------------------------------------
+        # -----------------------------------
         # Mutual like check
-        # ------------------------------------------------
+        # -----------------------------------
         mutual_like = (
             UserInteraction.objects.filter(
                 user=user_a,
@@ -6260,12 +6101,11 @@ class BondmakerMatchCreateView(APIView):
                 status=400,
             )
 
-        # ------------------------------------------------
-        # Compatibility score
-        # ------------------------------------------------
+        # -----------------------------------
+        # Compatibility score For future
+        # -----------------------------------
         match_score = calculate_match_score(user_a, user_b)
 
-        #        NOT IMPLEMENTING FOR NOW (For Future Consideration)
         # if match_score <= 50:
         #     return Response(
         #         {
@@ -6275,16 +6115,19 @@ class BondmakerMatchCreateView(APIView):
         #         status=400,
         #     )
 
-        # ------------------------------------------------
-        # Distance
-        # ------------------------------------------------
+        # -----------------------------------
+        # Distance calculation
+        # -----------------------------------
         distance = user_a.get_distance_to(user_b) or 0
 
-        # ------------------------------------------------
-        # Create match (canonical ordering)
-        # ------------------------------------------------
+        # -----------------------------------
+        # Canonical ordering for DB uniqueness
+        # -----------------------------------
         user1, user2 = sorted([user_a, user_b], key=lambda u: u.id)
 
+        # -----------------------------------
+        # Create match (DB constraint prevents duplicates)
+        # -----------------------------------
         match = UserMatch.objects.create(
             user1=user1,
             user2=user2,
@@ -6293,16 +6136,12 @@ class BondmakerMatchCreateView(APIView):
             status="matched",
         )
 
-        return Response(
-            {
-                "message": "Match created successfully",
-                "match_id": match.id,
-                "match_score": match.match_score,
-                "distance_km": match.distance,
-                "status": match.status,
-            },
-            status=201,
-        )
+        # -----------------------------------
+        # Serialize for response / OpenAPI
+        # -----------------------------------
+        serializer = UserMatchSerializer(match)
+
+        return Response(serializer.data, status=201)
 
 
 #           MATCH SUGGESTION VIEW
@@ -6328,5 +6167,284 @@ class BondmakerSuggestionView(generics.GenericAPIView):
 
         return Response(
             {"status": "Suggestion created"},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SetVisibilityView(generics.CreateAPIView):
+    serializer_class = VisibilitySerializer
+    permission_classes = [IsAuthenticated]
+
+
+# a reusable “active visibility” filter
+ACTIVE_VISIBILITY_FILTER = Q(
+    visibility_settings__is_active=True,
+    visibility_settings__expires_at__gt=timezone.now(),
+)
+
+
+# visibility ListView for Public User
+class GlobalPublicUsersListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = VisibilitySerializer
+
+    def get_queryset(self):
+        return User.objects.filter(
+            ACTIVE_VISIBILITY_FILTER,
+            visibility_settings__visibility="public",
+        ).distinct()
+
+
+# private ListView for a Bondmaker
+class PrivateUsersForBondmakerListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = VisibilitySerializer
+
+    def get_queryset(self):
+        bondmaker = self.request.user
+
+        return User.objects.filter(
+            ACTIVE_VISIBILITY_FILTER,
+            visibility_settings__visibility="private",
+            visibility_settings__bondmaker=bondmaker,
+        ).distinct()
+
+
+class EndVisbilityView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="Visibility ended successfully"),
+            400: OpenApiResponse(description="No active visibility to end"),
+        },
+        description="End the currently active visibility before 7 days expiry.",
+    )
+    def post(
+        self,
+        request,
+    ):
+        visibility = Visibility.objects.filter(
+            owner=request.user,
+            is_active=True,
+            expires_at__gt=timezone.now(),
+        ).first()
+        if not visibility:
+            return Response({"Message": "No active visibility to end."}, status=400)
+
+        visibility.is_active = False
+        visibility.expires_at = timezone.now()
+        visibility.save()
+
+        return Response({"message": "Visibility ended successfully."}, status=200)
+
+
+class MyWalletView(generics.RetrieveAPIView):
+    serializer_class = WalletSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user.wallet
+
+
+class MyLedgerView(generics.ListAPIView):
+    serializer_class = WalletTransactionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.request.user.wallet_ledger.all()
+
+
+class MatchRequestCreateView(generics.GenericAPIView):
+    """
+    User creates a bondmaker match request and wallet is charged.
+    """
+
+    serializer_class = MatchRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Extract validated fields
+        bondmaker_id = serializer.validated_data["bondmaker_id"]
+        target_user_id = serializer.validated_data["target_user_id"]
+        coins_required = serializer.validated_data["coins"]
+        user = request.user
+
+        try:
+            bondmaker = User.objects.get(id=bondmaker_id)
+            target_user = User.objects.get(id=target_user_id)
+        except User.DoesNotExist:
+            return Response({"error": "Bondmaker or target user not found"}, status=404)
+
+        # Charge coins and create match request
+        try:
+            match_request = charge_match_request(
+                user=user,
+                bondmaker=bondmaker,
+                target_user=target_user,
+                coins=coins_required,
+                reference_id=None,
+            )
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=400)
+
+        return Response(
+            {
+                "message": "Match request created successfully",
+                "match_request_id": match_request.id,
+                "coins_charged": match_request.coins_charged,
+                "status": match_request.status,
+                "user_balance": user.wallet.available_balance,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MatchRequestAcceptView(generics.GenericAPIView):
+    """
+    Bondmaker accepts a pending match request.
+    Escrowed coins are released, revenue split tracked.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MatchRequestActionSerializer
+
+    def post(self, request, match_request_id, *args, **kwargs):
+        bondmaker = request.user
+
+        try:
+            match_request = MatchRequest.objects.get(
+                id=match_request_id, bondmaker=bondmaker, status="pending"
+            )
+        except MatchRequest.DoesNotExist:
+            return Response(
+                {"error": "Pending match request not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        platform_share_usd, bondmaker_share_usd = accept_match_request(match_request)
+
+        return Response(
+            {
+                "message": "Match request accepted",
+                "coins_released_from_escrow": match_request.coins_charged,
+                "bondmaker_share_usd": float(bondmaker_share_usd),
+                "platform_share_usd": float(platform_share_usd),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class MatchRequestRejectView(generics.GenericAPIView):
+    """
+    Bondmaker rejects a pending match request.
+    Coins are returned to user.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MatchRequestActionSerializer
+
+    def post(self, request, match_request_id, *args, **kwargs):
+        bondmaker = request.user
+
+        try:
+            match_request = MatchRequest.objects.get(
+                id=match_request_id, bondmaker=bondmaker, status="pending"
+            )
+        except MatchRequest.DoesNotExist:
+            return Response(
+                {"error": "Pending match request not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from dating.models import reject_match_request
+
+        reject_match_request(match_request)
+
+        return Response(
+            {
+                "message": "Match request rejected, coins refunded",
+                "coins_refunded": match_request.coins_charged,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# Purchase Coins
+class PurchaseCoinView(generics.GenericAPIView):
+    serializer_class = PurchaseSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        package_id = serializer.validated_data["package_id"]
+        platform = serializer.validated_data["platform"]
+        receipt_data = serializer.validated_data.get("receipt_data")
+        purchase_token = serializer.validated_data.get("purchase_token")
+        user = request.user
+
+        # --------------------------
+        # 1. Validate Package
+        # --------------------------
+        try:
+            package = BondcoinPackage.objects.get(id=package_id, is_active=True)
+        except BondcoinPackage.DoesNotExist:
+            return Response({"error": "Invalid or inactive package"}, status=400)
+
+        # --------------------------
+        # 2. Verify purchase
+        # --------------------------
+        try:
+            if platform == "apple":
+                # Will raise ValidationError if invalid
+                process_apple_purchase(user, receipt_data, package)
+            elif platform == "google":
+                # Will raise ValidationError if invalid
+                process_google_purchase(user, purchase_token, package)
+            else:
+                return Response({"error": "Invalid platform"}, status=400)
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=400)
+
+        # --------------------------
+        # 3. Credit Wallet & Log Ledger
+        # --------------------------
+        with transaction.atomic():
+            # Credit user's wallet
+            credit_wallet(
+                user=user,
+                amount=package.bondcoin_amount,
+                source="purchase",
+                reference_id=receipt_data or purchase_token,
+            )
+
+            # Track revenue from purchase
+            amount_usd = package.price_usd
+            store_fee = (amount_usd * Decimal("0.30")).quantize(Decimal("0.01"))
+            net_revenue = (amount_usd - store_fee).quantize(Decimal("0.01"))
+
+            RevenueRecord.objects.create(
+                user=user,
+                store=platform,
+                product_id=package.id,
+                transaction_id=receipt_data or purchase_token,
+                amount_usd=amount_usd,
+                store_fee_usd=store_fee,
+                net_revenue_usd=net_revenue,
+                coins_awarded=package.bondcoin_amount,
+            )
+
+        return Response(
+            {
+                "message": "Coins purchased successfully",
+                "coins_received": package.bondcoin_amount,
+                "user_balance": user.wallet.available_balance,
+            },
             status=status.HTTP_201_CREATED,
         )

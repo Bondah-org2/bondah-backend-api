@@ -10,7 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.db.models import Q
 
-from .models import User, LocationHistory, UserMatch
+from .models import User, LocationHistory, UserMatch, Visibility
 
 
 # =========================================================
@@ -358,3 +358,20 @@ def get_location_statistics() -> Dict:
     }
 
     return stats
+
+
+def is_user_visible_to(bondmaker, user):
+    """
+    Returns True if a user is visible to the bondmaker
+    - Public users: visible to all
+    - Private users: only visible to specific bondmaker
+    """
+    return (
+        Visibility.objects.filter(
+            owner=user,
+            is_active=True,
+            expires_at__gt=timezone.now(),
+        )
+        .filter(Q(visibility="public") | Q(visibility="private", bondmaker=bondmaker))
+        .exists()
+    )

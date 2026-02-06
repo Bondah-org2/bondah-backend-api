@@ -111,7 +111,7 @@ class PaymentTransaction(models.Model):
         related_name="payment_transactions",
     )
     bondcoin_transaction = models.ForeignKey(
-        "BondcoinTransaction",
+        "WalletTransaction",
         on_delete=models.SET_NULL,
         blank=True,
         null=True,

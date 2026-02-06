@@ -1,6 +1,6 @@
 from django.db import models
 
-from .bondcoin import BondcoinTransaction
+from .bondcoin import WalletTransaction
 from .users import User
 
 
@@ -79,7 +79,7 @@ class GiftTransaction(models.Model):
     # Cost and payment
     total_cost = models.PositiveIntegerField(help_text="Total cost in Bondcoins")
     bondcoin_transaction = models.ForeignKey(
-        BondcoinTransaction, on_delete=models.CASCADE
+        WalletTransaction, on_delete=models.CASCADE
     )
 
     # Context (where the gift was sent)

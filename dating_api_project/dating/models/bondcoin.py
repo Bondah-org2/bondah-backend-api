@@ -1,46 +1,25 @@
 from django.db import models
-
+from django.contrib.auth import get_user_model
 from .users import User
-from .subscriptions import UserSubscription
 
 
-class BondcoinPackage(models.Model):
-    """Bondcoin packages for purchase"""
-
-    name = models.CharField(max_length=100, help_text="e.g., '10 Bondcoins'")
-    bondcoin_amount = models.PositiveIntegerField(
-        help_text="Amount of Bondcoins in package"
-    )
-    price_usd = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Price in USD"
-    )
-    is_popular = models.BooleanField(default=False, help_text="Mark as 'Top Selling'")
-    is_active = models.BooleanField(default=True)
-
+# --- Wallet ---
+class Wallet(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="wallet")
+    available_balance = models.IntegerField(default=0)
+    locked_balance = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} - ${self.price_usd}"
-
-    class Meta:
-        ordering = ["bondcoin_amount"]
-        indexes = [
-            models.Index(fields=["is_active", "bondcoin_amount"]),
-        ]
+        return f"{self.user.email} | Available: {self.available_balance} | Locked: {self.locked_balance}"
 
 
-class BondcoinTransaction(models.Model):
-    """Track Bondcoin transactions"""
-
-    TRANSACTION_TYPES = [
-        ("purchase", "Purchase"),
-        ("earn", "Earn"),
-        ("spend", "Spend"),
-        ("gift_sent", "Gift Sent"),
-        ("gift_received", "Gift Received"),
-        ("subscription", "Subscription Purchase"),
-        ("refund", "Refund"),
+# --- Ledger / Transactions ---
+class WalletTransaction(models.Model):
+    TX_TYPES = [
+        ("credit", "credit"),
+        ("debit", "debit"),
     ]
 
     STATUS_CHOICES = [
@@ -51,45 +30,82 @@ class BondcoinTransaction(models.Model):
     ]
 
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="bondcoin_transactions"
+        User, on_delete=models.CASCADE, related_name="wallet_ledger"
     )
-    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
-    amount = models.IntegerField(
-        help_text="Amount (positive for credit, negative for debit)"
-    )
+    tx_type = models.CharField(max_length=10, choices=TX_TYPES)
+    amount = models.IntegerField()
+    payment_method = models.CharField(
+        max_length=50, blank=True, null=True
+    )  # purchase, gift_sent, match_request, etc.
+    reference_id = models.CharField(max_length=255, null=True, blank=True)
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="completed"
     )
-
-    # Related objects
-    package = models.ForeignKey(
-        BondcoinPackage, on_delete=models.SET_NULL, blank=True, null=True
-    )
-    subscription = models.ForeignKey(
-        UserSubscription, on_delete=models.SET_NULL, blank=True, null=True
-    )
-    gift = models.ForeignKey(
-        "VirtualGift", on_delete=models.SET_NULL, blank=True, null=True
-    )
-
-    # Payment info
-    payment_method = models.CharField(max_length=50, blank=True, null=True)
-    payment_reference = models.CharField(max_length=255, blank=True, null=True)
-
-    # Description for transaction history
-    description = models.CharField(
-        max_length=255, help_text="Description shown in transaction history"
-    )
-
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.user.name} - {self.get_transaction_type_display()} {self.amount} Bondcoins"
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["user", "transaction_type"]),
-            models.Index(fields=["status", "created_at"]),
-        ]
+
+    def __str__(self):
+        return f"{self.user.email} | {self.tx_type} {self.amount} | {self.payment_method}"
+
+
+# --- Bondcoin Packages (Optional) ---
+class BondcoinPackage(models.Model):
+    name = models.CharField(max_length=100)
+    apple_product_id = models.CharField(max_length=120, null=True, blank=True)
+    google_product_id = models.CharField(max_length=120, null=True, blank=True)
+    bondcoin_amount = models.PositiveIntegerField()
+    price_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    is_popular = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["bondcoin_amount"]
+
+    def __str__(self):
+        return f"{self.name} - ${self.price_usd}"
+
+
+class RevenueRecord(models.Model):
+    """Tracks REAL money received from Apple/Google"""
+
+    STORE_CHOICES = (
+        ("apple", "Apple"),
+        ("google", "Google"),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    store = models.CharField(max_length=20, choices=STORE_CHOICES)
+    product_id = models.CharField(max_length=100)
+    transaction_id = models.CharField(max_length=255, unique=True)
+
+    amount_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    store_fee_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    net_revenue_usd = models.DecimalField(max_digits=10, decimal_places=2)
+
+    coins_awarded = models.IntegerField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class BondmakerWallet(models.Model):
+    bondmaker = models.OneToOneField(User, on_delete=models.CASCADE)
+    available_usd = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    locked_usd = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+
+class MatchRevenueSplit(models.Model):
+    match = models.ForeignKey("UserMatch", on_delete=models.CASCADE)
+    bondmaker = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    coins_used = models.IntegerField(default=5)
+
+    real_revenue_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    platform_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    bondmaker_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
+
+    created_at = models.DateTimeField(auto_now_add=True)

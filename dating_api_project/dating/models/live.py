@@ -121,29 +121,6 @@ class LiveParticipant(models.Model):
         ]
 
 
-class UserRoleSelection(models.Model):
-    """Track user role selection during onboarding"""
-
-    ROLE_CHOICES = (
-        ("looking_for_love", "Looking for Love"),
-        ("bondmaker", "Bondmaker"),
-    )
-
-    user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="role_selection"
-    )
-    selected_role = models.CharField(max_length=20,
-                                     choices=ROLE_CHOICES,
-                                     default="looking_for_love")
-    selected_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.user.email} - {self.get_selected_role_display()}"
-
-    class Meta:
-        ordering = ["-selected_at"]
-
-
 class LiveGift(models.Model):
     """Gifts sent during live sessions"""
 
@@ -159,7 +136,7 @@ class LiveGift(models.Model):
     # Cost and payment
     total_cost = models.PositiveIntegerField(help_text="Total cost in Bondcoins")
     bondcoin_transaction = models.ForeignKey(
-        "BondcoinTransaction", on_delete=models.CASCADE
+        "WalletTransaction", on_delete=models.CASCADE
     )
 
     # Message shown in chat

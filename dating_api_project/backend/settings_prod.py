@@ -73,8 +73,9 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "rest_framework",
     "rest_framework.authtoken",
-    "dating",
+    # "dating",
     "corsheaders",
+    "dating.apps.DatingConfig",
     # OAuth and Social Authentication
     "allauth",
     "allauth.account",

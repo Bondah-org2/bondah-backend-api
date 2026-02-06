@@ -1,4 +1,11 @@
-from .bondcoin import BondcoinPackage, BondcoinTransaction
+from .bondcoin import (
+    BondcoinPackage,
+    WalletTransaction,
+    Wallet,
+    RevenueRecord,
+    BondmakerWallet,
+    MatchRevenueSplit,
+)
 from .chat import (
     Chat,
     Message,
@@ -30,7 +37,6 @@ from .gifts import GiftCategory, VirtualGift, GiftTransaction
 from .live import (
     LiveSession,
     LiveParticipant,
-    UserRoleSelection,
     LiveGift,
     LiveJoinRequest,
 )
@@ -60,13 +66,20 @@ from .users import (
     LocationPermission,
     BondmakerSubscription,
     SuggestedMatch,
+    Visibility,
+    UserRoleSelection,
+    MatchRequest,
 )
 from .username import UsernameValidation, validate_username_format
 
 __all__ = [
     # Bondcoin
     "BondcoinPackage",
-    "BondcoinTransaction",
+    "WalletTransaction",
+    "Wallet",
+    "RevenueRecord",
+    "BondmakerWallet",
+    "MatchRevenueSplit",
     # Chat
     "Chat",
     "Message",
@@ -133,6 +146,8 @@ __all__ = [
     "LocationPermission",
     "BondmakerSubscription",
     "SuggestedMatch",
+    "Visibility",
+    "MatchRequest",
     # Username
     "UsernameValidation",
     "validate_username_format",

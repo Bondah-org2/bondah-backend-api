@@ -7,6 +7,7 @@ from django.utils.encoding import force_bytes, force_str
 from lang import SUPPORTED_LANGUAGES
 from django.utils.timezone import now
 from datetime import timedelta
+from django.utils import timezone
 from .models import (
     User,
     NewsletterSubscriber,
@@ -58,7 +59,8 @@ from .models import (
     SubscriptionPlan,
     UserSubscription,
     BondcoinPackage,
-    BondcoinTransaction,
+    WalletTransaction,
+    Wallet,
     GiftCategory,
     VirtualGift,
     GiftTransaction,
@@ -69,6 +71,8 @@ from .models import (
     PaymentWebhook,
     BondmakerSubscription,
     SuggestedMatch,
+    Visibility,
+    MatchRequest,
 )
 from drf_spectacular.utils import extend_schema_field
 from typing import List, Dict, Any
@@ -1522,6 +1526,21 @@ class UserProfileWithLocationSerializer(serializers.ModelSerializer):
             "last_location_update",
         ]
         read_only_fields = ["id", "email", "has_location", "last_location_update"]
+
+
+class PrivacyDistributionSerializer(serializers.Serializer):
+    public = serializers.IntegerField()
+    friends = serializers.IntegerField()
+    private = serializers.IntegerField()
+    hidden = serializers.IntegerField()
+
+
+class LocationStatisticsSerializer(serializers.Serializer):
+    total_users_with_location = serializers.IntegerField()
+    location_updates_24h = serializers.IntegerField()
+    location_updates_7d = serializers.IntegerField()
+    active_users_with_location = serializers.IntegerField()
+    privacy_distribution = PrivacyDistributionSerializer()
 
 
 class NearbyUserSerializer(serializers.ModelSerializer):
@@ -3165,8 +3184,6 @@ class UserSubscriptionCreateSerializer(serializers.ModelSerializer):
 
 
 class BondcoinPackageSerializer(serializers.ModelSerializer):
-    """Serializer for Bondcoin packages"""
-
     class Meta:
         model = BondcoinPackage
         fields = [
@@ -3176,55 +3193,42 @@ class BondcoinPackageSerializer(serializers.ModelSerializer):
             "price_usd",
             "is_popular",
             "is_active",
-            "created_at",
-            "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
 
 
-class BondcoinTransactionSerializer(serializers.ModelSerializer):
-    """Serializer for Bondcoin transactions"""
-
-    user_name = serializers.CharField(source="user.name", read_only=True)
-    package_name = serializers.CharField(source="package.name", read_only=True)
-
+class WalletSerializer(serializers.ModelSerializer):
     class Meta:
-        model = BondcoinTransaction
+        model = Wallet
+        fields = ["available_balance", "locked_balance", "updated_at"]
+
+
+class WalletTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WalletTransaction
         fields = [
             "id",
-            "user",
-            "user_name",
-            "transaction_type",
+            "tx_type",
             "amount",
+            "payment_method",
             "status",
-            "package",
-            "package_name",
-            "subscription",
-            "gift",
-            "payment_method",
-            "payment_reference",
-            "description",
+            "reference_id",
             "created_at",
-            "updated_at",
         ]
-        read_only_fields = ["id", "user", "user_name", "created_at", "updated_at"]
 
 
-class BondcoinTransactionCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating Bondcoin transactions"""
+# class BondcoinTransactionCreateSerializer(serializers.ModelSerializer):
+#     """Serializer for creating Bondcoin transactions"""
 
-    class Meta:
-        model = BondcoinTransaction
-        fields = [
-            "transaction_type",
-            "amount",
-            "package",
-            "subscription",
-            "gift",
-            "payment_method",
-            "payment_reference",
-            "description",
-        ]
+#     class Meta:
+#         model = WalletTransaction
+#         fields = [
+#             "tx_type",
+#             "amount",
+#             "gift",
+#             "payment_method",
+#             "payment_reference",
+#             "description",
+#         ]
 
     def create(self, validated_data):
         """Create transaction with current user"""
@@ -3237,6 +3241,22 @@ class BondcoinTransactionCreateSerializer(serializers.ModelSerializer):
 # =============================================================================
 # VIRTUAL GIFTING SERIALIZERS (NEW FROM FIGMA)
 # =============================================================================
+
+
+class SendGiftSerializer(serializers.Serializer):
+    receiver_id = serializers.IntegerField()
+    gift_id = serializers.IntegerField()
+
+
+class ConvertGiftSerializer(serializers.Serializer):
+    gift_id = serializers.IntegerField()
+
+
+class PurchaseSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    platform = serializers.ChoiceField(choices=["apple", "google"])
+    receipt_data = serializers.CharField(required=False, allow_blank=True)
+    purchase_token = serializers.CharField(required=False, allow_blank=True)
 
 
 class GiftCategorySerializer(serializers.ModelSerializer):
@@ -3349,7 +3369,7 @@ class GiftTransactionCreateSerializer(serializers.ModelSerializer):
         validated_data["total_cost"] = gift.cost_bondcoins * quantity
 
         # Create Bondcoin transaction for the gift
-        bondcoin_transaction = BondcoinTransaction.objects.create(
+        bondcoin_transaction = WalletTransaction.objects.create(
             user=validated_data["sender"],
             transaction_type="gift_sent",
             amount=-validated_data["total_cost"],
@@ -3703,7 +3723,7 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
-            "phone_number",
+            "profile_picture",
             "location",
             "gender",
             "age",
@@ -3777,3 +3797,94 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
         attrs["suggested_user"] = suggested_user
 
         return attrs
+
+
+class VisibilitySerializer(serializers.ModelSerializer):
+    bondmaker_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = Visibility
+        fields = ["bondmaker_id", "visibility"]
+
+    def validate(self, attrs):
+        owner = self.context["request"].user
+        bondmaker_id = attrs.get("bondmaker_id")
+
+        # Check if user already has an active visibility
+        active_visibility = (
+            Visibility.objects.filter(
+                owner=owner,
+                is_active=True,
+                expires_at__gt=timezone.now(),
+            )
+            .exclude(bondmaker_id=bondmaker_id)
+            .exists()
+        )
+        if active_visibility:
+            raise serializers.ValidationError(
+                "You can only be visible through one bondmaker at a time for 7 days."
+            )
+
+        return attrs
+
+    def create(self, validated_data):
+        owner = self.context["request"].user
+        bondmaker_id = validated_data.pop("bondmaker_id")
+
+        visibility_obj, _ = Visibility.objects.update_or_create(
+            owner=owner,
+            bondmaker_id=bondmaker_id,
+            defaults={
+                "visibility": validated_data["visibility"],
+                "is_active": True,
+                "expires_at": timezone.now() + timedelta(days=7),
+            },
+        )
+
+        return visibility_obj
+
+
+class MatchRequestSerializer(serializers.Serializer):
+    bondmaker_id = serializers.IntegerField()
+    target_user_id = serializers.IntegerField()
+    coins = serializers.IntegerField(min_value=1)
+
+    def validate_bondmaker_id(self, value):
+        try:
+            user = User.objects.get(id=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Bondmaker not found")
+        if not user.is_matchmaker:
+            raise serializers.ValidationError("Selected user is not a bondmaker")
+        return value
+
+    def validate_target_user_id(self, value):
+        try:
+            user = User.objects.get(id=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Target user not found")
+        return value
+
+    def validate(self, attrs):
+        # Optional: prevent user from sending request to themselves
+        if self.context["request"].user.id == attrs["target_user_id"]:
+            raise serializers.ValidationError(
+                "You cannot send a match request to yourself"
+            )
+        return attrs
+
+
+class MatchRequestActionSerializer(serializers.Serializer):
+    """
+    Serializer for accepting or rejecting a match request.
+    Only validates that the match_request_id exists and is pending.
+    """
+
+    match_request_id = serializers.IntegerField()
+
+    def validate_match_request_id(self, value):
+        try:
+            match_request = MatchRequest.objects.get(id=value, status="pending")
+        except MatchRequest.DoesNotExist:
+            raise serializers.ValidationError("Pending match request not found")
+        return value

@@ -122,15 +122,14 @@ from .views import (
     UserFeatureAccessView,
     # Bondcoin Wallet Views (NEW FROM FIGMA)
     BondcoinPackageListView,
-    UserBondcoinBalanceView,
     BondcoinTransactionListView,
-    BondcoinTransactionDetailView,
-    BondcoinPurchaseView,
+    MyWalletView,
+    MyLedgerView,
     # Virtual Gifting Views (NEW FROM FIGMA)
     GiftCategoryListView,
     VirtualGiftListView,
     VirtualGiftDetailView,
-    GiftTransactionListView,
+    ConvertGiftView,
     SendGiftView,
     # Live Streaming Enhancement Views (NEW FROM FIGMA)
     LiveGiftListView,
@@ -156,12 +155,20 @@ from .views import (
     AdminBondmakerListView,
     PublicBondmakerListView,
     BondmakerProfileDetailView,
-    SubscribeBondmakerView,
-    EndBondmakerSubscriptionView,
-    AllSubscribedUsersListView,
-    SubscribedUsersForBondmakerView,
+    # SubscribeBondmakerView,
+    # EndBondmakerSubscriptionView,
+    # AllSubscribedUsersListView,
+    # SubscribedUsersForBondmakerView,
     BondmakerMatchCreateView,
     BondmakerSuggestionView,
+    SetVisibilityView,
+    EndVisbilityView,
+    GlobalPublicUsersListView,
+    PrivateUsersForBondmakerListView,
+    MatchRequestCreateView,
+    PurchaseCoinView,
+    MatchRequestAcceptView,
+    MatchRequestRejectView,
 )
 
 urlpatterns = [
@@ -548,33 +555,24 @@ urlpatterns = [
         name="bondcoin-packages",
     ),
     path(
-        "bondcoin/balance/", UserBondcoinBalanceView.as_view(), name="bondcoin-balance"
-    ),
-    path(
         "bondcoin/transactions/",
         BondcoinTransactionListView.as_view(),
         name="bondcoin-transactions",
     ),
-    path(
-        "bondcoin/transactions/<int:pk>/",
-        BondcoinTransactionDetailView.as_view(),
-        name="bondcoin-transaction-detail",
-    ),
-    path(
-        "bondcoin/purchase/", BondcoinPurchaseView.as_view(), name="bondcoin-purchase"
-    ),
+    # path(
+    #     "bondcoin/transactions/<int:pk>/",
+    #     BondcoinTransactionDetailView.as_view(),
+    #     name="bondcoin-transaction-detail",
+    # ),
+    # path(
+    #     "bondcoin/purchase/", BondcoinPurchaseView.as_view(), name="bondcoin-purchase"
+    # ),
     # Virtual Gifting Endpoints (NEW FROM FIGMA)
     path("gifts/categories/", GiftCategoryListView.as_view(), name="gift-categories"),
     path("gifts/", VirtualGiftListView.as_view(), name="virtual-gifts"),
     path(
         "gifts/<int:pk>/", VirtualGiftDetailView.as_view(), name="virtual-gift-detail"
     ),
-    path(
-        "gifts/transactions/",
-        GiftTransactionListView.as_view(),
-        name="gift-transactions",
-    ),
-    path("gifts/send/", SendGiftView.as_view(), name="send-gift"),
     # Live Streaming Enhancement Endpoints (NEW FROM FIGMA)
     path("live-sessions/gifts/", LiveGiftListView.as_view(), name="live-gifts"),
     path(
@@ -652,36 +650,36 @@ urlpatterns = [
     ),
     # List all public bondmakers
     path(
-        "bondmakers/", PublicBondmakerListView.as_view(), name="public-bondmaker-list"
+        "bondmaker/list/", PublicBondmakerListView.as_view(), name="public-bondmaker-list"
     ),
     # Retrieve a single bondmaker profile by ID
     path(
-        "bondmakers/<int:pk>/",
+        "bondmaker/<int:pk>/",
         BondmakerProfileDetailView.as_view(),
         name="bondmaker-profile-detail",
     ),
-    path(
-        "bondmaker/subscribe/",
-        SubscribeBondmakerView.as_view(),
-        name="subscribe-bondmaker",
-    ),
-    path(
-        "bondmaker/unsubscribe/<int:subscription_id>/",
-        EndBondmakerSubscriptionView.as_view(),
-        name="end-subscription",
-    ),
-    # List all users subscribed to any bondmaker (for swiping/liking)
-    path(
-        "users/subscribed/",
-        AllSubscribedUsersListView.as_view(),
-        name="all-subscribed-users",
-    ),
-    # List all users subscribed to the logged-in bondmaker
-    path(
-        "bondmaker/subscribed-users/",
-        SubscribedUsersForBondmakerView.as_view(),
-        name="bondmaker-subscribed-users",
-    ),
+    # path(
+    #     "bondmaker/subscribe/",
+    #     SubscribeBondmakerView.as_view(),
+    #     name="subscribe-bondmaker",
+    # ),
+    # path(
+    #     "bondmaker/unsubscribe/<int:subscription_id>/",
+    #     EndBondmakerSubscriptionView.as_view(),
+    #     name="end-subscription",
+    # ),
+    # # List all users subscribed to any bondmaker (for swiping/liking)
+    # path(
+    #     "users/subscribed/",
+    #     AllSubscribedUsersListView.as_view(),
+    #     name="all-subscribed-users",
+    # ),
+    # # List all users subscribed to the logged-in bondmaker
+    # path(
+    #     "bondmaker/subscribed-users/",
+    #     SubscribedUsersForBondmakerView.as_view(),
+    #     name="bondmaker-subscribed-users",
+    # ),
     # Bondmaker creates a suggested match between subscribed or nearby user
     path(
         "bondmaker/create-match/",
@@ -689,5 +687,57 @@ urlpatterns = [
         name="bondmaker-create-suggested-match",
     ),
     # BONDMAKER MATCH SUGGESTION VIEW
-    path("bondmaker/suggest-match/", BondmakerSuggestionView.as_view(), name='match_suggest'),
+    path(
+        "bondmaker/suggest-match/",
+        BondmakerSuggestionView.as_view(),
+        name="match_suggest",
+    ),
+    # Start / set visibility with a bondmaker
+    path(
+        "visibility/",
+        SetVisibilityView.as_view(),
+        name="set-visibility",
+    ),
+    # End current visibility
+    path(
+        "visibility/end/",
+        EndVisbilityView.as_view(),
+        name="end-visibility",
+    ),
+    # Public users (visible to everyone)
+    path(
+        "visibility/public_list/",
+        GlobalPublicUsersListView.as_view(),
+        name="public-users-list",
+    ),
+    # Private users for the logged-in bondmaker
+    path(
+        "visibility/private_list/",
+        PrivateUsersForBondmakerListView.as_view(),
+        name="private-users-list",
+    ),
+    # Bondcoin Wallet
+    path("wallet/", MyWalletView.as_view(), name="my-wallet"),
+    path("wallet/ledger/", MyLedgerView.as_view(), name="my-ledger"),
+    # Match Request
+    path(
+        "match-request/",
+        MatchRequestCreateView.as_view(),
+        name="create-match-request",
+    ),
+    path(
+        "match-request/<int:match_request_id>/accept/",
+        MatchRequestAcceptView.as_view(),
+        name="match-request-accept",
+    ),
+    # Reject a match request (bondmaker action)
+    path(
+        "match-request/<int:match_request_id>/reject/",
+        MatchRequestRejectView.as_view(),
+        name="match-request-reject",
+    ),
+    # Purchase coins
+    path("wallet/purchase_coins/", PurchaseCoinView.as_view(), name="purchase-coins"),
+    path("wallet/send-gift/", SendGiftView.as_view(), name="send-gift"),
+    path("wallet/convert-gift/", ConvertGiftView.as_view(), name="convert-gift"),
 ]

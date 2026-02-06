@@ -55,7 +55,7 @@ from .models import (
     SubscriptionPlan,
     UserSubscription,
     BondcoinPackage,
-    BondcoinTransaction,
+    WalletTransaction,
     GiftCategory,
     VirtualGift,
     GiftTransaction,
@@ -1108,31 +1108,16 @@ class BondcoinPackageAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(BondcoinTransaction)
-class BondcoinTransactionAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "user",
-        "transaction_type",
-        "amount",
+@admin.register(WalletTransaction)
+class WalletTransactionAdmin(admin.ModelAdmin):
+    list_display = ["user", "tx_type", "amount", "status", "created_at"]
+    list_filter = [
+        "tx_type",
         "status",
-        "description",
-        "created_at",
-    )
-    list_filter = ("transaction_type", "status", "payment_method", "created_at")
-    search_fields = ("user__email", "user__name", "description", "payment_reference")
-    ordering = ("-created_at",)
-    readonly_fields = ("created_at", "updated_at")
-
-    fieldsets = (
-        (
-            "Transaction Info",
-            {"fields": ("user", "transaction_type", "amount", "status", "description")},
-        ),
-        ("Related Objects", {"fields": ("package", "subscription", "gift")}),
-        ("Payment Info", {"fields": ("payment_method", "payment_reference")}),
-        ("Timestamps", {"fields": ("created_at", "updated_at")}),
-    )
+        "payment_method",
+    ]  # Must match actual field names
+    search_fields = ["user__email", "description", "payment_reference"]
+    ordering = ["-created_at"]
 
 
 # =============================================================================
