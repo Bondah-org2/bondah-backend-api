@@ -8,6 +8,9 @@ from lang import SUPPORTED_LANGUAGES
 from django.utils.timezone import now
 from datetime import timedelta
 from django.utils import timezone
+from django.core.mail import send_mail
+from django.conf import settings
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import (
     User,
     NewsletterSubscriber,
@@ -872,11 +875,11 @@ class TokensSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
-class ResendOTPSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["email", "phone"])
-    identifier = serializers.CharField(required=False)
-    phone_number = serializers.CharField(required=False)
-    country_code = serializers.CharField(default="+1", required=False)
+# class ResendOTPSerializer(serializers.Serializer):
+#     type = serializers.ChoiceField(choices=["email", "phone"])
+#     identifier = serializers.CharField(required=False)
+#     phone_number = serializers.CharField(required=False)
+#     country_code = serializers.CharField(default="+1", required=False)
 
 
 class TokenRefreshRequestSerializer(serializers.Serializer):
@@ -1667,58 +1670,181 @@ class UserVerificationStatusSerializer(serializers.ModelSerializer):
 
 
 # Email and Phone Verification Serializers
-class EmailOTPRequestSerializer(serializers.Serializer):
+class RequestEmailOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def validate_email(self, value):
-        if not value:
-            raise serializers.ValidationError("Email is required")
-        return value.lower()
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User already exists.")
+        if not EmailVerification.can_resend_for_email(value):
+            raise serializers.ValidationError(
+                "Too many OTP requests. Please try again in a minute."
+            )
+        return value
+
+    def create(self, validated_data):
+        email = validated_data["email"]
+
+        # Create OTP record
+        verification = EmailVerification.create_verification(user=None, email=email)
+
+        # Send OTP email
+        send_mail(
+            subject="Your Verification OTP",
+            message=f"Your OTP is {verification.otp_code}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+        )
+
+        return {"message": "OTP sent successfully"}
 
 
-class EmailOTPVerifySerializer(serializers.Serializer):
+class VerifyEmailOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    otp_code = serializers.CharField(max_length=4, min_length=4)
+    otp_code = serializers.CharField(max_length=4)
 
-    def validate_otp_code(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError("OTP code must contain only digits")
-        if len(value) != 4:
-            raise serializers.ValidationError("OTP code must be 4 digits")
+    def validate(self, attrs):
+        email = attrs.get("email")
+        otp_code = attrs.get("otp_code")
+
+        verification = EmailVerification.objects.filter(
+            email=email, otp_code=otp_code, is_used=False
+        ).first()
+
+        if not verification:
+            raise serializers.ValidationError("Invalid OTP.")
+
+        if verification.is_expired():
+            raise serializers.ValidationError("OTP has expired.")
+
+        attrs["verification"] = verification
+        return attrs
+
+    def create(self, validated_data):
+        verification = validated_data["verification"]
+        verification.is_verified = True
+        verification.verified_at = timezone.now()
+        verification.save()
+        # return a dict
+        return {"message": "OTP verified successfully"}
+
+
+class CompleteRegistrationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    password_confirm = serializers.CharField(write_only=True)
+
+    def validate_email(self, value):
+        """
+        Ensure that the email has a verified, unused OTP.
+        """
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email already exists.")
+
+        verified_otp = EmailVerification.objects.filter(
+            email=value, is_verified=True, is_used=False, expires_at__gt=timezone.now()
+        ).first()
+
+        if not verified_otp:
+            raise serializers.ValidationError(
+                "No valid verified OTP found for this email."
+            )
+
         return value
 
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError("Passwords do not match.")
+        return attrs
 
-class PhoneOTPRequestSerializer(serializers.Serializer):
-    phone_number = serializers.CharField(max_length=15)
-    country_code = serializers.CharField(max_length=5, default="+1")
-    user_id = serializers.IntegerField(required=False)
+    def create(self, validated_data):
+        email = validated_data["email"]
+        password = validated_data["password"]
 
-    def validate_phone_number(self, value):
-        import re
+        # Create the user
+        user = User.objects.create_user(username=email, email=email, password=password)
 
-        # Remove all non-digit characters
-        cleaned = re.sub(r"\D", "", value)
-        if len(cleaned) < 10:
-            raise serializers.ValidationError("Phone number must be at least 10 digits")
-        return cleaned
+        # Mark OTP as used and attach to user
+        otp_record = EmailVerification.objects.filter(
+            email=email, is_verified=True, is_used=False
+        ).latest("created_at")
+        otp_record.user = user
+        otp_record.is_used = True
+        otp_record.verified_at = timezone.now()
+        otp_record.save()
 
-    def validate_country_code(self, value):
-        if not value.startswith("+"):
-            value = "+" + value
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+
+        return {
+            "user": user,
+            "tokens": {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            },
+        }
+
+
+class ResendEmailOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User already exists.")
+        if not EmailVerification.can_resend_for_email(value):
+            raise serializers.ValidationError(
+                "Too many OTP requests. Please try again in a minute."
+            )
         return value
 
+    def create(self, validated_data):
+        email = validated_data["email"]
 
-class PhoneOTPVerifySerializer(serializers.Serializer):
-    phone_number = serializers.CharField(max_length=15)
-    country_code = serializers.CharField(max_length=5, default="+1")
-    otp_code = serializers.CharField(max_length=4, min_length=4)
+        # Create new OTP (marks previous as used)
+        verification = EmailVerification.create_verification(user=None, email=email)
 
-    def validate_otp_code(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError("OTP code must contain only digits")
-        if len(value) != 4:
-            raise serializers.ValidationError("OTP code must be 4 digits")
-        return value
+        # Send OTP email
+        send_mail(
+            subject="Your Verification OTP",
+            message=f"Your OTP is {verification.otp_code}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+        )
+
+        return {"message": "OTP resent successfully"}
+
+
+# class PhoneOTPRequestSerializer(serializers.Serializer):
+#     phone_number = serializers.CharField(max_length=15)
+#     country_code = serializers.CharField(max_length=5, default="+1")
+#     user_id = serializers.IntegerField(required=False)
+
+#     def validate_phone_number(self, value):
+#         import re
+
+#         # Remove all non-digit characters
+#         cleaned = re.sub(r"\D", "", value)
+#         if len(cleaned) < 10:
+#             raise serializers.ValidationError("Phone number must be at least 10 digits")
+#         return cleaned
+
+#     def validate_country_code(self, value):
+#         if not value.startswith("+"):
+#             value = "+" + value
+#         return value
+
+
+# class PhoneOTPVerifySerializer(serializers.Serializer):
+#     phone_number = serializers.CharField(max_length=15)
+#     country_code = serializers.CharField(max_length=5, default="+1")
+#     otp_code = serializers.CharField(max_length=4, min_length=4)
+
+#     def validate_otp_code(self, value):
+#         if not value.isdigit():
+#             raise serializers.ValidationError("OTP code must contain only digits")
+#         if len(value) != 4:
+#             raise serializers.ValidationError("OTP code must be 4 digits")
+#         return value
 
 
 class UserRoleSelectionSerializer(serializers.ModelSerializer):

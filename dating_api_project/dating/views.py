@@ -207,6 +207,10 @@ from .serializers import (
     BondcoinPackageSerializer,
     MatchRequestActionSerializer,
     VirtualGiftSerializer,
+    CompleteRegistrationSerializer,
+    RequestEmailOTPSerializer,
+    VerifyEmailOTPSerializer,
+    ResendEmailOTPSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -256,11 +260,6 @@ from response_serializers import (
     AdminLoginSuccessResponseSerializer,
     SupportedLanguagesResponseSerializer,
     TokenRefreshResponseSerializer,
-    PasswordResetResponseSerializer,
-    PasswordResetErrorResponseSerializer,
-    PasswordResetConfirmResponseSerializer,
-    PasswordResetConfirmRequestSerializer,
-    NotificationSettingsResponseSerializer,
     NotificationSettingsErrorSerializer,
     LanguageSettingsResponseSerializer,
     LanguageSettingsErrorSerializer,
@@ -272,12 +271,6 @@ from response_serializers import (
     OAuthUnlinkAccountResponseSerializer,
     SocialAccountsListResponseSerializer,
     OAuthLoginResponseSerializer,
-    EmailOTPVerifySerializer,
-    OTPResponseSerializer,
-    EmailOTPRequestSerializer,
-    PhoneOTPVerifySerializer,
-    PhoneOTPRequestSerializer,
-    ResendOTPResponseSerializer,
     UserRegisterResponseSerializer,
     UserLoginErrorSerializer,
     UserLoginResponseSerializer,
@@ -285,6 +278,7 @@ from response_serializers import (
     UserLoginValidationErrorSerializer,
     UserProfileWithSocialSerializer,
     UserRegisterErrorSerializer,
+    NotificationSettingsResponseSerializer,
 )
 from schema_serializers import (
     GetPuzzleRequestSerializer,
@@ -301,18 +295,18 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-class UserCreateView(generics.CreateAPIView):
-    queryset = User.objects.all()
-    serializer_class = CustomRegisterSerializer
+# class UserCreateView(generics.CreateAPIView):
+#     queryset = User.objects.all()
+#     serializer_class = CustomRegisterSerializer
 
-    def create(self, request, *args, **kwargs):
-        try:
-            return super().create(request, *args, **kwargs)
-        except Exception as e:
-            return Response(
-                {"message": f"User creation failed: {str(e)}", "status": "error"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+#     def create(self, request, *args, **kwargs):
+#         try:
+#             return super().create(request, *args, **kwargs)
+#         except Exception as e:
+#             return Response(
+#                 {"message": f"User creation failed: {str(e)}", "status": "error"},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
 
 
 class NewsletterSignupView(generics.CreateAPIView):
@@ -1182,37 +1176,61 @@ class AdminDebugAuthView(GenericAPIView):
 # =============================================================================
 
 
-@extend_schema(
-    request=CustomRegisterSerializer,
-    responses={
-        201: UserRegisterResponseSerializer,
-        500: UserRegisterErrorSerializer,
-    },
-)
-class UserRegisterView(generics.CreateAPIView):
-    queryset = User.objects.all()
-    serializer_class = CustomRegisterSerializer
+class RequestEmailOTPView(generics.CreateAPIView):
+    serializer_class = RequestEmailOTPSerializer
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.save()  # dict returned
+        return Response(data, status=200)
 
-        user = serializer.save()
 
-        refresh = RefreshToken.for_user(user)
+class VerifyEmailOTPView(generics.CreateAPIView):
+    serializer_class = VerifyEmailOTPSerializer
+    permission_classes = [AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.save()  # returns dict
+        return Response(data, status=200)  # return dict directly
+
+
+class CompleteRegistrationView(generics.CreateAPIView):
+    serializer_class = CompleteRegistrationSerializer
+    permission_classes = [AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.save()
+
+        # Return user info + JWT tokens
+        user = data["user"]
+        tokens = data["tokens"]
 
         response_data = {
-            "user": user,  # ✅ pass model, not .data
-            "tokens": {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
+            "user": {
+                "id": user.id,
+                "email": user.email,
             },
+            "tokens": tokens,
         }
 
-        response_serializer = UserRegisterResponseSerializer(response_data)
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+class ResendEmailOTPView(generics.CreateAPIView):
+    serializer_class = ResendEmailOTPSerializer
+    permission_classes = [AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.save()  # dict returned
+        return Response(data, status=200)
 
 
 # -------------------------
@@ -1400,12 +1418,16 @@ class PasswordResetView(generics.GenericAPIView):
         )
 
         # Send OTP via email
-        send_mail(
-            subject="Your Password Reset OTP",
-            message=f"Your OTP is {otp}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-        )
+        try:
+            send_mail(
+                subject="Your Password Reset OTP",
+                message=f"Your OTP is {otp}",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            print("Email error:", e)
 
         return Response(response_msg, status=200)
 
@@ -2505,206 +2527,206 @@ class LocationStatisticsView(GenericAPIView):
 # =============================================================================
 
 
-class EmailOTPRequestView(GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = EmailOTPRequestSerializer
+# class EmailOTPRequestView(GenericAPIView):
+#     permission_classes = [AllowAny]
+#     serializer_class = EmailOTPRequestSerializer
 
-    @extend_schema(
-        request=EmailOTPRequestSerializer, responses={200: OTPResponseSerializer}
-    )
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data["email"]
+#     @extend_schema(
+#         request=EmailOTPRequestSerializer, responses={200: OTPResponseSerializer}
+#     )
+#     def post(self, request):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+#         email = serializer.validated_data["email"]
 
-        User = get_user_model()
-        user, created = User.objects.get_or_create(
-            email=email, defaults={"username": email, "is_active": False}
-        )
+#         User = get_user_model()
+#         user, created = User.objects.get_or_create(
+#             email=email, defaults={"username": email, "is_active": False}
+#         )
 
-        if not EmailVerification.can_resend_for_email(email):
-            return Response(
-                {"message": "Too many OTP requests. Wait 1 minute", "status": "error"},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+#         if not EmailVerification.can_resend_for_email(email):
+#             return Response(
+#                 {"message": "Too many OTP requests. Wait 1 minute", "status": "error"},
+#                 status=status.HTTP_429_TOO_MANY_REQUESTS,
+#             )
 
-        verification = EmailVerification.create_verification(user, email)
-        subject = "Verify Your Email - Bondah Dating"
-        message = f"Your OTP is: {verification.otp_code} (expires in 10 minutes)"
-        send_mail(
-            subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False
-        )
+#         verification = EmailVerification.create_verification(user, email)
+#         subject = "Verify Your Email - Bondah Dating"
+#         message = f"Your OTP is: {verification.otp_code} (expires in 10 minutes)"
+#         send_mail(
+#             subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False
+#         )
 
-        return Response(
-            {
-                "message": "OTP sent to your email",
-                "status": "success",
-                "email": email,
-                "expires_in": 600,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class EmailOTPVerifyView(GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = EmailOTPVerifySerializer
-
-    @extend_schema(
-        request=EmailOTPVerifySerializer, responses={200: OTPResponseSerializer}
-    )
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        email = serializer.validated_data["email"]
-        otp_code = serializer.validated_data["otp_code"]
-
-        try:
-            verification = EmailVerification.objects.filter(
-                email=email, otp_code=otp_code, is_used=False
-            ).latest("created_at")
-
-            if verification.is_expired():
-                return Response(
-                    {"message": "OTP expired", "status": "error"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            verification.is_verified = True
-            verification.is_used = True
-            verification.verified_at = timezone.now()
-            verification.save()
-
-            user = verification.user
-            user.is_active = True
-            user.save()
-
-            user_status, _ = UserVerificationStatus.objects.get_or_create(user=user)
-            user_status.email_verified = True
-            user_status.email_verified_at = timezone.now()
-            user_status.update_verification_level()
-
-            return Response(
-                {
-                    "message": "Email verified successfully",
-                    "status": "success",
-                    "user": {
-                        "id": user.id,
-                        "email": user.email,
-                        "is_active": user.is_active,
-                    },
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except EmailVerification.DoesNotExist:
-            return Response(
-                {"message": "Invalid OTP", "status": "error"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+#         return Response(
+#             {
+#                 "message": "OTP sent to your email",
+#                 "status": "success",
+#                 "email": email,
+#                 "expires_in": 600,
+#             },
+#             status=status.HTTP_200_OK,
+#         )
 
 
-class PhoneOTPRequestView(GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = PhoneOTPRequestSerializer
+# class EmailOTPVerifyView(GenericAPIView):
+#     permission_classes = [AllowAny]
+#     serializer_class = EmailOTPVerifySerializer
 
-    @extend_schema(
-        request=PhoneOTPRequestSerializer, responses={200: OTPResponseSerializer}
-    )
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+#     @extend_schema(
+#         request=EmailOTPVerifySerializer, responses={200: OTPResponseSerializer}
+#     )
+#     def post(self, request):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
 
-        phone_number = serializer.validated_data["phone_number"]
-        country_code = serializer.validated_data.get("country_code", "+1")
-        user_id = serializer.validated_data["user_id"]
+#         email = serializer.validated_data["email"]
+#         otp_code = serializer.validated_data["otp_code"]
 
-        User = get_user_model()
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"message": "User not found", "status": "error"}, status=404
-            )
+#         try:
+#             verification = EmailVerification.objects.filter(
+#                 email=email, otp_code=otp_code, is_used=False
+#             ).latest("created_at")
 
-        if not PhoneVerification.can_resend_for_phone(phone_number, country_code):
-            return Response(
-                {"message": "Too many OTP requests. Wait 1 minute", "status": "error"},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+#             if verification.is_expired():
+#                 return Response(
+#                     {"message": "OTP expired", "status": "error"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
 
-        verification = PhoneVerification.create_verification(
-            user, phone_number, country_code
-        )
-        print(f"SMS OTP for {country_code}{phone_number}: {verification.otp_code}")
+#             verification.is_verified = True
+#             verification.is_used = True
+#             verification.verified_at = timezone.now()
+#             verification.save()
 
-        return Response(
-            {
-                "message": "OTP sent to your phone",
-                "status": "success",
-                "phone_number": f"{country_code}{phone_number}",
-                "expires_in": 600,
-            },
-            status=status.HTTP_200_OK,
-        )
+#             user = verification.user
+#             user.is_active = True
+#             user.save()
+
+#             user_status, _ = UserVerificationStatus.objects.get_or_create(user=user)
+#             user_status.email_verified = True
+#             user_status.email_verified_at = timezone.now()
+#             user_status.update_verification_level()
+
+#             return Response(
+#                 {
+#                     "message": "Email verified successfully",
+#                     "status": "success",
+#                     "user": {
+#                         "id": user.id,
+#                         "email": user.email,
+#                         "is_active": user.is_active,
+#                     },
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except EmailVerification.DoesNotExist:
+#             return Response(
+#                 {"message": "Invalid OTP", "status": "error"},
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
 
 
-class PhoneOTPVerifyView(GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = PhoneOTPVerifySerializer
+# class PhoneOTPRequestView(GenericAPIView):
+#     permission_classes = [AllowAny]
+#     serializer_class = PhoneOTPRequestSerializer
 
-    @extend_schema(
-        request=PhoneOTPVerifySerializer, responses={200: OTPResponseSerializer}
-    )
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+#     @extend_schema(
+#         request=PhoneOTPRequestSerializer, responses={200: OTPResponseSerializer}
+#     )
+#     def post(self, request):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
 
-        phone_number = serializer.validated_data["phone_number"]
-        country_code = serializer.validated_data.get("country_code", "+1")
-        otp_code = serializer.validated_data["otp_code"]
+#         phone_number = serializer.validated_data["phone_number"]
+#         country_code = serializer.validated_data.get("country_code", "+1")
+#         user_id = serializer.validated_data["user_id"]
 
-        try:
-            verification = PhoneVerification.objects.filter(
-                phone_number=phone_number,
-                country_code=country_code,
-                otp_code=otp_code,
-                is_used=False,
-            ).latest("created_at")
+#         User = get_user_model()
+#         try:
+#             user = User.objects.get(id=user_id)
+#         except User.DoesNotExist:
+#             return Response(
+#                 {"message": "User not found", "status": "error"}, status=404
+#             )
 
-            if verification.is_expired():
-                return Response(
-                    {"message": "OTP expired", "status": "error"}, status=400
-                )
+#         if not PhoneVerification.can_resend_for_phone(phone_number, country_code):
+#             return Response(
+#                 {"message": "Too many OTP requests. Wait 1 minute", "status": "error"},
+#                 status=status.HTTP_429_TOO_MANY_REQUESTS,
+#             )
 
-            verification.is_verified = True
-            verification.is_used = True
-            verification.verified_at = timezone.now()
-            verification.save()
+#         verification = PhoneVerification.create_verification(
+#             user, phone_number, country_code
+#         )
+#         print(f"SMS OTP for {country_code}{phone_number}: {verification.otp_code}")
 
-            user_status, _ = UserVerificationStatus.objects.get_or_create(
-                user=verification.user
-            )
-            user_status.phone_verified = True
-            user_status.phone_verified_at = timezone.now()
-            user_status.update_verification_level()
+#         return Response(
+#             {
+#                 "message": "OTP sent to your phone",
+#                 "status": "success",
+#                 "phone_number": f"{country_code}{phone_number}",
+#                 "expires_in": 600,
+#             },
+#             status=status.HTTP_200_OK,
+#         )
 
-            return Response(
-                {
-                    "message": "Phone verified successfully",
-                    "status": "success",
-                    "user": {
-                        "id": verification.user.id,
-                        "email": verification.user.email,
-                        "phone_verified": True,
-                    },
-                },
-                status=status.HTTP_200_OK,
-            )
 
-        except PhoneVerification.DoesNotExist:
-            return Response({"message": "Invalid OTP", "status": "error"}, status=400)
+# class PhoneOTPVerifyView(GenericAPIView):
+#     permission_classes = [AllowAny]
+#     serializer_class = PhoneOTPVerifySerializer
+
+#     @extend_schema(
+#         request=PhoneOTPVerifySerializer, responses={200: OTPResponseSerializer}
+#     )
+#     def post(self, request):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+
+#         phone_number = serializer.validated_data["phone_number"]
+#         country_code = serializer.validated_data.get("country_code", "+1")
+#         otp_code = serializer.validated_data["otp_code"]
+
+#         try:
+#             verification = PhoneVerification.objects.filter(
+#                 phone_number=phone_number,
+#                 country_code=country_code,
+#                 otp_code=otp_code,
+#                 is_used=False,
+#             ).latest("created_at")
+
+#             if verification.is_expired():
+#                 return Response(
+#                     {"message": "OTP expired", "status": "error"}, status=400
+#                 )
+
+#             verification.is_verified = True
+#             verification.is_used = True
+#             verification.verified_at = timezone.now()
+#             verification.save()
+
+#             user_status, _ = UserVerificationStatus.objects.get_or_create(
+#                 user=verification.user
+#             )
+#             user_status.phone_verified = True
+#             user_status.phone_verified_at = timezone.now()
+#             user_status.update_verification_level()
+
+#             return Response(
+#                 {
+#                     "message": "Phone verified successfully",
+#                     "status": "success",
+#                     "user": {
+#                         "id": verification.user.id,
+#                         "email": verification.user.email,
+#                         "phone_verified": True,
+#                     },
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except PhoneVerification.DoesNotExist:
+#             return Response({"message": "Invalid OTP", "status": "error"}, status=400)
 
 
 class UserRoleSelectionView(GenericAPIView):
@@ -2773,95 +2795,95 @@ class UserRoleStatusView(GenericAPIView):
         return Response(serializer.data)
 
 
-class ResendOTPView(GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = ResendOTPSerializer
+# class ResendOTPView(GenericAPIView):
+#     permission_classes = [AllowAny]
+#     serializer_class = ResendOTPSerializer
 
-    @extend_schema(
-        request=ResendOTPSerializer, responses={200: ResendOTPResponseSerializer}
-    )
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        otp_type = serializer.validated_data["type"]
+#     @extend_schema(
+#         request=ResendOTPSerializer, responses={200: ResendOTPResponseSerializer}
+#     )
+#     def post(self, request):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+#         otp_type = serializer.validated_data["type"]
 
-        if otp_type == "email":
-            identifier = serializer.validated_data.get("identifier")
-            if not identifier:
-                return Response(
-                    {"message": "Email is required", "status": "error"}, status=400
-                )
-            try:
-                verification = EmailVerification.objects.filter(
-                    email=identifier, is_used=False
-                ).latest("created_at")
-                if not verification.can_resend():
-                    return Response(
-                        {
-                            "message": "Wait 1 minute before resending",
-                            "status": "error",
-                        },
-                        status=429,
-                    )
-                new_verification = EmailVerification.create_verification(
-                    verification.user, identifier
-                )
-                send_mail(
-                    subject="🔐 New Verification Code - Bondah Dating",
-                    message=f"Your new code is {new_verification.otp_code}",
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[identifier],
-                    fail_silently=False,
-                )
-                return Response(
-                    {"message": "New OTP sent to email", "status": "success"}
-                )
+#         if otp_type == "email":
+#             identifier = serializer.validated_data.get("identifier")
+#             if not identifier:
+#                 return Response(
+#                     {"message": "Email is required", "status": "error"}, status=400
+#                 )
+#             try:
+#                 verification = EmailVerification.objects.filter(
+#                     email=identifier, is_used=False
+#                 ).latest("created_at")
+#                 if not verification.can_resend():
+#                     return Response(
+#                         {
+#                             "message": "Wait 1 minute before resending",
+#                             "status": "error",
+#                         },
+#                         status=429,
+#                     )
+#                 new_verification = EmailVerification.create_verification(
+#                     verification.user, identifier
+#                 )
+#                 send_mail(
+#                     subject="🔐 New Verification Code - Bondah Dating",
+#                     message=f"Your new code is {new_verification.otp_code}",
+#                     from_email=settings.DEFAULT_FROM_EMAIL,
+#                     recipient_list=[identifier],
+#                     fail_silently=False,
+#                 )
+#                 return Response(
+#                     {"message": "New OTP sent to email", "status": "success"}
+#                 )
 
-            except EmailVerification.DoesNotExist:
-                return Response(
-                    {
-                        "message": "No pending verification for this email",
-                        "status": "error",
-                    },
-                    status=404,
-                )
+#             except EmailVerification.DoesNotExist:
+#                 return Response(
+#                     {
+#                         "message": "No pending verification for this email",
+#                         "status": "error",
+#                     },
+#                     status=404,
+#                 )
 
-        elif otp_type == "phone":
-            phone_number = serializer.validated_data.get("phone_number")
-            country_code = serializer.validated_data.get("country_code", "+1")
-            if not phone_number:
-                return Response(
-                    {"message": "Phone number required", "status": "error"}, status=400
-                )
-            try:
-                verification = PhoneVerification.objects.filter(
-                    phone_number=phone_number, country_code=country_code, is_used=False
-                ).latest("created_at")
-                if not verification.can_resend():
-                    return Response(
-                        {
-                            "message": "Wait 1 minute before resending",
-                            "status": "error",
-                        },
-                        status=429,
-                    )
-                new_verification = PhoneVerification.create_verification(
-                    verification.user, phone_number, country_code
-                )
-                print(f"New SMS OTP: {new_verification.otp_code}")
-                return Response(
-                    {"message": "New OTP sent to phone", "status": "success"}
-                )
-            except PhoneVerification.DoesNotExist:
-                return Response(
-                    {
-                        "message": "No pending verification for this phone number",
-                        "status": "error",
-                    },
-                    status=404,
-                )
+#         elif otp_type == "phone":
+#             phone_number = serializer.validated_data.get("phone_number")
+#             country_code = serializer.validated_data.get("country_code", "+1")
+#             if not phone_number:
+#                 return Response(
+#                     {"message": "Phone number required", "status": "error"}, status=400
+#                 )
+#             try:
+#                 verification = PhoneVerification.objects.filter(
+#                     phone_number=phone_number, country_code=country_code, is_used=False
+#                 ).latest("created_at")
+#                 if not verification.can_resend():
+#                     return Response(
+#                         {
+#                             "message": "Wait 1 minute before resending",
+#                             "status": "error",
+#                         },
+#                         status=429,
+#                     )
+#                 new_verification = PhoneVerification.create_verification(
+#                     verification.user, phone_number, country_code
+#                 )
+#                 print(f"New SMS OTP: {new_verification.otp_code}")
+#                 return Response(
+#                     {"message": "New OTP sent to phone", "status": "success"}
+#                 )
+#             except PhoneVerification.DoesNotExist:
+#                 return Response(
+#                     {
+#                         "message": "No pending verification for this phone number",
+#                         "status": "error",
+#                     },
+#                     status=404,
+#                 )
 
-        return Response({"message": "Invalid request", "status": "error"}, status=400)
+#         return Response({"message": "Invalid request", "status": "error"}, status=400)
 
 
 # =============================================================================

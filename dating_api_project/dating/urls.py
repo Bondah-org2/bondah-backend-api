@@ -1,7 +1,6 @@
 from django.urls import path
 from . import liveness_views
 from .views import (
-    UserCreateView,
     NewsletterSignupView,
     GetPuzzleView,
     SubmitPuzzleAnswerView,
@@ -34,7 +33,6 @@ from .views import (
     TranslationHistoryView,
     TranslationStatsView,
     # Mobile App Authentication Views
-    UserRegisterView,
     UserLoginView,
     UserLogoutView,
     TokenRefreshView,
@@ -63,11 +61,10 @@ from .views import (
     UserLocationProfileView,
     LocationStatisticsView,
     # Email and Phone Verification Views
-    EmailOTPRequestView,
-    EmailOTPVerifyView,
-    PhoneOTPRequestView,
-    PhoneOTPVerifyView,
-    ResendOTPView,
+    RequestEmailOTPView,
+    ResendEmailOTPView,
+    VerifyEmailOTPView,
+    CompleteRegistrationView,
     UserRoleSelectionView,
     # Advanced Search and Discovery Views
     UserSearchView,
@@ -173,7 +170,7 @@ from .views import (
 
 urlpatterns = [
     # Public API endpoints
-    path("create-user/", UserCreateView.as_view(), name="create-user"),
+    # path("create-user/", UserCreateView.as_view(), name="create-user"),
     path(
         "newsletter/signup/", NewsletterSignupView.as_view(), name="newsletter-signup"
     ),
@@ -261,7 +258,14 @@ urlpatterns = [
         name="admin-newsletter-list",
     ),
     # Mobile App Authentication Endpoints
-    path("auth/register/", UserRegisterView.as_view(), name="user-register"),
+    path("auth/request-otp/", RequestEmailOTPView.as_view(), name="request-email-otp"),
+    path("auth/resend-otp/", ResendEmailOTPView.as_view(), name="resend-email-otp"),
+    path("auth/verify-otp/", VerifyEmailOTPView.as_view(), name="verify-email-otp"),
+    path(
+        "auth/complete-registration/",
+        CompleteRegistrationView.as_view(),
+        name="complete-registration",
+    ),
     path("auth/login/", UserLoginView.as_view(), name="user-login"),
     path("auth/logout/", UserLogoutView.as_view(), name="user-logout"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
@@ -334,28 +338,7 @@ urlpatterns = [
         liveness_views.UserVerificationStatusView.as_view(),
         name="verification-status",
     ),
-    # Email and Phone Verification Endpoints
-    path(
-        "verification/email/request/",
-        EmailOTPRequestView.as_view(),
-        name="email-otp-request",
-    ),
-    path(
-        "verification/email/verify/",
-        EmailOTPVerifyView.as_view(),
-        name="email-otp-verify",
-    ),
-    path(
-        "verification/phone/request/",
-        PhoneOTPRequestView.as_view(),
-        name="phone-otp-request",
-    ),
-    path(
-        "verification/phone/verify/",
-        PhoneOTPVerifyView.as_view(),
-        name="phone-otp-verify",
-    ),
-    path("verification/resend/", ResendOTPView.as_view(), name="resend-otp"),
+
     path(
         "roleselection/role/",
         UserRoleSelectionView.as_view(),
@@ -650,7 +633,9 @@ urlpatterns = [
     ),
     # List all public bondmakers
     path(
-        "bondmaker/list/", PublicBondmakerListView.as_view(), name="public-bondmaker-list"
+        "bondmaker/list/",
+        PublicBondmakerListView.as_view(),
+        name="public-bondmaker-list",
     ),
     # Retrieve a single bondmaker profile by ID
     path(

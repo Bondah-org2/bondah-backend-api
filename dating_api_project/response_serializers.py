@@ -69,27 +69,6 @@ class TokenRefreshResponseSerializer(serializers.Serializer):
     tokens = TokensSerializer()
 
 
-class PasswordResetResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-    status = serializers.CharField()
-
-
-class PasswordResetErrorResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-    status = serializers.CharField()
-    errors = serializers.DictField(required=False)
-
-
-class PasswordResetConfirmRequestSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField()
-    new_password = serializers.CharField()
-
-
-class PasswordResetConfirmResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-    status = serializers.CharField()
-
-
 class NotificationSettingsResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
     status = serializers.CharField()
@@ -226,34 +205,34 @@ class RetryLivenessResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
 
 
-class EmailOTPRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+# class EmailOTPRequestSerializer(serializers.Serializer):
+#     email = serializers.EmailField()
 
 
-class EmailOTPVerifySerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp_code = serializers.CharField(max_length=10)
+# class EmailOTPVerifySerializer(serializers.Serializer):
+#     email = serializers.EmailField()
+#     otp_code = serializers.CharField(max_length=10)
 
 
-class PhoneOTPRequestSerializer(serializers.Serializer):
-    phone_number = serializers.CharField()
-    country_code = serializers.CharField(default="+1")
-    user_id = serializers.IntegerField(required=True)
+# class PhoneOTPRequestSerializer(serializers.Serializer):
+#     phone_number = serializers.CharField()
+#     country_code = serializers.CharField(default="+1")
+#     user_id = serializers.IntegerField(required=True)
 
 
-class PhoneOTPVerifySerializer(serializers.Serializer):
-    phone_number = serializers.CharField()
-    country_code = serializers.CharField(default="+1")
-    otp_code = serializers.CharField(max_length=10)
+# class PhoneOTPVerifySerializer(serializers.Serializer):
+#     phone_number = serializers.CharField()
+#     country_code = serializers.CharField(default="+1")
+#     otp_code = serializers.CharField(max_length=10)
 
 
-class OTPResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-    status = serializers.CharField()
-    email = serializers.EmailField(required=False)
-    phone_number = serializers.CharField(required=False)
-    expires_in = serializers.IntegerField(required=False)
-    user = serializers.DictField(required=False)
+# class OTPResponseSerializer(serializers.Serializer):
+#     message = serializers.CharField()
+#     status = serializers.CharField()
+#     email = serializers.EmailField(required=False)
+#     phone_number = serializers.CharField(required=False)
+#     expires_in = serializers.IntegerField(required=False)
+#     user = serializers.DictField(required=False)
 
 
 class ResendOTPResponseSerializer(serializers.Serializer):

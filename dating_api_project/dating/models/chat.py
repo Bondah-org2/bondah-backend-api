@@ -4,6 +4,7 @@ import random
 import string
 
 from .users import User
+from datetime import timedelta
 
 
 class Chat(models.Model):
@@ -553,7 +554,11 @@ class EmailVerification(models.Model):
     """Email OTP verification for user registration"""
 
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="email_verifications"
+        User,
+        on_delete=models.CASCADE,
+        related_name="email_verifications",
+        null=True,
+        blank=True,
     )
     email = models.EmailField()
     otp_code = models.CharField(max_length=4)
@@ -584,17 +589,12 @@ class EmailVerification(models.Model):
     @classmethod
     def generate_otp(cls):
         """Generate 4-digit OTP"""
-        import random
-        import string
 
         return "".join(random.choices(string.digits, k=4))
 
     @classmethod
     def create_verification(cls, user, email):
         """Create new email verification"""
-        from django.utils import timezone
-        from datetime import timedelta
-
         # Deactivate previous verifications for this email
         cls.objects.filter(email=email, is_used=False).update(is_used=True)
 
@@ -608,9 +608,6 @@ class EmailVerification(models.Model):
     @classmethod
     def can_resend_for_email(cls, email):
         """Check if email can request new OTP"""
-        from django.utils import timezone
-        from datetime import timedelta
-
         recent_attempts = cls.objects.filter(
             email=email, created_at__gte=timezone.now() - timedelta(minutes=1)
         ).count()
