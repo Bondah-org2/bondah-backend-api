@@ -195,12 +195,12 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # For production (Gmail SMTP):
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "your-email@gmail.com")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "your-app-password")
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "your-email@gmail.com")
+EMAIL_HOST = "mail.bondah.org"  # Use your server from the screenshot
+EMAIL_PORT = 587  # Port from the screenshot
+EMAIL_USE_TLS = True  # Keep TLS enabled
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "noreply@bondah.org")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "Bondah@automated@$$25")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@bondah.org")
 
 # Site ID for django-allauth
 SITE_ID = 1

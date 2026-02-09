@@ -1185,26 +1185,9 @@ class PasswordResetSerializer(serializers.Serializer):
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    uid = serializers.CharField()
-    token = serializers.CharField()
+    email = serializers.EmailField()
+    otp = serializers.CharField()
     new_password = serializers.CharField(validators=[validate_password])
-    new_password_confirm = serializers.CharField()
-
-    def validate(self, attrs):
-        if attrs["new_password"] != attrs["new_password_confirm"]:
-            raise serializers.ValidationError("Passwords don't match.")
-
-        try:
-            uid = force_str(urlsafe_base64_decode(attrs["uid"]))
-            user = User.objects.get(pk=uid)
-        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-            raise serializers.ValidationError("Invalid token.")
-
-        if not default_token_generator.check_token(user, attrs["token"]):
-            raise serializers.ValidationError("Invalid token.")
-
-        attrs["user"] = user
-        return attrs
 
 
 class UserProfileSerializer(serializers.ModelSerializer):

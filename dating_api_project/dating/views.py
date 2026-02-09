@@ -74,6 +74,7 @@ from .models import (
     MatchRequest,
     MatchRevenueSplit,
     VirtualGift,
+    PasswordResetOTP,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -302,7 +303,7 @@ logger = logging.getLogger(__name__)
 
 class UserCreateView(generics.CreateAPIView):
     queryset = User.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = CustomRegisterSerializer
 
     def create(self, request, *args, **kwargs):
         try:
@@ -1364,9 +1365,9 @@ class TokenRefreshView(generics.GenericAPIView):
 @extend_schema(
     request=PasswordResetSerializer,
     responses={
-        200: PasswordResetResponseSerializer,
-        400: PasswordResetErrorResponseSerializer,
-        500: PasswordResetResponseSerializer,
+        200: PasswordResetSerializer,
+        400: PasswordResetSerializer,
+        500: PasswordResetSerializer,
     },
 )
 class PasswordResetView(generics.GenericAPIView):
@@ -1374,51 +1375,89 @@ class PasswordResetView(generics.GenericAPIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        email = request.data.get("email")
 
-        email = serializer.validated_data["email"]
-        try:
-            user = User.objects.get(email=email)
-            # Generate reset token, send email...
-        except User.DoesNotExist:
-            # Don't reveal email existence
-            return Response(
-                {
-                    "message": "If the email exists, a reset link has been sent",
-                    "status": "success",
-                },
-                status=status.HTTP_200_OK,
-            )
+        # Always respond success (avoid email enumeration)
+        response_msg = {
+            "message": "If the email exists, OTP has been sent",
+            "status": "success",
+        }
 
-        # send_mail logic...
-        return Response({"message": "Password reset email sent", "status": "success"})
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response(response_msg, status=200)
+
+        # Delete old OTPs for this email
+        PasswordResetOTP.objects.filter(email=email, is_used=False).delete()
+
+        # Generate new OTP
+        otp = PasswordResetOTP.generate_otp()
+
+        # Store it in DB
+        PasswordResetOTP.objects.create(
+            email=email,
+            otp=otp,
+        )
+
+        # Send OTP via email
+        send_mail(
+            subject="Your Password Reset OTP",
+            message=f"Your OTP is {otp}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+        )
+
+        return Response(response_msg, status=200)
 
 
 @extend_schema(
-    request=PasswordResetConfirmRequestSerializer,
+    request=PasswordResetConfirmSerializer,
     responses={
-        200: PasswordResetConfirmResponseSerializer,
-        400: PasswordResetConfirmResponseSerializer,
-        500: PasswordResetConfirmResponseSerializer,
+        200: PasswordResetConfirmSerializer,
+        400: PasswordResetConfirmSerializer,
+        500: PasswordResetConfirmSerializer,
     },
 )
 class PasswordResetConfirmView(generics.GenericAPIView):
-    serializer_class = PasswordResetConfirmRequestSerializer
+    serializer_class = PasswordResetConfirmSerializer
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user_id = serializer.validated_data["user_id"]
+        email = serializer.validated_data["email"]
+        otp = serializer.validated_data["otp"]
         new_password = serializer.validated_data["new_password"]
 
-        user = User.objects.get(pk=user_id)
+        # 1. Verify OTP
+        otp_record = PasswordResetOTP.objects.filter(
+            email=email,
+            otp=otp,
+            is_used=False,
+        ).first()
+
+        if not otp_record or otp_record.is_expired():
+            return Response(
+                {"message": "Invalid or expired OTP", "status": "error"},
+                status=400,
+            )
+
+        # 2. Get user
+        user = User.objects.get(email=email)
+
+        # 3. Reset password
         user.set_password(new_password)
         user.save()
 
-        return Response({"message": "Password reset successfully", "status": "success"})
+        # 4. Mark OTP used
+        otp_record.is_used = True
+        otp_record.save()
+
+        return Response(
+            {"message": "Password reset successfully", "status": "success"},
+            status=200,
+        )
 
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
