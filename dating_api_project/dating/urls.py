@@ -163,8 +163,10 @@ from .views import (
     PrivateUsersForBondmakerListView,
     MatchRequestCreateView,
     PurchaseCoinView,
-    MatchRequestAcceptView,
-    MatchRequestRejectView,
+    BondmakerAcceptMatchView,
+    BondmakerRejectMatchView,
+    PasswordResendOTPView,
+    UserSwipeDeckView,
 )
 
 urlpatterns = [
@@ -258,11 +260,19 @@ urlpatterns = [
     ),
     # Mobile App Authentication Endpoints
     path(
-        "auth/request-otp/", RegisterRequestOTPView.as_view(), name="request-email-otp"
+        "auth/register/request-otp//",
+        RegisterRequestOTPView.as_view(),
+        name="request-email-otp",
     ),
-    path("auth/resend-otp/", ResendEmailOTPView.as_view(), name="resend-email-otp"),
     path(
-        "auth/verify-otp/", VerifyOTPAndRegisterView.as_view(), name="verify-email-otp"
+        "auth/register/resend-otp/",
+        ResendEmailOTPView.as_view(),
+        name="resend-email-otp",
+    ),
+    path(
+        "auth/register/verify-otp/",
+        VerifyOTPAndRegisterView.as_view(),
+        name="verify-email-otp",
     ),
     path("auth/login/", UserLoginView.as_view(), name="user-login"),
     path("auth/logout/", UserLogoutView.as_view(), name="user-logout"),
@@ -273,6 +283,7 @@ urlpatterns = [
         PasswordResetConfirmView.as_view(),
         name="password-reset-confirm",
     ),
+    path("auth/password/reset/resend-otp/", PasswordResendOTPView.as_view()),
     path("auth/profile/", UserProfileView.as_view(), name="user-profile"),
     path(
         "auth/deactivate/", AccountDeactivationView.as_view(), name="account-deactivate"
@@ -708,18 +719,19 @@ urlpatterns = [
         name="create-match-request",
     ),
     path(
-        "match-request/<int:match_request_id>/accept/",
-        MatchRequestAcceptView.as_view(),
-        name="match-request-accept",
+        "bondmaker/matches/<int:usermatch_id>/accept/",
+        BondmakerAcceptMatchView.as_view(),
+        name="bondmaker-accept-match",
     ),
-    # Reject a match request (bondmaker action)
     path(
-        "match-request/<int:match_request_id>/reject/",
-        MatchRequestRejectView.as_view(),
-        name="match-request-reject",
+        "bondmaker/matches/<int:usermatch_id>/reject/",
+        BondmakerRejectMatchView.as_view(),
+        name="bondmaker-reject-match",
     ),
     # Purchase coins
     path("wallet/purchase_coins/", PurchaseCoinView.as_view(), name="purchase-coins"),
     path("wallet/send-gift/", SendGiftView.as_view(), name="send-gift"),
     path("wallet/convert-gift/", ConvertGiftView.as_view(), name="convert-gift"),
+    # Swipe View
+    path("auth/swipe-deck/", UserSwipeDeckView.as_view(), name="user-swipe-deck"),
 ]

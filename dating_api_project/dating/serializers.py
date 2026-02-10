@@ -77,9 +77,11 @@ from .models import (
     SuggestedMatch,
     Visibility,
     MatchRequest,
+    Notification,
 )
 from drf_spectacular.utils import extend_schema_field
 from typing import List, Dict, Any
+from .location_utils import calculate_distance
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -1194,6 +1196,10 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     new_password = serializers.CharField(validators=[validate_password])
 
 
+class PasswordResetResendSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -1706,14 +1712,26 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
     password_confirm = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
+        email = attrs["email"]
+
+        # 1. Passwords match
         if attrs["password"] != attrs["password_confirm"]:
             raise serializers.ValidationError("Passwords do not match.")
 
+        # 2. Email already registered
+        if User.objects.filter(email=email).exists():
+            raise serializers.ValidationError(
+                "An account with this email already exists. Please login instead."
+            )
+
+        # 3. OTP rate limit check
         if EmailVerification.objects.filter(
-            email=attrs["email"], is_used=False
+            email=email, is_used=False
         ).exists():
-            if not EmailVerification.can_resend_for_email(attrs["email"]):
-                raise serializers.ValidationError("OTP already sent. Try again later.")
+            if not EmailVerification.can_resend_for_email(email):
+                raise serializers.ValidationError(
+                    "OTP already sent. Try again later."
+                )
 
         return attrs
 
@@ -2168,6 +2186,9 @@ class UserInteractionSerializer(serializers.ModelSerializer):
     target_user_photo = serializers.URLField(
         source="target_user.profile_picture", read_only=True
     )
+    bondmaker_name = serializers.CharField(
+        source="target_user.bondmaker.name", read_only=True
+    )
 
     class Meta:
         model = UserInteraction
@@ -2176,11 +2197,25 @@ class UserInteractionSerializer(serializers.ModelSerializer):
             "target_user",
             "target_user_name",
             "target_user_photo",
+            "bondmaker_name",
             "interaction_type",
             "created_at",
             "metadata",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "target_user_name",
+            "target_user_photo",
+            "bondmaker_name",
+        ]
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ["id", "title", "message", "is_read", "created_at"]
+        read_only_fields = ["id", "title", "message", "created_at"]
 
 
 class SearchQuerySerializer(serializers.ModelSerializer):
@@ -3651,12 +3686,11 @@ class LiveGiftCreateSerializer(serializers.ModelSerializer):
         validated_data["chat_message"] = f"{request.user.name} sent {gift.name}"
 
         # Create Bondcoin transaction
-        bondcoin_transaction = BondcoinTransaction.objects.create(
+        bondcoin_transaction = WalletTransaction.objects.create(
             user=validated_data["sender"],
-            transaction_type="gift_sent",
+            tx_type="gift_sent",
             amount=-validated_data["total_cost"],
             gift=gift,
-            description=f"Live gift sent: {gift.name}",
             status="completed",
         )
         validated_data["bondcoin_transaction"] = bondcoin_transaction
@@ -4073,28 +4107,69 @@ class MatchRequestSerializer(serializers.Serializer):
             user = User.objects.get(id=value)
         except User.DoesNotExist:
             raise serializers.ValidationError("Target user not found")
+        if not hasattr(user, "bondmaker") or user.bondmaker is None:
+            raise serializers.ValidationError("Target user does not have a bondmaker")
         return value
 
     def validate(self, attrs):
-        # Optional: prevent user from sending request to themselves
-        if self.context["request"].user.id == attrs["target_user_id"]:
+        user = self.context["request"].user
+        if user.id == attrs["target_user_id"]:
             raise serializers.ValidationError(
                 "You cannot send a match request to yourself"
             )
         return attrs
 
 
-class MatchRequestActionSerializer(serializers.Serializer):
-    """
-    Serializer for accepting or rejecting a match request.
-    Only validates that the match_request_id exists and is pending.
-    """
+class BondmakerMatchActionResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    platform_share_usd = serializers.FloatField(required=False)
+    bondmaker_share_usd = serializers.FloatField(required=False)
 
-    match_request_id = serializers.IntegerField()
 
-    def validate_match_request_id(self, value):
-        try:
-            match_request = MatchRequest.objects.get(id=value, status="pending")
-        except MatchRequest.DoesNotExist:
-            raise serializers.ValidationError("Pending match request not found")
-        return value
+class BondmakerMatchActionSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=["accept", "reject"])
+
+
+class UserSwipeCardSerializer(serializers.ModelSerializer):
+    bondmaker = serializers.SerializerMethodField()
+    # distance_km = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "name",
+            "age",
+            "gender",
+            "bio",
+            "interests",
+            "profile_picture",
+            "profile_gallery",
+            "is_matchmaker",
+            "bondmaker",
+        ]
+
+    def get_bondmaker(self, obj) -> Dict[str, Any]:
+        # If user has an associated bondmaker
+        bondmaker_user = getattr(obj, "bondmaker", None)
+        if bondmaker_user:
+            return {
+                "id": bondmaker_user.id,
+                "name": bondmaker_user.name,
+                "avatar": bondmaker_user.profile_picture,
+                "verified": bondmaker_user.is_matchmaker,
+            }
+        return None
+
+    def get_distance_km(self, obj):
+        # Calculate distance between request.user and obj
+        request_user = self.context.get("request").user
+        if request_user.has_location and obj.has_location:
+            return round(
+                calculate_distance(
+                    request_user.location_coordinates,
+                    obj.location_coordinates,
+                ),
+                2,
+            )
+        return None

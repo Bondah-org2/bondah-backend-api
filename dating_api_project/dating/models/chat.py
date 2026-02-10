@@ -570,22 +570,17 @@ class EmailVerification(models.Model):
     verified_at = models.DateTimeField(blank=True, null=True)
     temp_password = models.CharField(max_length=128, null=True, blank=True)
     registration_token = models.UUIDField(
-        default=uuid.uuid4, editable=False,
+        default=uuid.uuid4, editable=False
     )
 
     def __str__(self):
         return f"Email OTP for {self.email} - {self.otp_code}"
 
     def is_expired(self):
-        from django.utils import timezone
-
         return timezone.now() > self.expires_at
 
     def can_resend(self):
         """Check if user can request a new OTP (rate limiting)"""
-        from django.utils import timezone
-        from datetime import timedelta
-
         recent_attempts = EmailVerification.objects.filter(
             email=self.email, created_at__gte=timezone.now() - timedelta(minutes=1)
         ).count()
@@ -593,13 +588,12 @@ class EmailVerification(models.Model):
 
     @classmethod
     def generate_otp(cls):
-        """Generate 4-digit OTP"""
-
+        """Generate a 4-digit OTP"""
         return "".join(random.choices(string.digits, k=4))
 
     @classmethod
-    def create_verification(cls, user, email):
-        """Create new email verification"""
+    def create_verification(cls, user=None, email=None):
+        """Create a new email verification record"""
         # Deactivate previous verifications for this email
         cls.objects.filter(email=email, is_used=False).update(is_used=True)
 
@@ -607,12 +601,16 @@ class EmailVerification(models.Model):
         expires_at = timezone.now() + timedelta(minutes=10)
 
         return cls.objects.create(
-            user=user, email=email, otp_code=otp_code, expires_at=expires_at
+            user=user,
+            email=email,
+            otp_code=otp_code,
+            expires_at=expires_at,
+            registration_token=uuid.uuid4(),  # new random token each time
         )
 
     @classmethod
     def can_resend_for_email(cls, email):
-        """Check if email can request new OTP"""
+        """Check if the email can request a new OTP"""
         recent_attempts = cls.objects.filter(
             email=email, created_at__gte=timezone.now() - timedelta(minutes=1)
         ).count()

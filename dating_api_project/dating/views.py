@@ -22,6 +22,9 @@ from rest_framework import serializers
 from pagination import BondmakerPagination, BondmakerPublicPagination
 from django.core.exceptions import ValidationError
 from .location_utils import update_user_location, geocode_address
+from django.db.models import F
+from django.db.models.functions import ACos, Cos, Sin, Radians
+
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -83,6 +86,7 @@ from .models import (
     CommentInteraction,
     Post,
     PostInteraction,
+    Notification,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -213,7 +217,8 @@ from .serializers import (
     SendGiftSerializer,
     ConvertGiftSerializer,
     BondcoinPackageSerializer,
-    MatchRequestActionSerializer,
+    BondmakerMatchActionSerializer,
+    BondmakerMatchActionResponseSerializer,
     VirtualGiftSerializer,
     RegisterRequestOTPSerializer,
     VerifyOTPAndRegisterSerializer,
@@ -221,6 +226,8 @@ from .serializers import (
     StoryCreateSerializer,
     PostShareSerializer,
     LiveSessionSerializer,
+    PasswordResetResendSerializer,
+    UserSwipeCardSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -245,7 +252,7 @@ from .schema import (
     paginated_list_schema,
     BondahSchemaMixin,
 )
-from .services.match_service import charge_match_request
+from .services.match_service import charge_match_request, reject_match_request
 from .services.payment_service import process_apple_purchase, process_google_purchase
 from .services.gift_service import send_gift, convert_gift_to_coins
 from .services.wallet_service import credit_wallet
@@ -1486,6 +1493,57 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         )
 
 
+@extend_schema(
+    request=PasswordResetResendSerializer,
+    responses={200: PasswordResetResendSerializer},
+)
+class PasswordResendOTPView(generics.GenericAPIView):
+    serializer_class = PasswordResetSerializer
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+
+        response_msg = {
+            "message": "If the email exists, OTP has been sent",
+            "status": "success",
+        }
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response(response_msg, status=200)
+
+        # Rate limit check
+        if not PasswordResetOTP.can_resend_for_email(email):
+            return Response(
+                {"message": "Too many requests. Try again in a minute."},
+                status=400,
+            )
+
+        # Mark previous OTPs as used (do NOT delete — for audit trail)
+        PasswordResetOTP.objects.filter(
+            email=email, is_used=False
+        ).update(is_used=True)
+
+        # Generate new OTP
+        otp = PasswordResetOTP.generate_otp()
+
+        PasswordResetOTP.objects.create(
+            email=email,
+            otp=otp,
+        )
+
+        # Send mail
+        send_mail(
+            subject="Your Password Reset OTP",
+            message=f"Your OTP is {otp}",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+        )
+
+        return Response(response_msg, status=200)
+
+
 class UserProfileView(generics.RetrieveUpdateAPIView):
     """User profile view for mobile app"""
 
@@ -1934,66 +1992,51 @@ class SocialLoginView(generics.GenericAPIView):
             )
 
 
-class DeviceRegistrationView(APIView):
-    """Register device for push notifications"""
+class DeviceRegistrationView(generics.CreateAPIView):
+    """
+    Register a device for push notifications.
+    Automatically deactivates old tokens for the same user/device combination.
+    """
 
+    serializer_class = DeviceRegistrationSerializer
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        request=DeviceRegistrationRequestSerializer,
-        responses={
-            200: DeviceRegistrationResponseSerializer,
-            400: ValidationErrorResponseSerializer,
-            500: CustomErrorResponseSerializer,
-        },
-        description="Register or update a device for push notifications.",
-    )
-    def post(self, request):
-        serializer = DeviceRegistrationSerializer(data=request.data)
-        if serializer.is_valid():
-            try:
-                device, created = DeviceRegistration.objects.get_or_create(
-                    device_id=serializer.validated_data["device_id"],
-                    defaults={
-                        "user": request.user,
-                        "device_type": serializer.validated_data["device_type"],
-                        "push_token": serializer.validated_data["push_token"],
-                        "is_active": True,
-                    },
-                )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-                if not created:
-                    device.device_type = serializer.validated_data["device_type"]
-                    device.push_token = serializer.validated_data["push_token"]
-                    device.is_active = True
-                    device.save()
+        device_id = serializer.validated_data["device_id"]
+        device_type = serializer.validated_data["device_type"]
+        push_token = serializer.validated_data["push_token"]
+        user = request.user
 
-                return Response(
-                    {
-                        "message": "Device registered successfully",
-                        "status": "success",
-                        "device_id": device.device_id,
-                        "created": created,
-                    },
-                    status=status.HTTP_200_OK,
-                )
+        # Deactivate previous tokens for this device ID and user
+        DeviceRegistration.objects.filter(user=user, device_id=device_id).update(
+            is_active=False
+        )
 
-            except Exception as e:
-                return Response(
-                    {
-                        "message": f"Device registration failed: {str(e)}",
-                        "status": "error",
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+        # Create or update the device
+        device, created = DeviceRegistration.objects.update_or_create(
+            device_id=device_id,
+            user=user,
+            defaults={
+                "device_type": device_type,
+                "push_token": push_token,
+                "is_active": True,
+            },
+        )
 
         return Response(
             {
-                "message": "Device registration failed",
-                "status": "error",
-                "errors": serializer.errors,
+                "message": "Device registered successfully",
+                "status": "success",
+                "device_id": device.device_id,
+                "created": created,
+                "active_tokens": DeviceRegistration.objects.filter(
+                    user=user, is_active=True
+                ).count(),
             },
-            status=status.HTTP_400_BAD_REQUEST,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -2906,41 +2949,6 @@ class UserProfileDetailView(generics.RetrieveAPIView):
             defaults={"source": "direct"},
         )
         return response
-
-
-class UserInteractionView(generics.CreateAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = UserInteractionSerializer
-
-    def perform_create(self, serializer):
-        target_user = serializer.validated_data["target_user"]
-        interaction_type = serializer.validated_data["interaction_type"]
-
-        interaction, created = UserInteraction.objects.get_or_create(
-            user=self.request.user,
-            target_user=target_user,
-            interaction_type=interaction_type,
-            defaults={"metadata": serializer.validated_data.get("metadata", {})},
-        )
-        if not created:
-            interaction.metadata = serializer.validated_data.get("metadata", {})
-            interaction.save()
-
-        # Handle mutual likes -> matches
-        if interaction_type == "like":
-            if UserInteraction.objects.filter(
-                user=target_user, target_user=self.request.user, interaction_type="like"
-            ).exists():
-                UserMatch.objects.get_or_create(
-                    user1=self.request.user,
-                    user2=target_user,
-                    defaults={
-                        "distance": self.request.user.get_distance_to(target_user) or 0,
-                        "status": "matched",
-                    },
-                )
-
-        return interaction
 
 
 class UserRecommendationsView(generics.ListAPIView):
@@ -6181,117 +6189,194 @@ class MyLedgerView(generics.ListAPIView):
 
 class MatchRequestCreateView(generics.GenericAPIView):
     """
-    User creates a bondmaker match request and wallet is charged.
+    User creates a match request (swipe/like) for a target user.
+    Coins are charged (escrow) and bondmaker is notified.
     """
 
     serializer_class = MatchRequestSerializer
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
-        # Extract validated fields
-        bondmaker_id = serializer.validated_data["bondmaker_id"]
-        target_user_id = serializer.validated_data["target_user_id"]
-        coins_required = serializer.validated_data["coins"]
         user = request.user
+        bondmaker = get_object_or_404(
+            User, id=serializer.validated_data["bondmaker_id"]
+        )
+        target_user = get_object_or_404(
+            User, id=serializer.validated_data["target_user_id"]
+        )
+        coins = serializer.validated_data["coins"]
 
-        try:
-            bondmaker = User.objects.get(id=bondmaker_id)
-            target_user = User.objects.get(id=target_user_id)
-        except User.DoesNotExist:
-            return Response({"error": "Bondmaker or target user not found"}, status=404)
-
-        # Charge coins and create match request
+        # Charge coins and create MatchRequest (escrow)
         try:
             match_request = charge_match_request(
                 user=user,
                 bondmaker=bondmaker,
                 target_user=target_user,
-                coins=coins_required,
-                reference_id=None,
+                coins=coins,
             )
         except ValidationError as e:
             return Response({"error": str(e)}, status=400)
+
+        # Create or update UserMatch record
+        distance = user.get_distance_to(target_user) or 0
+        user_match, created = UserMatch.objects.update_or_create(
+            user1=user,
+            user2=target_user,
+            defaults={
+                "distance": distance,
+                "status": "pending",
+                "match_score": 0,
+            },
+        )
+
+        # Create notification for bondmaker
+        notification = Notification.objects.create(
+            user=bondmaker,
+            title="New Match Request",
+            message=f"{user.name} liked {target_user.name}. Review the request.",
+        )
+
+        # Send push notification
+        send_push_notification(
+            bondmaker,
+            title=notification.title,
+            message=notification.message,
+            data={"match_request_id": match_request.id},
+        )
 
         return Response(
             {
                 "message": "Match request created successfully",
                 "match_request_id": match_request.id,
                 "coins_charged": match_request.coins_charged,
-                "status": match_request.status,
+                "user_match_id": user_match.id,
+                "status": user_match.status,
                 "user_balance": user.wallet.available_balance,
             },
             status=status.HTTP_201_CREATED,
         )
 
 
-class MatchRequestAcceptView(generics.GenericAPIView):
-    """
-    Bondmaker accepts a pending match request.
-    Escrowed coins are released, revenue split tracked.
-    """
-
+# Bondmaker Accept View for swiping and match Request
+class BondmakerAcceptMatchView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
-    serializer_class = MatchRequestActionSerializer
+    serializer_class = BondmakerMatchActionSerializer
 
-    def post(self, request, match_request_id, *args, **kwargs):
+    @extend_schema(
+        request=BondmakerMatchActionSerializer,
+        responses=BondmakerMatchActionResponseSerializer,
+        description="Bondmaker accepts a pending match and releases escrow coins.",
+    )
+    def post(self, request, usermatch_id):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         bondmaker = request.user
 
-        try:
-            match_request = MatchRequest.objects.get(
-                id=match_request_id, bondmaker=bondmaker, status="pending"
-            )
-        except MatchRequest.DoesNotExist:
-            return Response(
-                {"error": "Pending match request not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        match = get_object_or_404(
+            UserMatch,
+            id=usermatch_id,
+            user2__bondmaker=bondmaker,
+            status="pending",
+        )
 
-        platform_share_usd, bondmaker_share_usd = accept_match_request(match_request)
+        platform_usd, bondmaker_usd = accept_match_request(match.match_request)
+
+        match.status = "matched"
+        match.save()
+
+        user_a = match.user1
+        user_b = match.user2
+
+        #  Create notifications
+        notif_a = Notification.objects.create(
+            user=user_a,
+            title="It's a Match!",
+            message=f"You have been matched with {user_b.name}",
+        )
+
+        notif_b = Notification.objects.create(
+            user=user_b,
+            title="It's a Match!",
+            message=f"You have been matched with {user_a.name}",
+        )
+
+        #  Push notifications
+        send_push_notification(
+            user_a,
+            title=notif_a.title,
+            message=notif_a.message,
+            data={"match_id": match.id},
+        )
+
+        send_push_notification(
+            user_b,
+            title=notif_b.title,
+            message=notif_b.message,
+            data={"match_id": match.id},
+        )
 
         return Response(
             {
-                "message": "Match request accepted",
-                "coins_released_from_escrow": match_request.coins_charged,
-                "bondmaker_share_usd": float(bondmaker_share_usd),
-                "platform_share_usd": float(platform_share_usd),
+                "message": "Match accepted",
+                "platform_share_usd": float(platform_usd),
+                "bondmaker_share_usd": float(bondmaker_usd),
             },
             status=status.HTTP_200_OK,
         )
 
 
-class MatchRequestRejectView(generics.GenericAPIView):
-    """
-    Bondmaker rejects a pending match request.
-    Coins are returned to user.
-    """
-
+class BondmakerRejectMatchView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
-    serializer_class = MatchRequestActionSerializer
+    serializer_class = BondmakerMatchActionSerializer
 
-    def post(self, request, match_request_id, *args, **kwargs):
+    @extend_schema(
+        request=BondmakerMatchActionSerializer,
+        responses=BondmakerMatchActionResponseSerializer,
+        description="Bondmaker rejects a pending match and refunds coins.",
+    )
+    def post(self, request, usermatch_id):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         bondmaker = request.user
 
-        try:
-            match_request = MatchRequest.objects.get(
-                id=match_request_id, bondmaker=bondmaker, status="pending"
-            )
-        except MatchRequest.DoesNotExist:
-            return Response(
-                {"error": "Pending match request not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        match = get_object_or_404(
+            UserMatch,
+            id=usermatch_id,
+            user2__bondmaker=bondmaker,
+            status="pending",
+        )
 
-        from dating.models import reject_match_request
+        reject_match_request(match.match_request)
 
-        reject_match_request(match_request)
+        match.status = "disliked"
+        match.save()
+
+        requester = match.user1
+
+        # Notification
+        notification = Notification.objects.create(
+            user=requester,
+            title="Match Request Rejected",
+            message="Your match request was rejected and coins refunded.",
+        )
+
+        # Push
+        send_push_notification(
+            requester,
+            title=notification.title,
+            message=notification.message,
+        )
 
         return Response(
             {
-                "message": "Match request rejected, coins refunded",
-                "coins_refunded": match_request.coins_charged,
+                "message": "Match rejected and coins refunded",
             },
             status=status.HTTP_200_OK,
         )
@@ -6371,3 +6456,163 @@ class PurchaseCoinView(generics.GenericAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class UserInteractionView(generics.CreateAPIView):
+    """
+    Handles all swipe interactions.
+
+    LIKE  -> Charge coins, create MatchRequest, create/update UserMatch(pending),
+             notify bondmaker.
+    PASS/DISLIKE -> Only store interaction (temporary memory).
+    BLOCK/REPORT -> Update UserMatch to blocked.
+    """
+
+    serializer_class = UserInteractionSerializer
+    permission_classes = [IsAuthenticated]
+
+    SWIPE_COST = 10  # coins per like
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        target_user = serializer.validated_data["target_user"]
+        interaction_type = serializer.validated_data["interaction_type"]
+        metadata = serializer.validated_data.get("metadata", {})
+
+        # Save interaction history (always)
+        interaction, _ = UserInteraction.objects.update_or_create(
+            user=user,
+            target_user=target_user,
+            interaction_type=interaction_type,
+            defaults={"metadata": metadata},
+        )
+
+        # ---------------------------------------------------------
+        # LIKE  → CHARGE COINS → CREATE MATCH REQUEST → USERMATCH
+        # ---------------------------------------------------------
+        if interaction_type == "like":
+            bondmaker = getattr(target_user, "bondmaker", None)
+
+            if not bondmaker:
+                return Response(
+                    {"error": "Target user is not under any bondmaker"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                match_request = charge_match_request(
+                    user=user,
+                    bondmaker=bondmaker,
+                    target_user=target_user,
+                    coins=self.SWIPE_COST,
+                )
+            except ValidationError as e:
+                raise ValidationError({"detail": str(e)})
+
+            # Create or update UserMatch as pending
+            distance = user.get_distance_to(target_user) or 0
+
+            UserMatch.objects.update_or_create(
+                user1=user,
+                user2=target_user,
+                defaults={
+                    "distance": distance,
+                    "status": "pending",
+                },
+            )
+
+            # Track notification in DB
+            notification = Notification.objects.create(
+                user=bondmaker,
+                title="New Match Request",
+                message=f"{user.name} liked {target_user.name}. Review request.",
+            )
+
+            # Push notification to bondmaker
+            send_push_notification(
+                bondmaker,
+                title=notification.title,
+                body=notification.message,
+                data={"match_request_id": match_request.id},
+            )
+
+        # ---------------------------------------------------------
+        # BLOCK / REPORT  → RELATIONSHIP STATE (UserMatch)
+        # ---------------------------------------------------------
+        elif interaction_type in ["block", "report"]:
+            UserMatch.objects.update_or_create(
+                user1=user,
+                user2=target_user,
+                defaults={"status": "blocked"},
+            )
+
+        # ---------------------------------------------------------
+        # PASS / DISLIKE → DO NOTHING (temporary memory only)
+        # ---------------------------------------------------------
+
+        return Response(
+            {
+                "message": "Interaction recorded successfully",
+                "interaction_type": interaction_type,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class UserSwipeDeckView(generics.ListAPIView):
+    """
+    Returns users for swipe deck:
+    - Only public users with active visibility
+    - Exclude already swiped users
+    - Filter by distance (optional max_distance query param)
+    """
+
+    serializer_class = UserSwipeCardSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None  # Use pagination if needed
+
+    def get_queryset(self):
+        user = self.request.user
+        max_distance = self.request.query_params.get("max_distance", None)
+
+        # 1. Only public visible users
+        visible_users = User.objects.filter(
+            visibility_settings__visibility="public",
+            visibility_settings__is_active=True,
+            visibility_settings__expires_at__gt=timezone.now(),
+        ).exclude(id=user.id)
+
+        # 2. Exclude already swiped users
+        swiped_ids = UserInteraction.objects.filter(user=user).values_list(
+            "target_user_id", flat=True
+        )
+        visible_users = visible_users.exclude(id__in=swiped_ids)
+
+        # 3. Filter by max_distance if provided
+        if max_distance and user.has_location:
+            lat_rad = float(user.latitude) * 3.14159265359 / 180
+            lon_rad = float(user.longitude) * 3.14159265359 / 180
+
+            visible_users = visible_users.annotate(
+                distance_km=6371
+                * ACos(
+                    Cos(Radians(F("latitude")))
+                    * Cos(lat_rad)
+                    * Cos(Radians(F("longitude")) - lon_rad)
+                    + Sin(Radians(F("latitude"))) * Sin(lat_rad)
+                )
+            )
+            visible_users = visible_users.filter(distance_km__lte=float(max_distance))
+            visible_users = visible_users.order_by("distance_km")
+        else:
+            visible_users = visible_users.order_by("?")  # random order
+
+        return visible_users
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context

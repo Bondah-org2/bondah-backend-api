@@ -70,6 +70,7 @@ from .users import (
     UserRoleSelection,
     MatchRequest,
     PasswordResetOTP,
+    Notification,
 )
 from .username import UsernameValidation, validate_username_format
 
@@ -150,6 +151,7 @@ __all__ = [
     "Visibility",
     "MatchRequest",
     "PasswordResetOTP",
+    "Notification",
     # Username
     "UsernameValidation",
     "validate_username_format",

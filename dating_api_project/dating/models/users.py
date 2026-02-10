@@ -1,4 +1,5 @@
 import random
+import string
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -6,6 +7,7 @@ from django.utils import timezone
 import re
 from django.core.exceptions import ValidationError
 from datetime import timedelta
+from django.conf import settings
 
 
 class User(AbstractUser):
@@ -762,49 +764,6 @@ class LocationHistory(models.Model):
         ]
 
 
-class UserMatch(models.Model):
-    """Store potential matches between users based on location and preferences"""
-
-    MATCH_STATUS_CHOICES = (
-        ("pending", "Pending"),
-        ("liked", "Liked"),
-        ("disliked", "Disliked"),
-        ("matched", "Matched"),
-        ("blocked", "Blocked"),
-    )
-
-    user1 = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="matches_initiated"
-    )
-    user2 = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="matches_received"
-    )
-    distance = models.FloatField(help_text="Distance between users in kilometers")
-    match_score = models.FloatField(
-        default=0.0, help_text="Compatibility score (0-100)"
-    )
-    status = models.CharField(
-        max_length=20, choices=MATCH_STATUS_CHOICES, default="pending"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.user1.email} <-> {self.user2.email} ({self.distance:.2f}km)"
-
-    class Meta:
-        # unique_together = ["user1", "user2"]
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["user1", "status"]),
-            models.Index(fields=["user2", "status"]),
-            models.Index(fields=["distance"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(fields=["user1", "user2"], name="unique_user_match")
-        ]
-
-
 class UserInterest(models.Model):
     """Store user interests and hobbies for better matching"""
 
@@ -1095,6 +1054,56 @@ class MatchRequest(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class UserMatch(models.Model):
+    """Store potential matches between users based on location and preferences"""
+
+    MATCH_STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("liked", "Liked"),
+        ("disliked", "Disliked"),
+        ("matched", "Matched"),
+        ("blocked", "Blocked"),
+    )
+
+    match_request = models.OneToOneField(
+        MatchRequest,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="user_match",
+    )
+    user1 = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="matches_initiated"
+    )
+    user2 = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="matches_received"
+    )
+    distance = models.FloatField(help_text="Distance between users in kilometers")
+    match_score = models.FloatField(
+        default=0.0, help_text="Compatibility score (0-100)"
+    )
+    status = models.CharField(
+        max_length=20, choices=MATCH_STATUS_CHOICES, default="pending"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user1.email} <-> {self.user2.email} ({self.distance:.2f}km)"
+
+    class Meta:
+        # unique_together = ["user1", "user2"]
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user1", "status"]),
+            models.Index(fields=["user2", "status"]),
+            models.Index(fields=["distance"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["user1", "user2"], name="unique_user_match")
+        ]
+
+
 class PasswordResetOTP(models.Model):
     email = models.EmailField()
     otp = models.CharField(max_length=6)
@@ -1104,6 +1113,38 @@ class PasswordResetOTP(models.Model):
     def is_expired(self):
         return timezone.now() > self.created_at + timedelta(minutes=10)
 
+    @classmethod
+    def can_resend_for_email(cls, email):
+        recent_attempts = cls.objects.filter(
+            email=email,
+            created_at__gte=timezone.now() - timedelta(minutes=1),
+        ).count()
+        return recent_attempts < 3
+
     @staticmethod
     def generate_otp():
-        return str(random.randint(100000, 999999))
+        return "".join(random.choices(string.digits, k=4))
+
+
+class Notification(models.Model):
+    """
+    Notifications for bondmakers (or any user) about match requests, etc.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
+    )
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def mark_as_read(self):
+        self.is_read = True
+        self.save()
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notification to {self.user.email}: {self.title}"
