@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth.hashers import make_password
 from .models import (
     User,
     NewsletterSubscriber,
@@ -1670,25 +1671,60 @@ class UserVerificationStatusSerializer(serializers.ModelSerializer):
 
 
 # Email and Phone Verification Serializers
-class RequestEmailOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+# class RequestEmailOTPSerializer(serializers.Serializer):
+#     email = serializers.EmailField()
 
-    def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("User already exists.")
-        if not EmailVerification.can_resend_for_email(value):
-            raise serializers.ValidationError(
-                "Too many OTP requests. Please try again in a minute."
-            )
-        return value
+#     def validate_email(self, value):
+#         if User.objects.filter(email=value).exists():
+#             raise serializers.ValidationError("User already exists.")
+#         if not EmailVerification.can_resend_for_email(value):
+#             raise serializers.ValidationError(
+#                 "Too many OTP requests. Please try again in a minute."
+#             )
+#         return value
+
+#     def create(self, validated_data):
+#         email = validated_data["email"]
+
+#         # Create OTP record
+#         verification = EmailVerification.create_verification(user=None, email=email)
+
+#         # Send OTP email
+#         send_mail(
+#             subject="Your Verification OTP",
+#             message=f"Your OTP is {verification.otp_code}",
+#             from_email=settings.DEFAULT_FROM_EMAIL,
+#             recipient_list=[email],
+#         )
+
+#         return {"message": "OTP sent successfully"}
+
+
+class RegisterRequestOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    password_confirm = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError("Passwords do not match.")
+
+        if EmailVerification.objects.filter(
+            email=attrs["email"], is_used=False
+        ).exists():
+            if not EmailVerification.can_resend_for_email(attrs["email"]):
+                raise serializers.ValidationError("OTP already sent. Try again later.")
+
+        return attrs
 
     def create(self, validated_data):
         email = validated_data["email"]
+        password = validated_data["password"]
 
-        # Create OTP record
-        verification = EmailVerification.create_verification(user=None, email=email)
+        verification = EmailVerification.create_verification(email=email)
+        verification.temp_password = make_password(password)
+        verification.save()
 
-        # Send OTP email
         send_mail(
             subject="Your Verification OTP",
             message=f"Your OTP is {verification.otp_code}",
@@ -1696,84 +1732,48 @@ class RequestEmailOTPSerializer(serializers.Serializer):
             recipient_list=[email],
         )
 
-        return {"message": "OTP sent successfully"}
+        return {
+            "message": "OTP sent to your email",
+            "registration_token": str(verification.registration_token),
+        }
 
 
-class VerifyEmailOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+class VerifyOTPAndRegisterSerializer(serializers.Serializer):
+    registration_token = serializers.UUIDField()
     otp_code = serializers.CharField(max_length=4)
 
     def validate(self, attrs):
-        email = attrs.get("email")
-        otp_code = attrs.get("otp_code")
+        token = attrs["registration_token"]
+        otp_code = attrs["otp_code"]
 
         verification = EmailVerification.objects.filter(
-            email=email, otp_code=otp_code, is_used=False
+            registration_token=token, otp_code=otp_code, is_used=False
         ).first()
 
         if not verification:
             raise serializers.ValidationError("Invalid OTP.")
 
         if verification.is_expired():
-            raise serializers.ValidationError("OTP has expired.")
+            raise serializers.ValidationError("OTP expired.")
 
         attrs["verification"] = verification
         return attrs
 
     def create(self, validated_data):
         verification = validated_data["verification"]
+
+        user = User.objects.create_user(
+            username=verification.email,
+            email=verification.email,
+            password=verification.temp_password,
+        )
+
+        verification.user = user
+        verification.is_used = True
         verification.is_verified = True
         verification.verified_at = timezone.now()
         verification.save()
-        # return a dict
-        return {"message": "OTP verified successfully"}
 
-
-class CompleteRegistrationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, validators=[validate_password])
-    password_confirm = serializers.CharField(write_only=True)
-
-    def validate_email(self, value):
-        """
-        Ensure that the email has a verified, unused OTP.
-        """
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("User with this email already exists.")
-
-        verified_otp = EmailVerification.objects.filter(
-            email=value, is_verified=True, is_used=False, expires_at__gt=timezone.now()
-        ).first()
-
-        if not verified_otp:
-            raise serializers.ValidationError(
-                "No valid verified OTP found for this email."
-            )
-
-        return value
-
-    def validate(self, attrs):
-        if attrs["password"] != attrs["password_confirm"]:
-            raise serializers.ValidationError("Passwords do not match.")
-        return attrs
-
-    def create(self, validated_data):
-        email = validated_data["email"]
-        password = validated_data["password"]
-
-        # Create the user
-        user = User.objects.create_user(username=email, email=email, password=password)
-
-        # Mark OTP as used and attach to user
-        otp_record = EmailVerification.objects.filter(
-            email=email, is_verified=True, is_used=False
-        ).latest("created_at")
-        otp_record.user = user
-        otp_record.is_used = True
-        otp_record.verified_at = timezone.now()
-        otp_record.save()
-
-        # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
 
         return {
@@ -1785,33 +1785,136 @@ class CompleteRegistrationSerializer(serializers.Serializer):
         }
 
 
-class ResendEmailOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+# class VerifyEmailOTPSerializer(serializers.Serializer):
+#     email = serializers.EmailField()
+#     otp_code = serializers.CharField(max_length=4)
 
-    def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("User already exists.")
-        if not EmailVerification.can_resend_for_email(value):
+#     def validate(self, attrs):
+#         email = attrs.get("email")
+#         otp_code = attrs.get("otp_code")
+
+#         verification = EmailVerification.objects.filter(
+#             email=email, otp_code=otp_code, is_used=False
+#         ).first()
+
+#         if not verification:
+#             raise serializers.ValidationError("Invalid OTP.")
+
+#         if verification.is_expired():
+#             raise serializers.ValidationError("OTP has expired.")
+
+#         attrs["verification"] = verification
+#         return attrs
+
+#     def create(self, validated_data):
+#         verification = validated_data["verification"]
+#         verification.is_verified = True
+#         verification.verified_at = timezone.now()
+#         verification.save()
+#         # return a dict
+#         return {"message": "OTP verified successfully"}
+
+
+# class CompleteRegistrationSerializer(serializers.Serializer):
+#     email = serializers.EmailField()
+#     password = serializers.CharField(write_only=True, validators=[validate_password])
+#     password_confirm = serializers.CharField(write_only=True)
+
+#     def validate_email(self, value):
+#         """
+#         Ensure that the email has a verified, unused OTP.
+#         """
+#         if User.objects.filter(email=value).exists():
+#             raise serializers.ValidationError("User with this email already exists.")
+
+#         verified_otp = EmailVerification.objects.filter(
+#             email=value, is_verified=True, is_used=False, expires_at__gt=timezone.now()
+#         ).first()
+
+#         if not verified_otp:
+#             raise serializers.ValidationError(
+#                 "No valid verified OTP found for this email."
+#             )
+
+#         return value
+
+#     def validate(self, attrs):
+#         if attrs["password"] != attrs["password_confirm"]:
+#             raise serializers.ValidationError("Passwords do not match.")
+#         return attrs
+
+#     def create(self, validated_data):
+#         email = validated_data["email"]
+#         password = validated_data["password"]
+
+#         # Create the user
+#         user = User.objects.create_user(username=email, email=email, password=password)
+
+#         # Mark OTP as used and attach to user
+#         otp_record = EmailVerification.objects.filter(
+#             email=email, is_verified=True, is_used=False
+#         ).latest("created_at")
+#         otp_record.user = user
+#         otp_record.is_used = True
+#         otp_record.verified_at = timezone.now()
+#         otp_record.save()
+
+#         # Generate JWT tokens
+#         refresh = RefreshToken.for_user(user)
+
+#         return {
+#             "user": user,
+#             "tokens": {
+#                 "access": str(refresh.access_token),
+#                 "refresh": str(refresh),
+#             },
+#         }
+
+
+class ResendEmailOTPSerializer(serializers.Serializer):
+    registration_token = serializers.UUIDField()
+
+    def validate_registration_token(self, value):
+        # Check if token exists and is not used yet
+        verification = EmailVerification.objects.filter(
+            registration_token=value, is_used=False
+        ).first()
+        if not verification:
+            raise serializers.ValidationError(
+                "Invalid or already used registration token."
+            )
+
+        # Optional: prevent spamming (resend cooldown)
+        if not EmailVerification.can_resend_for_email(verification.email):
             raise serializers.ValidationError(
                 "Too many OTP requests. Please try again in a minute."
             )
+
+        self.context["verification"] = verification
         return value
 
     def create(self, validated_data):
-        email = validated_data["email"]
+        verification = self.context["verification"]
 
-        # Create new OTP (marks previous as used)
-        verification = EmailVerification.create_verification(user=None, email=email)
+        # Generate new OTP
+        from random import randint
+
+        verification.otp_code = f"{randint(1000, 9999)}"
+        verification.expires_at = timezone.now() + timezone.timedelta(minutes=5)
+        verification.save()
 
         # Send OTP email
         send_mail(
             subject="Your Verification OTP",
-            message=f"Your OTP is {verification.otp_code}",
+            message=f"Your new OTP is {verification.otp_code}",
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
+            recipient_list=[verification.email],
         )
 
-        return {"message": "OTP resent successfully"}
+        return {
+            "message": "OTP resent successfully",
+            "registration_token": str(verification.registration_token),
+        }
 
 
 # class PhoneOTPRequestSerializer(serializers.Serializer):
@@ -3041,8 +3144,6 @@ class StoryCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """Create story with current user as author and set expiration"""
-        from django.utils import timezone
-        from datetime import timedelta
 
         request = self.context.get("request")
         if request and request.user.is_authenticated:

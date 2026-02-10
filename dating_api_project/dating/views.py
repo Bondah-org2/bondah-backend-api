@@ -21,6 +21,7 @@ from django.core.files.base import ContentFile
 from rest_framework import serializers
 from pagination import BondmakerPagination, BondmakerPublicPagination
 from django.core.exceptions import ValidationError
+from .location_utils import update_user_location, geocode_address
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -75,6 +76,13 @@ from .models import (
     MatchRevenueSplit,
     VirtualGift,
     PasswordResetOTP,
+    Story,
+    StoryReaction,
+    StoryView,
+    PostComment,
+    CommentInteraction,
+    Post,
+    PostInteraction,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -207,10 +215,12 @@ from .serializers import (
     BondcoinPackageSerializer,
     MatchRequestActionSerializer,
     VirtualGiftSerializer,
-    CompleteRegistrationSerializer,
-    RequestEmailOTPSerializer,
-    VerifyEmailOTPSerializer,
+    RegisterRequestOTPSerializer,
+    VerifyOTPAndRegisterSerializer,
     ResendEmailOTPSerializer,
+    StoryCreateSerializer,
+    PostShareSerializer,
+    LiveSessionSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -833,7 +843,6 @@ class AdminLoginView(GenericAPIView):
             {
                 "status": "success",
                 "message": "OTP sent to your email",
-                "otp_code": otp_code,  # optional: remove in prod
             },
             status=status.HTTP_200_OK,
         )
@@ -1176,41 +1185,36 @@ class AdminDebugAuthView(GenericAPIView):
 # =============================================================================
 
 
-class RequestEmailOTPView(generics.CreateAPIView):
-    serializer_class = RequestEmailOTPSerializer
+class RegisterRequestOTPView(generics.CreateAPIView):
+    serializer_class = RegisterRequestOTPSerializer
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.save()  # dict returned
-        return Response(data, status=200)
 
-
-class VerifyEmailOTPView(generics.CreateAPIView):
-    serializer_class = VerifyEmailOTPSerializer
-    permission_classes = [AllowAny]
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.save()  # returns dict
-        return Response(data, status=200)  # return dict directly
-
-
-class CompleteRegistrationView(generics.CreateAPIView):
-    serializer_class = CompleteRegistrationSerializer
-    permission_classes = [AllowAny]
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        # serializer.save() returns a dict
         data = serializer.save()
 
-        # Return user info + JWT tokens
+        # Always return a dict as JSON
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class VerifyOTPAndRegisterView(generics.CreateAPIView):
+    serializer_class = VerifyOTPAndRegisterSerializer
+    permission_classes = [AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # serializer.save() returns a dict containing user + tokens
+        data = serializer.save()
+
         user = data["user"]
         tokens = data["tokens"]
 
+        # Return a clean dict
         response_data = {
             "user": {
                 "id": user.id,
@@ -1618,7 +1622,7 @@ class AccountDeactivationView(generics.GenericAPIView):
     ),
 )
 class NotificationSettingsView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     serializer_class = NotificationSettingsSerializer
 
     def get(self, request):
@@ -2149,8 +2153,6 @@ class LocationUpdateView(generics.UpdateAPIView):
         serializer.is_valid(raise_exception=True)
 
         try:
-            from .location_utils import update_user_location
-
             latitude = serializer.validated_data["latitude"]
             longitude = serializer.validated_data["longitude"]
             accuracy = serializer.validated_data.get("accuracy")
@@ -2194,15 +2196,13 @@ class AddressGeocodeView(generics.GenericAPIView):
     """
 
     serializer_class = AddressGeocodeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         try:
-            from .location_utils import geocode_address
-
             address = serializer.validated_data["address"]
             result = geocode_address(address)
 
@@ -2276,7 +2276,7 @@ class LocationPermissionsView(generics.RetrieveUpdateAPIView):
     """
 
     serializer_class = LocationPermissionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get_object(self):
         # Get or create permissions for the user
@@ -2483,7 +2483,7 @@ class UserLocationProfileView(generics.RetrieveAPIView):
 # 4. Location Statistics (Admin Only)
 # --------------------------
 class LocationStatisticsView(GenericAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     serializer_class = LocationStatisticsSerializer
 
     @extend_schema(
@@ -2730,7 +2730,7 @@ class LocationStatisticsView(GenericAPIView):
 
 
 class UserRoleSelectionView(GenericAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     serializer_class = UserRoleSelectionSerializer
 
     def post(self, request):
@@ -2793,97 +2793,6 @@ class UserRoleStatusView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         return Response(serializer.data)
-
-
-# class ResendOTPView(GenericAPIView):
-#     permission_classes = [AllowAny]
-#     serializer_class = ResendOTPSerializer
-
-#     @extend_schema(
-#         request=ResendOTPSerializer, responses={200: ResendOTPResponseSerializer}
-#     )
-#     def post(self, request):
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-#         otp_type = serializer.validated_data["type"]
-
-#         if otp_type == "email":
-#             identifier = serializer.validated_data.get("identifier")
-#             if not identifier:
-#                 return Response(
-#                     {"message": "Email is required", "status": "error"}, status=400
-#                 )
-#             try:
-#                 verification = EmailVerification.objects.filter(
-#                     email=identifier, is_used=False
-#                 ).latest("created_at")
-#                 if not verification.can_resend():
-#                     return Response(
-#                         {
-#                             "message": "Wait 1 minute before resending",
-#                             "status": "error",
-#                         },
-#                         status=429,
-#                     )
-#                 new_verification = EmailVerification.create_verification(
-#                     verification.user, identifier
-#                 )
-#                 send_mail(
-#                     subject="🔐 New Verification Code - Bondah Dating",
-#                     message=f"Your new code is {new_verification.otp_code}",
-#                     from_email=settings.DEFAULT_FROM_EMAIL,
-#                     recipient_list=[identifier],
-#                     fail_silently=False,
-#                 )
-#                 return Response(
-#                     {"message": "New OTP sent to email", "status": "success"}
-#                 )
-
-#             except EmailVerification.DoesNotExist:
-#                 return Response(
-#                     {
-#                         "message": "No pending verification for this email",
-#                         "status": "error",
-#                     },
-#                     status=404,
-#                 )
-
-#         elif otp_type == "phone":
-#             phone_number = serializer.validated_data.get("phone_number")
-#             country_code = serializer.validated_data.get("country_code", "+1")
-#             if not phone_number:
-#                 return Response(
-#                     {"message": "Phone number required", "status": "error"}, status=400
-#                 )
-#             try:
-#                 verification = PhoneVerification.objects.filter(
-#                     phone_number=phone_number, country_code=country_code, is_used=False
-#                 ).latest("created_at")
-#                 if not verification.can_resend():
-#                     return Response(
-#                         {
-#                             "message": "Wait 1 minute before resending",
-#                             "status": "error",
-#                         },
-#                         status=429,
-#                     )
-#                 new_verification = PhoneVerification.create_verification(
-#                     verification.user, phone_number, country_code
-#                 )
-#                 print(f"New SMS OTP: {new_verification.otp_code}")
-#                 return Response(
-#                     {"message": "New OTP sent to phone", "status": "success"}
-#                 )
-#             except PhoneVerification.DoesNotExist:
-#                 return Response(
-#                     {
-#                         "message": "No pending verification for this phone number",
-#                         "status": "error",
-#                     },
-#                     status=404,
-#                 )
-
-#         return Response({"message": "Invalid request", "status": "error"}, status=400)
 
 
 # =============================================================================
@@ -3258,20 +3167,18 @@ class MessageListView(generics.ListCreateAPIView):
             recipient.bondcoin_balance += tip_amount
             user.save()
             recipient.save()
-            BondcoinTransaction.objects.create(
+            WalletTransaction.objects.create(
                 user=user,
-                transaction_type="spend",
+                tx_type="debit",
                 amount=-tip_amount,
                 status="completed",
-                description=f"Tip sent to {recipient.name}",
                 payment_method="bondcoin",
             )
-            BondcoinTransaction.objects.create(
+            WalletTransaction.objects.create(
                 user=recipient,
-                transaction_type="gift_received",
+                tx_type="gift_received",
                 amount=tip_amount,
                 status="completed",
-                description=f"Tip received from {user.name}",
                 payment_method="bondcoin",
             )
 
@@ -3498,7 +3405,7 @@ class MatchmakerIntroView(generics.GenericAPIView):
     """
 
     permission_classes = [IsAuthenticated]
-    serializer_class = ChatDetailSerializer  # <-- fixes schema generation
+    serializer_class = ChatDetailSerializer
 
     @extend_schema(
         request=None,  # you can define an input serializer if you want docs for request body
@@ -3675,18 +3582,13 @@ class LiveSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import LiveSessionSerializer
-
         return LiveSessionSerializer
 
     def get_queryset(self):
-        from .models import LiveSession
-
         return LiveSession.objects.filter(user=self.request.user)
 
     def perform_destroy(self, instance):
         """End the live session instead of deleting"""
-        from django.utils import timezone
 
         instance.status = "ended"
         instance.end_time = timezone.now()
@@ -3702,8 +3604,6 @@ class LiveSessionJoinView(generics.CreateAPIView):
     serializer_class = LiveParticipantSerializer
 
     def create(self, request, session_id):
-        from .models import LiveSession, LiveParticipant
-
         try:
             session = LiveSession.objects.get(id=session_id, status="active")
 
@@ -3849,9 +3749,6 @@ class FeedListView(generics.ListCreateAPIView):
 
     def _save_uploaded_file(self, file, folder):
         """Save uploaded file and return URL"""
-        from django.core.files.storage import default_storage
-        from django.core.files.base import ContentFile
-        import os, uuid
 
         ext = os.path.splitext(file.name)[1]
         filename = f"{uuid.uuid4()}{ext}"
@@ -3945,13 +3842,10 @@ class PostInteractionView(generics.CreateAPIView):
     """
     Handle post interactions (like, share, bond)
     """
-
     serializer_class = PostInteractionSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        from .models import Post, PostInteraction
-
         post_id = self.kwargs.get("post_id")
         try:
             post = Post.objects.get(id=post_id, is_active=True)
@@ -4015,13 +3909,10 @@ class CommentInteractionView(generics.CreateAPIView):
     """
     Handle comment interactions (like)
     """
-
     serializer_class = CommentInteractionSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        from .models import PostComment, CommentInteraction
-
         comment_id = self.kwargs.get("comment_id")
         try:
             comment = PostComment.objects.get(id=comment_id, is_active=True)
@@ -4099,19 +3990,12 @@ class PostShareView(generics.CreateAPIView):
     """
     Share a post to external platforms
     """
-
     permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        from .serializers import PostShareSerializer
-
-        return PostShareSerializer
+    serializer_class = PostShareSerializer
 
     def perform_create(self, serializer):
         """Create share with current user and post"""
         post_id = self.kwargs["post_id"]
-        from .models import Post, PostShare
-
         post = get_object_or_404(Post, id=post_id, is_active=True)
 
         serializer.save(user=self.request.user, post=post)
@@ -4131,17 +4015,10 @@ class StoryListView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if self.request.method == "POST":
-            from .serializers import StoryCreateSerializer
-
             return StoryCreateSerializer
-        from .serializers import StorySerializer
-
         return StorySerializer
 
     def get_queryset(self):
-        from .models import Story
-        from django.utils import timezone
-
         # Get active, non-expired stories
         return (
             Story.objects.filter(is_active=True, expires_at__gt=timezone.now())
@@ -4171,11 +4048,6 @@ class StoryListView(generics.ListCreateAPIView):
 
     def _save_uploaded_file(self, file, folder):
         """Save uploaded file and return URL"""
-        from django.core.files.storage import default_storage
-        from django.core.files.base import ContentFile
-        import os
-        import uuid
-
         # Generate unique filename
         file_extension = os.path.splitext(file.name)[1]
         unique_filename = f"{uuid.uuid4()}{file_extension}"
@@ -4194,22 +4066,15 @@ class StoryDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import StorySerializer
-
         return StorySerializer
 
     def get_queryset(self):
-        from .models import Story
-        from django.utils import timezone
-
         return Story.objects.filter(
             is_active=True, expires_at__gt=timezone.now()
         ).select_related("author")
 
     def retrieve(self, request, *args, **kwargs):
         """Mark story as viewed by current user"""
-        from .models import StoryView
-
         story = self.get_object()
 
         # Mark as viewed if not already viewed
@@ -4227,13 +4092,10 @@ class StoryReactionView(generics.CreateAPIView):
     """
     Handle story reactions
     """
-
     serializer_class = StoryReactionSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        from .models import Story, StoryReaction
-
         story_id = self.kwargs.get("story_id")
         try:
             story = Story.objects.get(id=story_id, is_active=True)

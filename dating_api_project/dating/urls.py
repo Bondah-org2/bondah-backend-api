@@ -61,10 +61,9 @@ from .views import (
     UserLocationProfileView,
     LocationStatisticsView,
     # Email and Phone Verification Views
-    RequestEmailOTPView,
+    RegisterRequestOTPView,
     ResendEmailOTPView,
-    VerifyEmailOTPView,
-    CompleteRegistrationView,
+    VerifyOTPAndRegisterView,
     UserRoleSelectionView,
     # Advanced Search and Discovery Views
     UserSearchView,
@@ -258,13 +257,12 @@ urlpatterns = [
         name="admin-newsletter-list",
     ),
     # Mobile App Authentication Endpoints
-    path("auth/request-otp/", RequestEmailOTPView.as_view(), name="request-email-otp"),
-    path("auth/resend-otp/", ResendEmailOTPView.as_view(), name="resend-email-otp"),
-    path("auth/verify-otp/", VerifyEmailOTPView.as_view(), name="verify-email-otp"),
     path(
-        "auth/complete-registration/",
-        CompleteRegistrationView.as_view(),
-        name="complete-registration",
+        "auth/request-otp/", RegisterRequestOTPView.as_view(), name="request-email-otp"
+    ),
+    path("auth/resend-otp/", ResendEmailOTPView.as_view(), name="resend-email-otp"),
+    path(
+        "auth/verify-otp/", VerifyOTPAndRegisterView.as_view(), name="verify-email-otp"
     ),
     path("auth/login/", UserLoginView.as_view(), name="user-login"),
     path("auth/logout/", UserLogoutView.as_view(), name="user-logout"),
@@ -338,7 +336,6 @@ urlpatterns = [
         liveness_views.UserVerificationStatusView.as_view(),
         name="verification-status",
     ),
-
     path(
         "roleselection/role/",
         UserRoleSelectionView.as_view(),

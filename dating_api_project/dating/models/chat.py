@@ -5,6 +5,7 @@ import string
 
 from .users import User
 from datetime import timedelta
+import uuid
 
 
 class Chat(models.Model):
@@ -567,6 +568,10 @@ class EmailVerification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     verified_at = models.DateTimeField(blank=True, null=True)
+    temp_password = models.CharField(max_length=128, null=True, blank=True)
+    registration_token = models.UUIDField(
+        default=uuid.uuid4, editable=False,
+    )
 
     def __str__(self):
         return f"Email OTP for {self.email} - {self.otp_code}"
