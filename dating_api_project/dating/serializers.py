@@ -2200,7 +2200,6 @@ class UserInteractionSerializer(serializers.ModelSerializer):
             "bondmaker_name",
             "interaction_type",
             "created_at",
-            "metadata",
         ]
         read_only_fields = [
             "id",
