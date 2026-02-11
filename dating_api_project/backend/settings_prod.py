@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "rest_framework",
     "rest_framework.authtoken",
+    'django_ratelimit',
     # "dating",
     "corsheaders",
     "dating.apps.DatingConfig",
@@ -611,4 +612,11 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "clean_enums.cleanup_openapi_schema",
     ],
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.environ.get("REDIS_URL"),
+    }
 }

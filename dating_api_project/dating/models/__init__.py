@@ -71,6 +71,7 @@ from .users import (
     MatchRequest,
     PasswordResetOTP,
     Notification,
+    Report,
 )
 from .username import UsernameValidation, validate_username_format
 
@@ -152,6 +153,7 @@ __all__ = [
     "MatchRequest",
     "PasswordResetOTP",
     "Notification",
+    "Report",
     # Username
     "UsernameValidation",
     "validate_username_format",

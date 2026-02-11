@@ -10,14 +10,10 @@ from django.conf import settings
 from django.utils import timezone
 from django.db.models import Q
 
-from .models import User, LocationHistory, UserMatch, Visibility
-
 
 # =========================================================
 # DISTANCE CALCULATION (HAVERSINE)
 # =========================================================
-
-
 def calculate_distance(
     coord1: Tuple[float, float], coord2: Tuple[float, float]
 ) -> Optional[float]:
@@ -51,8 +47,6 @@ def calculate_distance(
 # =========================================================
 # GEOCODING
 # =========================================================
-
-
 def geocode_address(address: str) -> Optional[Dict]:
     """
     Convert address to GPS coordinates using Google Geocoding API
@@ -150,15 +144,15 @@ def reverse_geocode(latitude: float, longitude: float) -> Optional[Dict]:
 
 
 # =========================================================
-# NEARBY USER SEARCH (PURE PYTHON)
+# NEARBY USER SEARCH
 # =========================================================
+def find_nearby_users(user, max_distance: Optional[int] = None) -> List[Dict]:
+    from .models import User, UserMatch  # LOCAL import
 
-
-def find_nearby_users(user: User, max_distance: Optional[int] = None) -> List[Dict]:
-    if not user.has_location:
+    if not getattr(user, "has_location", False):
         return []
 
-    max_distance = max_distance or user.max_distance
+    max_distance = max_distance or getattr(user, "max_distance", 50)
 
     users = User.objects.filter(
         latitude__isnull=False,
@@ -196,15 +190,16 @@ def find_nearby_users(user: User, max_distance: Optional[int] = None) -> List[Di
 # =========================================================
 # LOCATION PRIVACY
 # =========================================================
+def can_view_location(viewer, target) -> bool:
+    from .models import UserMatch  # LOCAL import
 
-
-def can_view_location(viewer: User, target: User) -> bool:
-    if not target.location_sharing_enabled:
+    if not getattr(target, "location_sharing_enabled", True):
         return False
 
-    if target.location_privacy == "public":
+    privacy = getattr(target, "location_privacy", "public")
+    if privacy == "public":
         return True
-    elif target.location_privacy == "private":
+    elif privacy == "private":
         return UserMatch.objects.filter(
             Q(user1=viewer, user2=target) | Q(user1=target, user2=viewer),
             status="matched",
@@ -216,15 +211,11 @@ def can_view_location(viewer: User, target: User) -> bool:
 # =========================================================
 # UPDATE LOCATION
 # =========================================================
-
-
 def update_user_location(
-    user: User,
-    latitude: float,
-    longitude: float,
-    accuracy: Optional[float] = None,
-    source: str = "gps",
+    user, latitude, longitude, accuracy=None, source="gps"
 ) -> bool:
+    from .models import LocationHistory  # LOCAL import
+
     try:
         user.latitude = latitude
         user.longitude = longitude
@@ -262,30 +253,33 @@ def update_user_location(
 # =========================================================
 # MATCH SCORE
 # =========================================================
-
-
-def calculate_match_score(user1: User, user2: User) -> float:
+def calculate_match_score(user1, user2) -> float:
     """
     Calculate compatibility score between two users (0 - 100)
     """
     score = 0.0
 
     # Distance factor (0 - 40)
-    distance = user1.get_distance_to(user2)
-    if distance is not None and user1.max_distance > 0:
-        distance_score = max(0, 40 - (distance / user1.max_distance * 40))
-        score += distance_score
+    if hasattr(user1, "get_distance_to"):
+        distance = user1.get_distance_to(user2)
+        if distance is not None and getattr(user1, "max_distance", 0) > 0:
+            distance_score = max(0, 40 - (distance / user1.max_distance * 40))
+            score += distance_score
 
     # Age factor (0 - 30)
-    if user1.age and user2.age:
+    if getattr(user1, "age", None) and getattr(user2, "age", None):
         age_diff = abs(user1.age - user2.age)
         age_score = max(0, 30 - (age_diff * 2))
         score += age_score
 
     # Gender preference (0 - 30)
-    if user1.preferred_gender and user1.preferred_gender == user2.gender:
+    if getattr(user1, "preferred_gender", None) and user1.preferred_gender == getattr(
+        user2, "gender", None
+    ):
         score += 15
-    if user2.preferred_gender and user2.preferred_gender == user1.gender:
+    if getattr(user2, "preferred_gender", None) and user2.preferred_gender == getattr(
+        user1, "gender", None
+    ):
         score += 15
 
     return min(100.0, score)
@@ -294,8 +288,6 @@ def calculate_match_score(user1: User, user2: User) -> float:
 # =========================================================
 # VALIDATION
 # =========================================================
-
-
 def validate_coordinates(latitude: float, longitude: float) -> bool:
     return (-90 <= latitude <= 90) and (-180 <= longitude <= 180)
 
@@ -324,11 +316,8 @@ def get_approximate_location_from_ip(ip_address: str) -> Optional[Dict]:
 
 
 def get_location_statistics() -> Dict:
-    """
-    Get location-related statistics for admin dashboard
-    """
-    from django.utils import timezone
     from datetime import timedelta
+    from .models import User, LocationHistory  # LOCAL import
 
     now = timezone.now()
     last_24h = now - timedelta(hours=24)
@@ -360,12 +349,9 @@ def get_location_statistics() -> Dict:
     return stats
 
 
-def is_user_visible_to(bondmaker, user):
-    """
-    Returns True if a user is visible to the bondmaker
-    - Public users: visible to all
-    - Private users: only visible to specific bondmaker
-    """
+def is_user_visible_to(bondmaker, user) -> bool:
+    from .models import Visibility  # LOCAL import
+
     return (
         Visibility.objects.filter(
             owner=user,

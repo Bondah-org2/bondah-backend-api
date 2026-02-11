@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "rest_framework",
     "rest_framework.authtoken",
+    "django_ratelimit",
     # "dating",
     "corsheaders",
     "dating.apps.DatingConfig",
@@ -498,3 +499,10 @@ APPLE_BUNDLE_ID = "com.bondah.app"
 
 GOOGLE_PACKAGE_NAME = "com.bondah.app"
 GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+    }
+}

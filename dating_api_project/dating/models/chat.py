@@ -588,8 +588,8 @@ class EmailVerification(models.Model):
 
     @classmethod
     def generate_otp(cls):
-        """Generate a 4-digit OTP"""
-        return "".join(random.choices(string.digits, k=4))
+        """Generate a 6-digit OTP"""
+        return "".join(random.choices(string.digits, k=6))
 
     @classmethod
     def create_verification(cls, user=None, email=None):

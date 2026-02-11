@@ -8,14 +8,29 @@ import re
 from django.core.exceptions import ValidationError
 from datetime import timedelta
 from django.conf import settings
+import uuid
+from dating.location_utils import reverse_geocode, get_approximate_location_from_ip
+from datetime import date
 
 
 class User(AbstractUser):
     name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
-    gender = models.CharField(max_length=10, blank=True, null=True)
-    age = models.PositiveIntegerField(blank=True, null=True)
+    gender = models.CharField(
+        max_length=20,
+        choices=[
+            ("male", "Male"),
+            ("female", "Female"),
+            ("trans_man", "Trans Man"),
+            ("trans_woman", "Trans Womman"),
+            ("non_binary", "Non Binary"),
+        ],
+        blank=True,
+        null=True,
+    )
+    date_of_birth = models.DateField(null=True, blank=True)
     phone_number = models.CharField(blank=True, null=True)
+    traits = models.JSONField(default=list, blank=True, null=True)
 
     # Location Fields
     location = models.CharField(
@@ -50,6 +65,8 @@ class User(AbstractUser):
     state = models.CharField(max_length=100, blank=True, null=True)
     country = models.CharField(max_length=100, blank=True, null=True)
     postal_code = models.CharField(max_length=20, blank=True, null=True)
+    deal_breaker = models.CharField(max_length=100, blank=True, null=True)
+    partner_qualities = models.JSONField(default=list, blank=True, null=True)
 
     # Location Privacy Settings
     location_privacy = models.CharField(
@@ -124,6 +141,24 @@ class User(AbstractUser):
             ("pisces", "Pisces"),
         ],
     )
+
+    GENOTYPE_CHOICES = [
+        ("AA", "AA"),
+        ("AS", "AS"),
+        ("SS", "SS"),
+        ("AC", "AC"),
+        ("SC", "SC"),
+        ("PNTS", "Prefer not to say"),
+    ]
+
+    genotype = models.CharField(
+        max_length=4,
+        choices=GENOTYPE_CHOICES,
+        null=True,
+        blank=True,
+        help_text="User's genotype (optional)",
+    )
+
     languages = models.JSONField(
         default=list, help_text="Languages spoken (e.g., ['English', 'French'])"
     )
@@ -136,6 +171,8 @@ class User(AbstractUser):
             ("divorced", "Divorced"),
             ("widowed", "Widowed"),
             ("separated", "Separated"),
+            ("engaged", "Engaged"),
+            ("married", "Married")
         ],
     )
 
@@ -191,18 +228,6 @@ class User(AbstractUser):
             ("daily", "Daily"),
         ],
     )
-    kids_preference = models.CharField(
-        max_length=20,
-        blank=True,
-        null=True,
-        choices=[
-            ("want", "Want Kids"),
-            ("dont_want", "Don't Want Kids"),
-            ("have_kids", "Have Kids"),
-            ("open", "Open to Kids"),
-        ],
-    )
-
     # Personality & Communication
     personality_type = models.CharField(
         max_length=10,
@@ -253,7 +278,7 @@ class User(AbstractUser):
 
     # Interests & Hobbies
     hobbies = models.JSONField(default=list, help_text="List of hobbies and interests")
-    interests = models.JSONField(default=list, help_text="List of general interests")
+    interests = models.JSONField(default=list, blank=True, null=True, help_text="List of general interests")
 
     # Future Plans & Values
     marriage_plans = models.CharField(
@@ -262,12 +287,25 @@ class User(AbstractUser):
         null=True,
         choices=[("yes", "Yes"), ("no", "No"), ("maybe", "Maybe")],
     )
-    kids_plans = models.CharField(
+    have_kids = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=[("yes", "Yes"), ("no", "No")],
+    )
+
+    no_of_kids = models.IntegerField(
+        blank=True,
+        null=True,
+    )
+
+    future_kids = models.CharField(
         max_length=20,
         blank=True,
         null=True,
         choices=[("yes", "Yes"), ("no", "No"), ("maybe", "Maybe")],
     )
+
     religion_importance = models.CharField(
         max_length=20,
         blank=True,
@@ -275,7 +313,7 @@ class User(AbstractUser):
         choices=[
             ("very", "Very Important"),
             ("somewhat", "Somewhat Important"),
-            ("not_important", "Not Important"),
+            ("not_at_all", "Not At All"),
         ],
     )
     religion = models.CharField(max_length=50, blank=True, null=True)
@@ -306,7 +344,12 @@ class User(AbstractUser):
     )
     age_range_min = models.PositiveIntegerField(default=18)
     age_range_max = models.PositiveIntegerField(default=100)
-    preferred_gender = models.CharField(max_length=10, blank=True, null=True)
+    preferred_gender = models.CharField(
+        max_length=10,
+        choices=[("male", "Male"), ("female", "Female"), ("others", "Others")],
+        blank=True,
+        null=True,
+    )
 
     # What I'm Looking For (From Figma Design)
     looking_for = models.TextField(
@@ -438,6 +481,59 @@ class User(AbstractUser):
         return calculate_distance(
             self.location_coordinates, other_user.location_coordinates
         )
+
+    @property
+    def age(self):
+        if not self.date_of_birth:
+            return None
+
+        today = date.today()
+        return (
+            today.year
+            - self.date_of_birth.year
+            - (
+                (today.month, today.day)
+                < (self.date_of_birth.month, self.date_of_birth.day)
+            )
+        )
+
+    _request_ip = None  # internal use, not DB field
+
+    def set_request_ip(self, ip: str):
+        """Optional: set IP for fallback location if GPS not available"""
+        self._request_ip = ip
+
+    def save(self, *args, **kwargs):
+        """Override save to compute location automatically"""
+        try:
+            # Only compute location if sharing enabled
+            if self.location_sharing_enabled:
+                if self.latitude and self.longitude:
+                    # Use GPS first
+                    data = reverse_geocode(float(self.latitude), float(self.longitude))
+                    if data:
+                        self.city = data.get("city", self.city)
+                        self.state = data.get("state", self.state)
+                        self.country = data.get("country", self.country)
+                elif self._request_ip:
+                    # Fallback to IP geolocation
+                    ip_data = get_approximate_location_from_ip(self._request_ip)
+                    if ip_data:
+                        self.latitude = ip_data.get("latitude", self.latitude)
+                        self.longitude = ip_data.get("longitude", self.longitude)
+                        self.city = ip_data.get("city", self.city)
+                        self.state = ip_data.get("state", self.state)
+                        self.country = ip_data.get("country", self.country)
+
+                # Only include state and country in location
+                parts = filter(None, [self.state, self.country])
+                self.location = ", ".join(parts) if parts else None
+            else:
+                self.location = None
+        except Exception as e:
+            print(f"Error computing location: {e}")
+
+        super().save(*args, **kwargs)
 
 
 class NewsletterSubscriber(models.Model):
@@ -1109,6 +1205,7 @@ class PasswordResetOTP(models.Model):
     otp = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     is_used = models.BooleanField(default=False)
+    reset_token = models.UUIDField(default=uuid.uuid4, editable=False, null=True, blank=True)
 
     def is_expired(self):
         return timezone.now() > self.created_at + timedelta(minutes=10)
@@ -1123,7 +1220,7 @@ class PasswordResetOTP(models.Model):
 
     @staticmethod
     def generate_otp():
-        return "".join(random.choices(string.digits, k=4))
+        return "".join(random.choices(string.digits, k=6))
 
 
 class Notification(models.Model):
@@ -1148,3 +1245,42 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Notification to {self.user.email}: {self.title}"
+
+
+class Report(models.Model):
+    """
+    Track reports made by users on other users.
+    A report may optionally be linked to a specific UserMatch or interaction.
+    """
+
+    REASON_CHOICES = (
+        ("spam", "Spam"),
+        ("inappropriate", "Inappropriate Content"),
+        ("harassment", "Harassment"),
+        ("other", "Other"),
+    )
+
+    reporter = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="reports_made"
+    )
+    reported_user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="reports_received"
+    )
+    user_match = models.ForeignKey(
+        "UserMatch", null=True, blank=True, on_delete=models.SET_NULL
+    )
+    reason = models.CharField(max_length=50, choices=REASON_CHOICES)
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = [
+            ("reporter", "reported_user", "user_match")
+        ]  # prevent duplicate reports per match
+
+    def __str__(self):
+        return (
+            f"{self.reporter.email} reported {self.reported_user.email} ({self.reason})"
+        )

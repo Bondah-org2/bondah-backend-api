@@ -151,11 +151,11 @@ from .views import (
     AdminBondmakerListView,
     PublicBondmakerListView,
     BondmakerProfileDetailView,
-    # SubscribeBondmakerView,
-    # EndBondmakerSubscriptionView,
-    # AllSubscribedUsersListView,
-    # SubscribedUsersForBondmakerView,
-    BondmakerMatchCreateView,
+    SubscribeBondmakerView,
+    EndBondmakerSubscriptionView,
+    AllSubscribedUsersListView,
+    SubscribedUsersForBondmakerView,
+    # BondmakerMatchCreateView,
     BondmakerSuggestionView,
     SetVisibilityView,
     EndVisbilityView,
@@ -166,7 +166,10 @@ from .views import (
     BondmakerAcceptMatchView,
     BondmakerRejectMatchView,
     PasswordResendOTPView,
+    PasswordResetVerifyOTPView,
+    PasswordResetConfirmView,
     UserSwipeDeckView,
+    PendingMatchUserListView,
 )
 
 urlpatterns = [
@@ -282,6 +285,11 @@ urlpatterns = [
         "auth/password-reset-confirm/",
         PasswordResetConfirmView.as_view(),
         name="password-reset-confirm",
+    ),
+    path(
+        "auth/password-reset-otp-verify/",
+        PasswordResetVerifyOTPView.as_view(),
+        name="password-reset-verify",
     ),
     path("auth/password/reset/resend-otp/", PasswordResendOTPView.as_view()),
     path("auth/profile/", UserProfileView.as_view(), name="user-profile"),
@@ -651,34 +659,34 @@ urlpatterns = [
         BondmakerProfileDetailView.as_view(),
         name="bondmaker-profile-detail",
     ),
-    # path(
-    #     "bondmaker/subscribe/",
-    #     SubscribeBondmakerView.as_view(),
-    #     name="subscribe-bondmaker",
-    # ),
-    # path(
-    #     "bondmaker/unsubscribe/<int:subscription_id>/",
-    #     EndBondmakerSubscriptionView.as_view(),
-    #     name="end-subscription",
-    # ),
-    # # List all users subscribed to any bondmaker (for swiping/liking)
-    # path(
-    #     "users/subscribed/",
-    #     AllSubscribedUsersListView.as_view(),
-    #     name="all-subscribed-users",
-    # ),
-    # # List all users subscribed to the logged-in bondmaker
-    # path(
-    #     "bondmaker/subscribed-users/",
-    #     SubscribedUsersForBondmakerView.as_view(),
-    #     name="bondmaker-subscribed-users",
-    # ),
-    # Bondmaker creates a suggested match between subscribed or nearby user
     path(
-        "bondmaker/create-match/",
-        BondmakerMatchCreateView.as_view(),
-        name="bondmaker-create-suggested-match",
+        "bondmaker/subscribe/",
+        SubscribeBondmakerView.as_view(),
+        name="subscribe-bondmaker",
     ),
+    path(
+        "bondmaker/unsubscribe/<int:subscription_id>/",
+        EndBondmakerSubscriptionView.as_view(),
+        name="end-subscription",
+    ),
+    # List all users subscribed to any bondmaker (for swiping/liking)
+    path(
+        "users/subscribed/",
+        AllSubscribedUsersListView.as_view(),
+        name="all-subscribed-users",
+    ),
+    # List all users subscribed to the logged-in bondmaker
+    path(
+        "bondmaker/subscribed-users/",
+        SubscribedUsersForBondmakerView.as_view(),
+        name="bondmaker-subscribed-users",
+    ),
+    # Bondmaker creates a suggested match between subscribed or nearby user
+    # path(
+    #     "bondmaker/create-match/",
+    #     BondmakerMatchCreateView.as_view(),
+    #     name="bondmaker-create-suggested-match",
+    # ),
     # BONDMAKER MATCH SUGGESTION VIEW
     path(
         "bondmaker/suggest-match/",
@@ -734,4 +742,10 @@ urlpatterns = [
     path("wallet/convert-gift/", ConvertGiftView.as_view(), name="convert-gift"),
     # Swipe View
     path("auth/swipe-deck/", UserSwipeDeckView.as_view(), name="user-swipe-deck"),
+    # List of Pending Request to each Bondmaker
+    path(
+        "pending/matches_Request/List/",
+        PendingMatchUserListView.as_view(),
+        name="bondmaker-pending-matches",
+    ),
 ]

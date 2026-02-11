@@ -19,12 +19,16 @@ from django.shortcuts import get_object_or_404
 import uuid
 from django.core.files.base import ContentFile
 from rest_framework import serializers
-from pagination import BondmakerPagination, BondmakerPublicPagination
+from .pagination import (
+    BondmakerPagination,
+    BondmakerPublicPagination,
+    PendingRequestListPagination,
+)
 from django.core.exceptions import ValidationError
 from .location_utils import update_user_location, geocode_address
 from django.db.models import F
 from django.db.models.functions import ACos, Cos, Sin, Radians
-
+from django_ratelimit.decorators import ratelimit
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -87,6 +91,7 @@ from .models import (
     Post,
     PostInteraction,
     Notification,
+    Report,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -228,6 +233,8 @@ from .serializers import (
     LiveSessionSerializer,
     PasswordResetResendSerializer,
     UserSwipeCardSerializer,
+    PendingMatchUserSerializer,
+    OTPSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -244,6 +251,7 @@ from .location_utils import (
     calculate_match_score,
     get_location_statistics,
     is_user_visible_to,
+    calculate_distance,
 )
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
@@ -1443,29 +1451,26 @@ class PasswordResetView(generics.GenericAPIView):
         return Response(response_msg, status=200)
 
 
-@extend_schema(
-    request=PasswordResetConfirmSerializer,
-    responses={
-        200: PasswordResetConfirmSerializer,
-        400: PasswordResetConfirmSerializer,
-        500: PasswordResetConfirmSerializer,
-    },
-)
-class PasswordResetConfirmView(generics.GenericAPIView):
-    serializer_class = PasswordResetConfirmSerializer
+# @extend_schema(
+#     request=PasswordResetConfirmSerializer,
+#     responses={
+#         200: PasswordResetConfirmSerializer,
+#         400: PasswordResetConfirmSerializer,
+#         500: PasswordResetConfirmSerializer,
+#     },
+# )
+class PasswordResetVerifyOTPView(generics.GenericAPIView):
     permission_classes = [AllowAny]
+    serializer_class = OTPSerializer
 
+    @ratelimit(key="ip", rate="5/m", block=True)
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
         otp = serializer.validated_data["otp"]
-        new_password = serializer.validated_data["new_password"]
 
-        # 1. Verify OTP
         otp_record = PasswordResetOTP.objects.filter(
-            email=email,
             otp=otp,
             is_used=False,
         ).first()
@@ -1473,23 +1478,35 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         if not otp_record or otp_record.is_expired():
             return Response(
                 {"message": "Invalid or expired OTP", "status": "error"},
-                status=400,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 2. Get user
-        user = User.objects.get(email=email)
-
-        # 3. Reset password
-        user.set_password(new_password)
-        user.save()
-
-        # 4. Mark OTP used
-        otp_record.is_used = True
+        # Generate temporary reset token for password confirmation
+        otp_record.reset_token = uuid.uuid4()
         otp_record.save()
 
         return Response(
+            {
+                "message": "OTP verified successfully",
+                "status": "success",
+                "reset_token": str(otp_record.reset_token),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    serializer_class = PasswordResetConfirmSerializer
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()  # Serializer handles password reset & OTP usage
+
+        return Response(
             {"message": "Password reset successfully", "status": "success"},
-            status=200,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -2788,12 +2805,12 @@ class UserRoleSelectionView(GenericAPIView):
         )
 
         # If user chose bondmaker, create or reuse pending verification
-        if selected_role == "bondmaker":
-            DocumentVerification.objects.get_or_create(
-                user=request.user,
-                status="pending",
-                defaults={"document_type": "passport"},
-            )
+        # if selected_role == "bondmaker":
+        #     DocumentVerification.objects.get_or_create(
+        #         user=request.user,
+        #         status="pending",
+        #         defaults={"document_type": "passport"},
+        #     )
 
         return Response(
             {
@@ -5912,7 +5929,7 @@ class EndBondmakerSubscriptionView(generics.UpdateAPIView):
             subscription = BondmakerSubscription.objects.get(
                 id=subscription_id, user=request.user, active=True
             )
-        except subscription.DoesNotExist:
+        except BondmakerSubscription.DoesNotExist:
             return Response({"error": "Active subscription not found"}, status=404)
 
         subscription.active = False
@@ -5939,144 +5956,143 @@ class AllSubscribedUsersListView(generics.ListAPIView):
 #           MATCH CREATE VIEW
 
 
-class BondmakerMatchCreateView(generics.CreateAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = UserMatchSerializer
+# class BondmakerMatchCreateView(generics.CreateAPIView):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = UserMatchSerializer
 
-    # @extend_schema(
-    #     request=None,
-    #     responses=UserMatchSerializer,
-    #     description="Bondmaker creates a valid match between two users.",
-    # )
-    def post(self, request):
-        bondmaker = request.user
+#     # @extend_schema(
+#     #     request=None,
+#     #     responses=UserMatchSerializer,
+#     #     description="Bondmaker creates a valid match between two users.",
+#     # )
+#     def post(self, request):
+#         bondmaker = request.user
 
-        # Only bondmakers allowed
-        if not bondmaker.is_matchmaker:
-            return Response(
-                {"error": "Only bondmakers can create matches"},
-                status=403,
-            )
+#         # Only bondmakers allowed
+#         if not bondmaker.is_matchmaker:
+#             return Response(
+#                 {"error": "Only bondmakers can create matches"},
+#                 status=403,
+#             )
 
-        # Validate input IDs
-        user_a_id = request.data.get("user_a_id")
-        user_b_id = request.data.get("user_b_id")
+#         # Validate input IDs
+#         user_a_id = request.data.get("user_a_id")
+#         user_b_id = request.data.get("user_b_id")
 
-        if not user_a_id or not user_b_id:
-            return Response(
-                {"error": "user_a_id and user_b_id are required"},
-                status=400,
-            )
+#         if not user_a_id or not user_b_id:
+#             return Response(
+#                 {"error": "user_a_id and user_b_id are required"},
+#                 status=400,
+#             )
 
-        if user_a_id == user_b_id:
-            return Response(
-                {"error": "Cannot create match with the same user"},
-                status=400,
-            )
+#         if user_a_id == user_b_id:
+#             return Response(
+#                 {"error": "Cannot create match with the same user"},
+#                 status=400,
+#             )
 
-        # Fetch users
-        user_a = get_object_or_404(User, id=user_a_id)
-        user_b = get_object_or_404(User, id=user_b_id)
+#         # Fetch users
+#         user_a = get_object_or_404(User, id=user_a_id)
+#         user_b = get_object_or_404(User, id=user_b_id)
 
-        # -----------------------------------
-        # Visibility check
-        # -----------------------------------
-        user_a_visible = is_user_visible_to(bondmaker, user_a)
-        user_b_visible = is_user_visible_to(bondmaker, user_b)
+#         # -----------------------------------
+#         # Visibility check
+#         # -----------------------------------
+#         user_a_visible = is_user_visible_to(bondmaker, user_a)
+#         user_b_visible = is_user_visible_to(bondmaker, user_b)
 
-        # At least one user must be visible to bondmaker
-        if not (user_a_visible or user_b_visible):
-            return Response(
-                {"error": "At least one user must be visible to this bondmaker"},
-                status=400,
-            )
+#         # At least one user must be visible to bondmaker
+#         if not (user_a_visible or user_b_visible):
+#             return Response(
+#                 {"error": "At least one user must be visible to this bondmaker"},
+#                 status=400,
+#             )
 
-        # If only one is visible, the other must be suggested
-        if user_a_visible ^ user_b_visible:
-            subscriber = user_a if user_a_visible else user_b
-            suggested = user_b if user_a_visible else user_a
+#         # If only one is visible, the other must be suggested
+#         if user_a_visible ^ user_b_visible:
+#             subscriber = user_a if user_a_visible else user_b
+#             suggested = user_b if user_a_visible else user_a
 
-            is_suggested = SuggestedMatch.objects.filter(
-                bondmaker=bondmaker,
-                user=subscriber,
-                suggested_user=suggested,
-            ).exists()
+#             is_suggested = SuggestedMatch.objects.filter(
+#                 bondmaker=bondmaker,
+#                 user=subscriber,
+#                 suggested_user=suggested,
+#             ).exists()
 
-            if not is_suggested:
-                return Response(
-                    {
-                        "error": "Unsubscribed user must be explicitly suggested by the bondmaker"
-                    },
-                    status=400,
-                )
+#             if not is_suggested:
+#                 return Response(
+#                     {
+#                         "error": "Unsubscribed user must be explicitly suggested by the bondmaker"
+#                     },
+#                     status=400,
+#                 )
 
-        # -----------------------------------
-        # Mutual like check
-        # -----------------------------------
-        mutual_like = (
-            UserInteraction.objects.filter(
-                user=user_a,
-                target_user=user_b,
-                interaction_type="like",
-            ).exists()
-            and UserInteraction.objects.filter(
-                user=user_b,
-                target_user=user_a,
-                interaction_type="like",
-            ).exists()
-        )
+#         # -----------------------------------
+#         # Mutual like check
+#         # -----------------------------------
+#         mutual_like = (
+#             UserInteraction.objects.filter(
+#                 user=user_a,
+#                 target_user=user_b,
+#                 interaction_type="like",
+#             ).exists()
+#             and UserInteraction.objects.filter(
+#                 user=user_b,
+#                 target_user=user_a,
+#                 interaction_type="like",
+#             ).exists()
+#         )
 
-        if not mutual_like:
-            return Response(
-                {"error": "Users have not liked each other"},
-                status=400,
-            )
+#         if not mutual_like:
+#             return Response(
+#                 {"error": "Users have not liked each other"},
+#                 status=400,
+#             )
 
-        # -----------------------------------
-        # Compatibility score For future
-        # -----------------------------------
-        match_score = calculate_match_score(user_a, user_b)
+#         # -----------------------------------
+#         # Compatibility score For future
+#         # -----------------------------------
+#         match_score = calculate_match_score(user_a, user_b)
 
-        # if match_score <= 50:
-        #     return Response(
-        #         {
-        #             "error": "Compatibility score must be greater than 50",
-        #             "score": match_score,
-        #         },
-        #         status=400,
-        #     )
+#         # if match_score <= 50:
+#         #     return Response(
+#         #         {
+#         #             "error": "Compatibility score must be greater than 50",
+#         #             "score": match_score,
+#         #         },
+#         #         status=400,
+#         #     )
 
-        # -----------------------------------
-        # Distance calculation
-        # -----------------------------------
-        distance = user_a.get_distance_to(user_b) or 0
+#         # -----------------------------------
+#         # Distance calculation
+#         # -----------------------------------
+#         distance = user_a.get_distance_to(user_b) or 0
 
-        # -----------------------------------
-        # Canonical ordering for DB uniqueness
-        # -----------------------------------
-        user1, user2 = sorted([user_a, user_b], key=lambda u: u.id)
+#         # -----------------------------------
+#         # Canonical ordering for DB uniqueness
+#         # -----------------------------------
+#         user1, user2 = sorted([user_a, user_b], key=lambda u: u.id)
 
-        # -----------------------------------
-        # Create match (DB constraint prevents duplicates)
-        # -----------------------------------
-        match = UserMatch.objects.create(
-            user1=user1,
-            user2=user2,
-            distance=distance,
-            match_score=match_score,
-            status="matched",
-        )
+#         # -----------------------------------
+#         # Create match (DB constraint prevents duplicates)
+#         # -----------------------------------
+#         match = UserMatch.objects.create(
+#             user1=user1,
+#             user2=user2,
+#             distance=distance,
+#             match_score=match_score,
+#             status="matched",
+#         )
 
-        # -----------------------------------
-        # Serialize for response / OpenAPI
-        # -----------------------------------
-        serializer = UserMatchSerializer(match)
+#         # -----------------------------------
+#         # Serialize for response / OpenAPI
+#         # -----------------------------------
+#         serializer = UserMatchSerializer(match)
 
-        return Response(serializer.data, status=201)
+#         return Response(serializer.data, status=201)
 
 
 #           MATCH SUGGESTION VIEW
-
 
 class BondmakerSuggestionView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
@@ -6090,14 +6106,24 @@ class BondmakerSuggestionView(generics.GenericAPIView):
         subscriber = serializer.validated_data["subscriber"]
         suggested_user = serializer.validated_data["suggested_user"]
 
-        SuggestedMatch.objects.get_or_create(
+        if SuggestedMatch.objects.filter(
+            bondmaker=bondmaker,
+            user=subscriber,
+            suggested_user=suggested_user,
+        ).exists():
+            return Response(
+                {"detail": "You have already suggested this user to this person."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        SuggestedMatch.objects.create(
             bondmaker=bondmaker,
             user=subscriber,
             suggested_user=suggested_user,
         )
 
         return Response(
-            {"status": "Suggestion created"},
+            {"status": "Suggestion created and notifications sent"},
             status=status.HTTP_201_CREATED,
         )
 
@@ -6290,36 +6316,36 @@ class BondmakerAcceptMatchView(generics.GenericAPIView):
         match.status = "matched"
         match.save()
 
-        user_a = match.user1
-        user_b = match.user2
+        # user_a = match.user1
+        # user_b = match.user2
 
-        #  Create notifications
-        notif_a = Notification.objects.create(
-            user=user_a,
-            title="It's a Match!",
-            message=f"You have been matched with {user_b.name}",
-        )
+        # #  Create notifications
+        # notif_a = Notification.objects.create(
+        #     user=user_a,
+        #     title="It's a Match!",
+        #     message=f"You have been matched with {user_b.name}",
+        # )
 
-        notif_b = Notification.objects.create(
-            user=user_b,
-            title="It's a Match!",
-            message=f"You have been matched with {user_a.name}",
-        )
+        # notif_b = Notification.objects.create(
+        #     user=user_b,
+        #     title="It's a Match!",
+        #     message=f"You have been matched with {user_a.name}",
+        # )
 
-        #  Push notifications
-        send_push_notification(
-            user_a,
-            title=notif_a.title,
-            message=notif_a.message,
-            data={"match_id": match.id},
-        )
+        # #  Push notifications
+        # send_push_notification(
+        #     user_a,
+        #     title=notif_a.title,
+        #     message=notif_a.message,
+        #     data={"match_id": match.id},
+        # )
 
-        send_push_notification(
-            user_b,
-            title=notif_b.title,
-            message=notif_b.message,
-            data={"match_id": match.id},
-        )
+        # send_push_notification(
+        #     user_b,
+        #     title=notif_b.title,
+        #     message=notif_b.message,
+        #     data={"match_id": match.id},
+        # )
 
         return Response(
             {
@@ -6357,22 +6383,6 @@ class BondmakerRejectMatchView(generics.GenericAPIView):
 
         match.status = "disliked"
         match.save()
-
-        requester = match.user1
-
-        # Notification
-        notification = Notification.objects.create(
-            user=requester,
-            title="Match Request Rejected",
-            message="Your match request was rejected and coins refunded.",
-        )
-
-        # Push
-        send_push_notification(
-            requester,
-            title=notification.title,
-            message=notification.message,
-        )
 
         return Response(
             {
@@ -6542,11 +6552,29 @@ class UserInteractionView(generics.CreateAPIView):
         # ---------------------------------------------------------
         # BLOCK / REPORT  → RELATIONSHIP STATE (UserMatch)
         # ---------------------------------------------------------
-        elif interaction_type in ["block", "report"]:
-            UserMatch.objects.update_or_create(
+        elif interaction_type == "block":
+            # Mark the match as blocked or create it if it doesn't exist
+            user_match, _ = UserMatch.objects.update_or_create(
                 user1=user,
                 user2=target_user,
-                defaults={"status": "blocked"},
+                defaults={"status": "blocked", "distance": user.get_distance_to(target_user) or 0},
+            )
+
+        elif interaction_type == "report":
+            # Mark the match as blocked
+            user_match, _ = UserMatch.objects.update_or_create(
+                user1=user,
+                user2=target_user,
+                defaults={"status": "blocked", "distance": user.get_distance_to(target_user) or 0},
+            )
+
+            # Create a report record
+            Report.objects.create(
+                reporter=user,
+                reported_user=target_user,
+                reason=serializer.validated_data.get("metadata", {}).get("reason", "other"),
+                description=serializer.validated_data.get("metadata", {}).get("description", ""),
+                user_match=user_match,
             )
 
         # ---------------------------------------------------------
@@ -6616,3 +6644,21 @@ class UserSwipeDeckView(generics.ListAPIView):
         context = super().get_serializer_context()
         context["request"] = self.request
         return context
+
+
+class PendingMatchUserListView(generics.ListAPIView):
+    serializer_class = PendingMatchUserSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = PendingRequestListPagination
+
+    def get_queryset(self):
+        bondmaker = self.request.user
+
+        return (
+            UserMatch.objects.filter(
+                user2__bondmaker=bondmaker,
+                status="pending",
+            )
+            .select_related("user1", "user2", "match_request")
+            .order_by("-created_at")
+        )

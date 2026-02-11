@@ -12,6 +12,8 @@ from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import make_password
+from django.shortcuts import get_object_or_404
+from datetime import date
 from .models import (
     User,
     NewsletterSubscriber,
@@ -78,10 +80,11 @@ from .models import (
     Visibility,
     MatchRequest,
     Notification,
+    PasswordResetOTP,
 )
 from drf_spectacular.utils import extend_schema_field
-from typing import List, Dict, Any
-from .location_utils import calculate_distance
+from typing import List, Dict, Any, Optional
+from .location_utils import calculate_distance, calculate_match_score
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -110,14 +113,15 @@ class UserSerializer(serializers.ModelSerializer):
             "drinking_preference",
             "pet_preference",
             "exercise_frequency",
-            "kids_preference",
+            "have_kids",
             "personality_type",
             "love_language",
             "communication_style",
             "hobbies",
             "interests",
             "marriage_plans",
-            "kids_plans",
+            "no_of_kids",
+            "future_kids",
             "religion_importance",
             "religion",
             "dating_type",
@@ -1191,13 +1195,45 @@ class PasswordResetSerializer(serializers.Serializer):
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp = serializers.CharField()
+    reset_token = serializers.UUIDField()
     new_password = serializers.CharField(validators=[validate_password])
+    new_password_confirm = serializers.CharField(validators=[validate_password])
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["new_password_confirm"]:
+            raise serializers.ValidationError(
+                {"new_password_confirm": "Passwords do not match."}
+            )
+        return attrs
+
+    def save(self, **kwargs):
+        reset_token = self.validated_data.get("reset_token")
+        # Get the OTP record
+        otp_record = get_object_or_404(
+            PasswordResetOTP,
+            reset_token=reset_token,
+            is_used=False
+        )
+        user = User.objects.get(email=otp_record.email)
+
+        # Set the new password
+        user.set_password(self.validated_data["new_password"])
+        user.save()
+
+        # Mark OTP as used
+        otp_record.is_used = True
+        otp_record.reset_token = None
+        otp_record.save()
+
+        return user
 
 
 class PasswordResetResendSerializer(serializers.Serializer):
     email = serializers.EmailField()
+
+
+class OTPSerializer(serializers.Serializer):
+    otp = serializers.CharField()
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -1206,14 +1242,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "email",
-            "name",
             "gender",
-            "age",
             "location",
-            "bio",
             "is_matchmaker",
         )
-        read_only_fields = ("id", "email")
+        read_only_fields = ("id", "email", "is_matchmaker")
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -2031,6 +2064,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
         source="get_profile_completion_percentage", read_only=True
     )
     selected_role = serializers.SerializerMethodField()
+    age = serializers.ReadOnlyField()
 
     class Meta:
         model = User
@@ -2051,14 +2085,15 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "drinking_preference",
             "pet_preference",
             "exercise_frequency",
-            "kids_preference",
+            "no_of_kids",
+            "have_kids",
             "personality_type",
             "love_language",
             "communication_style",
             "hobbies",
             "interests",
             "marriage_plans",
-            "kids_plans",
+            "future_kids",
             "religion_importance",
             "religion",
             "dating_type",
@@ -2078,6 +2113,11 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "profile_completion_percentage",
             "phone_number",
             "selected_role",
+            "traits",
+            "genotype",
+            "location",
+            "age",
+            "date_of_birth",
         ]
         read_only_fields = [
             "id",
@@ -2086,6 +2126,8 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "distance",
             "compatibility_score",
             "profile_completion_percentage",
+            "location",
+            "age",
         ]
 
     @extend_schema_field(serializers.IntegerField())
@@ -2129,6 +2171,38 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
 
         if not value.startswith("0"):
             raise serializers.ValidationError("Phone number must start with 0.")
+
+        return value
+
+    def validate_traits(self, value):
+        if len(value) > 3:
+            raise serializers.ValidationError("You can select only 3 traits.")
+        return value
+
+    def validate_interests(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list of interests.")
+        if len(value) > 5:
+            raise serializers.ValidationError("You can select up to 5 interests.")
+        return value
+
+    def validate_profile_gallery(self, value):
+        if len(value) < 3:
+            raise serializers.ValidationError("Minimum of 3 pictures required")
+        if len(value) > 7:
+            raise serializers.ValidationError("Maximum of 7 pictures allowed")
+        return value
+
+    def validate_date_of_birth(self, value):
+        today = date.today()
+        age = (
+            today.year
+            - value.year
+            - ((today.month, today.day) < (value.month, value.day))
+        )
+
+        if age < 18:
+            raise serializers.ValidationError("You must be at least 18 years old.")
 
         return value
 
@@ -2252,7 +2326,7 @@ class UserSearchFilterSerializer(serializers.Serializer):
     drinking_preference = serializers.CharField(required=False)
     pet_preference = serializers.CharField(required=False)
     exercise_frequency = serializers.CharField(required=False)
-    kids_preference = serializers.CharField(required=False)
+    have_kids = serializers.CharField(required=False)
     personality_type = serializers.CharField(required=False)
     love_language = serializers.CharField(required=False)
     dating_type = serializers.CharField(required=False)
@@ -3960,10 +4034,11 @@ class BondmakerListSerializer(serializers.ModelSerializer):
 
 class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
     verification_status = serializers.SerializerMethodField()
+    age = serializers.ReadOnlyField()
 
     class Meta:
         model = User
-        fields = (
+        fields = [
             "id",
             "name",
             "profile_picture",
@@ -3972,13 +4047,32 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
             "age",
             "availability_status",
             "verification_status",
-        )
+            "age",
+            "date_of_birth",
+        ]
+
+        read_only_fields = [
+            "age",
+        ]
 
     def get_verification_status(self, obj) -> str:
         verification = obj.document_verifications.first()
         if not verification:
             return "not_submitted"
         return verification.status
+
+    def validate_date_of_birth(self, value):
+        today = date.today()
+        age = (
+            today.year
+            - value.year
+            - ((today.month, today.day) < (value.month, value.day))
+        )
+
+        if age < 18:
+            raise serializers.ValidationError("You must be at least 18 years old.")
+
+        return value
 
 
 class BondmakerSubscriptionSerializer(serializers.ModelSerializer):
@@ -4014,6 +4108,7 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
         if not bondmaker.is_matchmaker:
             raise serializers.ValidationError("Only bondmakers can suggest users.")
 
+        # Fetch users
         try:
             subscriber = User.objects.get(id=attrs["subscriber_id"])
         except User.DoesNotExist:
@@ -4024,18 +4119,26 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError({"suggested_user_id": "User not found"})
 
-        # Ensure subscriber is subscribed to this bondmaker
-        if not BondmakerSubscription.objects.filter(
-            bondmaker=bondmaker, user=subscriber, active=True
-        ).exists():
-            raise serializers.ValidationError("User is not subscribed to you.")
+        # CRITICAL RULE: subscriber must be visible to this bondmaker
+        is_visible = Visibility.objects.filter(
+            owner=subscriber,
+            bondmaker=bondmaker,
+            is_active=True,
+            expires_at__gt=timezone.now(),
+        ).exists()
 
-        # Optional distance rule
-        # if subscriber.has_location and suggested_user.has_location:
-        #     if subscriber.get_distance_to(suggested_user) > 50:
-        #         raise serializers.ValidationError("Suggested user is too far away.")
+        if not is_visible:
+            raise serializers.ValidationError(
+                "You can only suggest users to people currently visible to you."
+            )
 
-        # attach objects so view doesn't query again
+        # Prevent suggesting the same user to themselves
+        if subscriber == suggested_user:
+            raise serializers.ValidationError(
+                "You cannot suggest a user to themselves."
+            )
+
+        # Attach for view reuse
         attrs["subscriber"] = subscriber
         attrs["suggested_user"] = suggested_user
 
@@ -4172,3 +4275,42 @@ class UserSwipeCardSerializer(serializers.ModelSerializer):
                 2,
             )
         return None
+
+
+class PendingMatchUserSerializer(serializers.ModelSerializer):
+    requester_id = serializers.IntegerField(source="user1.id")
+    requester_name = serializers.CharField(source="user1.name")
+    requester_profile_picture = serializers.CharField(source="user1.profile_picture")
+    target_id = serializers.IntegerField(source="user2.id")
+    target_name = serializers.CharField(source="user2.name")
+    target_profile_picture = serializers.CharField(source="user2.profile_picture")
+    distance = serializers.SerializerMethodField()
+    match_score = serializers.SerializerMethodField()
+    status = serializers.CharField()
+
+    class Meta:
+        model = UserMatch
+        fields = [
+            "id",
+            "requester_id",
+            "requester_name",
+            "requester_profile_picture",
+            "target_id",
+            "target_name",
+            "target_profile_picture",
+            "distance",
+            "match_score",
+            "status",
+        ]
+
+    def get_distance(self, obj) -> Optional[float]:
+        """Calculate distance between user1 and user2 on the fly"""
+        if obj.user1.has_location and obj.user2.has_location:
+            return calculate_distance(
+                obj.user1.location_coordinates, obj.user2.location_coordinates
+            )
+        return None
+
+    def get_match_score(self, obj) -> float:
+        """Calculate match score dynamically"""
+        return calculate_match_score(obj.user1, obj.user2)
