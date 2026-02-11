@@ -423,12 +423,12 @@ LOGGING = {
 }
 
 # Cache configuration for JWT token blacklisting
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "unique-snowflake",
-    }
-}
+# CACHES = {
+#     "default": {
+#         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+#         "LOCATION": "unique-snowflake",
+#     }
+# }
 
 # Location Services Configuration
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
@@ -616,7 +616,10 @@ SPECTACULAR_SETTINGS = {
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": os.environ.get("REDIS_URL"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
     }
 }
