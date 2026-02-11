@@ -29,6 +29,7 @@ from .location_utils import update_user_location, geocode_address
 from django.db.models import F
 from django.db.models.functions import ACos, Cos, Sin, Radians
 from django_ratelimit.decorators import ratelimit
+from django.utils.decorators import method_decorator
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -1459,11 +1460,11 @@ class PasswordResetView(generics.GenericAPIView):
 #         500: PasswordResetConfirmSerializer,
 #     },
 # )
+@method_decorator(ratelimit(key="ip", rate="5/m", block=True), name="dispatch")
 class PasswordResetVerifyOTPView(generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = OTPSerializer
 
-    @ratelimit(key="ip", rate="5/m", block=True)
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1481,16 +1482,12 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Generate temporary reset token for password confirmation
-        otp_record.reset_token = uuid.uuid4()
+        # mark OTP as used
+        otp_record.is_used = True
         otp_record.save()
 
         return Response(
-            {
-                "message": "OTP verified successfully",
-                "status": "success",
-                "reset_token": str(otp_record.reset_token),
-            },
+            {"message": "OTP verified successfully", "status": "success"},
             status=status.HTTP_200_OK,
         )
 
