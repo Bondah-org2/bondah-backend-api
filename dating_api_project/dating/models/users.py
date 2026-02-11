@@ -483,7 +483,7 @@ class User(AbstractUser):
         )
 
     @property
-    def age(self):
+    def age(self) -> int:
         if not self.date_of_birth:
             return None
 
