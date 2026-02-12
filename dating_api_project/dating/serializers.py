@@ -2273,7 +2273,7 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
             "profile_completion_percentage",
         ]
 
-    def get_selected_role(self, obj):
+    def get_selected_role(self, obj) -> str:
         role_selection = getattr(obj, "role_selection", None)
         return role_selection.selected_role if role_selection else None
 
