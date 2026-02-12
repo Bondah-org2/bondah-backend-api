@@ -30,6 +30,9 @@ from django.db.models import F
 from django.db.models.functions import ACos, Cos, Sin, Radians
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
+from .utils import get_cached_static_profile, get_cached_my_profile
+from django.core.cache import cache
+from .firebase_utils import ensure_firestore_user_document
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -1231,7 +1234,7 @@ class VerifyOTPAndRegisterView(generics.CreateAPIView):
                 {"error": "Too many requests. Please try again in a minute."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
-        
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -1240,6 +1243,11 @@ class VerifyOTPAndRegisterView(generics.CreateAPIView):
 
         user = data["user"]
         tokens = data["tokens"]
+
+        # Ensure Firestore document exists for this user
+        # Use email as fallback UID if firebase_uid is not set yet
+        firebase_uid = getattr(user, "firebase_uid", user.email)
+        ensure_firestore_user_document(firebase_uid, user)
 
         # Return a clean dict
         response_data = {
@@ -1284,7 +1292,7 @@ class UserLoginView(GenericAPIView):
                 {"error": "Too many requests. Please try again in a minute."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
-        
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -1584,31 +1592,115 @@ class PasswordResendOTPView(generics.GenericAPIView):
         return Response(response_msg, status=200)
 
 
-class UserProfileView(generics.RetrieveUpdateAPIView):
-    """User profile view for mobile app"""
+# class UserProfileView(generics.RetrieveUpdateAPIView):
+#     """User profile view for mobile app"""
 
+#     serializer_class = UserProfileDetailSerializer
+#     permission_classes = [IsAuthenticated]
+
+#     def get_object(self):
+#         return self.request.user
+
+#     def retrieve(self, request, *args, **kwargs):
+#         try:
+#             instance = self.get_object()
+#             serializer = self.get_serializer(instance)
+#             profile_data = serializer.data
+
+#             # Try to get additional data from Firestore
+#             from .firebase_utils import get_user_profile_from_firestore
+
+#             # Assuming user has firebase_uid, or use email as key
+#             firebase_uid = getattr(
+#                 instance, "firebase_uid", instance.email
+#             )  # Adjust if you add firebase_uid field
+#             firestore_profile = get_user_profile_from_firestore(firebase_uid)
+#             if firestore_profile:
+#                 profile_data.update(firestore_profile)  # Merge Firestore data
+
+#             return Response(
+#                 {
+#                     "message": "Profile retrieved successfully",
+#                     "status": "success",
+#                     "user": profile_data,
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+#         except Exception as e:
+#             return Response(
+#                 {
+#                     "message": f"Failed to retrieve profile: {str(e)}",
+#                     "status": "error",
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+#     def update(self, request, *args, **kwargs):
+#         try:
+#             partial = kwargs.pop("partial", False)
+#             instance = self.get_object()
+#             serializer = self.get_serializer(
+#                 instance, data=request.data, partial=partial
+#             )
+#             serializer.is_valid(raise_exception=True)
+#             updated_user = serializer.save()
+
+#             # Update Firestore if additional data provided
+#             firestore_data = {}
+#             firestore_fields = [
+#                 "bio",
+#                 "interests",
+#                 "photos",
+#             ]  # Example fields stored in Firestore
+#             for field in firestore_fields:
+#                 if field in request.data:
+#                     firestore_data[field] = request.data[field]
+
+#             if firestore_data:
+#                 firebase_uid = getattr(instance, "firebase_uid", instance.email)
+#                 update_user_profile_in_firestore(firebase_uid, firestore_data)
+
+#             return Response(
+#                 {
+#                     "message": "Profile updated successfully",
+#                     "status": "success",
+#                     "user": self.get_serializer(updated_user).data,
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+#         except Exception as e:
+#             return Response(
+#                 {
+#                     "message": f"Failed to update profile: {str(e)}",
+#                     "status": "error",
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+class UserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserProfileDetailSerializer
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
         return self.request.user
 
+    # ---------------- RETRIEVE ----------------
     def retrieve(self, request, *args, **kwargs):
         try:
-            instance = self.get_object()
-            serializer = self.get_serializer(instance)
-            profile_data = serializer.data
+            user = self.get_object()
 
-            # Try to get additional data from Firestore
+            # 1 Cached profile
+            profile_data = get_cached_my_profile(user)
+
+            # 2 Firestore merge (live)
             from .firebase_utils import get_user_profile_from_firestore
 
-            # Assuming user has firebase_uid, or use email as key
-            firebase_uid = getattr(
-                instance, "firebase_uid", instance.email
-            )  # Adjust if you add firebase_uid field
+            firebase_uid = getattr(user, "firebase_uid", user.email)
             firestore_profile = get_user_profile_from_firestore(firebase_uid)
+
             if firestore_profile:
-                profile_data.update(firestore_profile)  # Merge Firestore data
+                profile_data = {**profile_data, **firestore_profile}
 
             return Response(
                 {
@@ -1618,6 +1710,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
         except Exception as e:
             return Response(
                 {
@@ -1627,23 +1720,28 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    # ---------------- UPDATE ----------------
     def update(self, request, *args, **kwargs):
         try:
             partial = kwargs.pop("partial", False)
             instance = self.get_object()
+
             serializer = self.get_serializer(
                 instance, data=request.data, partial=partial
             )
             serializer.is_valid(raise_exception=True)
             updated_user = serializer.save()
 
-            # Update Firestore if additional data provided
+            # CLEAR BOTH CACHES AFTER SAVE
+            cache.delete(f"my_profile:{instance.id}")
+            cache.delete(f"user_static_profile:{instance.id}")
+
+            # 2 Update Firestore if needed
+            from .firebase_utils import update_user_profile_in_firestore
+
             firestore_data = {}
-            firestore_fields = [
-                "bio",
-                "interests",
-                "photos",
-            ]  # Example fields stored in Firestore
+            firestore_fields = ["bio", "interests", "photos"]
+
             for field in firestore_fields:
                 if field in request.data:
                     firestore_data[field] = request.data[field]
@@ -1656,10 +1754,11 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
                 {
                     "message": "Profile updated successfully",
                     "status": "success",
-                    "user": self.get_serializer(updated_user).data,
+                    "user": UserProfileDetailSerializer(updated_user).data,
                 },
                 status=status.HTTP_200_OK,
             )
+
         except Exception as e:
             return Response(
                 {
@@ -1688,7 +1787,10 @@ class AccountDeactivationView(generics.GenericAPIView):
             user.save(update_fields=["is_active"])
 
             return Response(
-                {"message": "Account deactivated successfully", "status": "success"},
+                {
+                    "message": "Account deactivated successfully",
+                    "status": "success",
+                },
                 status=status.HTTP_200_OK,
             )
         except Exception as e:
@@ -2980,24 +3082,67 @@ class UserSearchView(generics.ListAPIView):
         return queryset
 
 
+# class UserProfileDetailView(generics.RetrieveAPIView):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = UserProfileDetailSerializer
+#     lookup_field = "id"
+#     lookup_url_kwarg = "user_id"
+
+#     def get_queryset(self):
+#         return User.objects.filter(is_active=True)
+
+#     def retrieve(self, request, *args, **kwargs):
+#         response = super().retrieve(request, *args, **kwargs)
+#         # Track profile view
+#         UserProfileView.objects.get_or_create(
+#             viewer=request.user,
+#             viewed_user=self.get_object(),
+#             defaults={"source": "direct"},
+#         )
+#         return response
+
+
 class UserProfileDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
-    serializer_class = UserProfileDetailSerializer
-    lookup_field = "id"
-    lookup_url_kwarg = "user_id"
-
-    def get_queryset(self):
-        return User.objects.filter(is_active=True)
 
     def retrieve(self, request, *args, **kwargs):
-        response = super().retrieve(request, *args, **kwargs)
-        # Track profile view
+        user_id = kwargs.get("user_id")
+        viewed_user = User.objects.get(id=user_id)
+
+        # 1️⃣ Get cached static profile
+        data = get_cached_static_profile(user_id)
+
+        # 2️⃣ Inject dynamic fields
+        data["profile_views_count"] = UserProfileView.objects.filter(
+            viewed_user=viewed_user
+        ).count()
+
+        data[
+            "is_online"
+        ] = viewed_user.last_seen and viewed_user.last_seen >= now() - timedelta(
+            minutes=3
+        )
+
+        if request.user.has_location and viewed_user.has_location:
+            data["distance"] = request.user.get_distance_to(viewed_user)
+        else:
+            data["distance"] = None
+
+        if request.user != viewed_user:
+            data["compatibility_score"] = calculate_match_score(
+                request.user, viewed_user
+            )
+        else:
+            data["compatibility_score"] = None
+
+        # 3️⃣ Track profile view
         UserProfileView.objects.get_or_create(
             viewer=request.user,
-            viewed_user=self.get_object(),
+            viewed_user=viewed_user,
             defaults={"source": "direct"},
         )
-        return response
+
+        return Response(data)
 
 
 class UserRecommendationsView(generics.ListAPIView):

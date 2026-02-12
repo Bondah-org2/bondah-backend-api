@@ -1783,6 +1783,7 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[email],
         )
+        print(verification.otp_code)
 
         return {
             "message": "OTP sent to your email",
@@ -1792,7 +1793,7 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
 
 class VerifyOTPAndRegisterSerializer(serializers.Serializer):
     registration_token = serializers.UUIDField()
-    otp_code = serializers.CharField(max_length=4)
+    otp_code = serializers.CharField(max_length=6)
 
     def validate(self, attrs):
         token = attrs["registration_token"]
@@ -2066,6 +2067,11 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
     )
     selected_role = serializers.SerializerMethodField()
     age = serializers.ReadOnlyField()
+    languages = serializers.ListField(child=serializers.CharField())
+    hobbies = serializers.ListField(child=serializers.CharField())
+    interests = serializers.ListField(child=serializers.CharField())
+    traits = serializers.ListField(child=serializers.CharField())
+    profile_gallery = serializers.ListField(child=serializers.URLField())
 
     class Meta:
         model = User
@@ -2206,6 +2212,70 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("You must be at least 18 years old.")
 
         return value
+
+
+class StaticUserProfileSerializer(serializers.ModelSerializer):
+    selected_role = serializers.SerializerMethodField()
+    profile_completion_percentage = serializers.IntegerField(
+        source="get_profile_completion_percentage",
+        read_only=True,
+    )
+    age = serializers.ReadOnlyField()
+    languages = serializers.ListField(child=serializers.CharField())
+    hobbies = serializers.ListField(child=serializers.CharField())
+    interests = serializers.ListField(child=serializers.CharField())
+    traits = serializers.ListField(child=serializers.CharField())
+    profile_gallery = serializers.ListField(child=serializers.URLField())
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "name",
+            "age",
+            "gender",
+            "bio",
+            "profile_picture",
+            "profile_gallery",
+            "education_level",
+            "height",
+            "zodiac_sign",
+            "languages",
+            "relationship_status",
+            "smoking_preference",
+            "drinking_preference",
+            "pet_preference",
+            "exercise_frequency",
+            "no_of_kids",
+            "have_kids",
+            "personality_type",
+            "love_language",
+            "communication_style",
+            "hobbies",
+            "interests",
+            "marriage_plans",
+            "future_kids",
+            "religion_importance",
+            "religion",
+            "dating_type",
+            "open_to_long_distance",
+            "city",
+            "state",
+            "country",
+            "looking_for",
+            "preferred_language",
+            "traits",
+            "genotype",
+            "location",
+            "date_of_birth",
+            "phone_number",
+            "selected_role",
+            "profile_completion_percentage",
+        ]
+
+    def get_selected_role(self, obj):
+        role_selection = getattr(obj, "role_selection", None)
+        return role_selection.selected_role if role_selection else None
 
 
 class UserSearchSerializer(serializers.ModelSerializer):

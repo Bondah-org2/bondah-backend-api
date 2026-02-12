@@ -38,6 +38,31 @@ def get_firestore_client():
     return _db
 
 
+def ensure_firestore_user_document(uid, user):
+    """
+    Ensure a Firestore user document exists for this UID.
+    Idempotent: safe to call anytime.
+    """
+    try:
+        db = get_firestore_client()
+        doc_ref = db.collection("users").document(uid)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            doc_ref.set(
+                {
+                    "email": user.email,
+                    "name": user.name,
+                    "bio": "",
+                    "interests": [],
+                    "photos": [],
+                    "created_at": firestore.SERVER_TIMESTAMP,
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error ensuring Firestore user document: {e}")
+
+
 def verify_firebase_token(id_token):
     """
     Verify a Firebase ID token and return decoded claims.
@@ -52,40 +77,36 @@ def verify_firebase_token(id_token):
 
 
 def get_or_create_user_from_firebase(decoded_token):
-    """
-    Get or create a Django User from Firebase decoded token.
-    Syncs Firebase user data with Django User model.
-    """
     uid = decoded_token["uid"]
     email = decoded_token.get("email")
     name = decoded_token.get("name", "")
 
-    # Check if user exists by Firebase UID (add firebase_uid to User model if needed)
     user = User.objects.filter(email=email).first()
+
     if not user:
-        # Create new user
         user = User.objects.create_user(
-            username=email,  # Or use uid
+            username=email,
             email=email,
             name=name,
-            # Add other fields as needed
         )
-        # Optionally, store Firebase UID in a profile model
+
+    # GUARANTEE FIRESTORE DOC EXISTS FOR EVERY USER
+    ensure_firestore_user_document(uid, user)
+
     return user
 
 
 def get_user_profile_from_firestore(uid):
-    """
-    Fetch user profile data from Firestore.
-    Assumes a 'users' collection with documents keyed by Firebase UID.
-    """
     try:
         db = get_firestore_client()
         doc_ref = db.collection("users").document(uid)
-        doc = doc_ref.get()
+        doc = doc_ref.get(timeout=3)  # ⬅️ IMPORTANT: prevent hanging
+
         if doc.exists:
             return doc.to_dict()
+
         return None
+
     except Exception as e:
         logger.error(f"Error fetching user profile from Firestore: {e}")
         return None

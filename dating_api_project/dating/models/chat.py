@@ -562,7 +562,7 @@ class EmailVerification(models.Model):
         blank=True,
     )
     email = models.EmailField()
-    otp_code = models.CharField(max_length=4)
+    otp_code = models.CharField(max_length=6)
     is_verified = models.BooleanField(default=False)
     is_used = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

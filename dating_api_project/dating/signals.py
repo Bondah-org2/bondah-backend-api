@@ -5,6 +5,7 @@ from .models import Wallet, UserMatch
 from django.contrib.auth import get_user_model
 from .models import SuggestedMatch
 from .notification import notify_user
+from django.core.cache import cache
 
 
 User = get_user_model()
@@ -93,3 +94,14 @@ def usermatch_status_notification(sender, instance, **kwargs):
             message="Your match request was rejected and coins refunded.",
             data={"type": "match_rejected", "match_id": instance.id},
         )
+
+
+@receiver(post_save, sender=User)
+def clear_static_profile_cache(sender, instance, **kwargs):
+    cache.delete(f"user_static_profile:{instance.id}")
+
+
+@receiver(post_save, sender=User)
+def clear_profile_caches(sender, instance, **kwargs):
+    cache.delete(f"my_profile:{instance.id}")
+    cache.delete(f"user_static_profile:{instance.id}")
