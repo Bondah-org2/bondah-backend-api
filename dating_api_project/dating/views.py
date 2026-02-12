@@ -1216,11 +1216,22 @@ class RegisterRequestOTPView(generics.CreateAPIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
+@method_decorator(
+    ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
+)
 class VerifyOTPAndRegisterView(generics.CreateAPIView):
     serializer_class = VerifyOTPAndRegisterSerializer
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
+
+        # Check if the request exceeded the rate limit
+        if getattr(request, "limited", False):
+            return Response(
+                {"error": "Too many requests. Please try again in a minute."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -1258,20 +1269,22 @@ class ResendEmailOTPView(generics.CreateAPIView):
 # -------------------------
 
 
-@extend_schema(
-    request=UserLoginRequestSerializer,
-    responses={
-        200: UserLoginResponseSerializer,
-        400: UserLoginValidationErrorSerializer,
-        401: UserLoginUnauthorizedSerializer,
-        500: UserLoginErrorSerializer,
-    },
+@method_decorator(
+    ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
 class UserLoginView(GenericAPIView):
     serializer_class = UserLoginRequestSerializer
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
+
+        # Check if the request exceeded the rate limit
+        if getattr(request, "limited", False):
+            return Response(
+                {"error": "Too many requests. Please try again in a minute."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -1460,15 +1473,22 @@ class PasswordResetView(generics.GenericAPIView):
 #         500: PasswordResetConfirmSerializer,
 #     },
 # )
-@method_decorator(ratelimit(key="ip", rate="5/m", block=True), name="dispatch")
+@method_decorator(
+    ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
+)
 class PasswordResetVerifyOTPView(generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = OTPSerializer
 
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
+        if getattr(request, "limited", False):
+            return Response(
+                {"error": "Too many requests. Try again in a minute."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         otp = serializer.validated_data["otp"]
 
         otp_record = PasswordResetOTP.objects.filter(
@@ -1482,12 +1502,18 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # mark OTP as used
-        otp_record.is_used = True
-        otp_record.save()
+        # Atomic update to prevent race conditions
+        with transaction.atomic():
+            otp_record.is_used = True
+            otp_record.reset_token = uuid.uuid4()
+            otp_record.save()
 
         return Response(
-            {"message": "OTP verified successfully", "status": "success"},
+            {
+                "message": "OTP verified successfully",
+                "status": "success",
+                "reset_token": otp_record.reset_token,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -1499,11 +1525,11 @@ class PasswordResetConfirmView(generics.GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()  # Serializer handles password reset & OTP usage
+        serializer.save()
 
         return Response(
             {"message": "Password reset successfully", "status": "success"},
-            status=status.HTTP_200_OK,
+            status=status.HTTP_200_OK
         )
 
 
@@ -1776,6 +1802,9 @@ class LanguageSettingsView(generics.GenericAPIView):
     serializer_class = LanguageSettingsSerializer
 
 
+@method_decorator(
+    ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
+)
 class GoogleOAuthView(generics.GenericAPIView):
     """Google OAuth login for mobile app"""
 
@@ -1788,6 +1817,12 @@ class GoogleOAuthView(generics.GenericAPIView):
         description="Login or register user using Google OAuth access token.",
     )
     def post(self, request):
+        if getattr(request, "limited", False):
+            return Response(
+                {"error": "Too many requests. Please try again in a minute."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 

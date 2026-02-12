@@ -13,6 +13,7 @@ from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import make_password
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 from datetime import date
 from .models import (
     User,
@@ -1197,7 +1198,7 @@ class PasswordResetSerializer(serializers.Serializer):
 class PasswordResetConfirmSerializer(serializers.Serializer):
     reset_token = serializers.UUIDField()
     new_password = serializers.CharField(validators=[validate_password])
-    new_password_confirm = serializers.CharField(validators=[validate_password])
+    new_password_confirm = serializers.CharField()
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password_confirm"]:
@@ -1207,23 +1208,23 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         return attrs
 
     def save(self, **kwargs):
-        reset_token = self.validated_data.get("reset_token")
-        # Get the OTP record
-        otp_record = get_object_or_404(
-            PasswordResetOTP,
-            reset_token=reset_token,
-            is_used=False
-        )
-        user = User.objects.get(email=otp_record.email)
+        reset_token = self.validated_data["reset_token"]
 
-        # Set the new password
-        user.set_password(self.validated_data["new_password"])
-        user.save()
+        # Atomic operation to ensure the token is used only once
+        with transaction.atomic():
+            otp_record = get_object_or_404(
+                PasswordResetOTP,
+                reset_token=reset_token,
+                is_used=True,  # Should already be used in OTP verification
+            )
 
-        # Mark OTP as used
-        otp_record.is_used = True
-        otp_record.reset_token = None
-        otp_record.save()
+            user = User.objects.get(email=otp_record.email)
+            user.set_password(self.validated_data["new_password"])
+            user.save()
+
+            # Invalidate token
+            otp_record.reset_token = None
+            otp_record.save()
 
         return user
 
