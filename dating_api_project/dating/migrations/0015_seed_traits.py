@@ -3,35 +3,10 @@
 from django.db import migrations
 
 
-def seed_traits(apps, schema_editor):
-    # Get the Trait model for this migration
-    Trait = apps.get_model("dating", "Trait")
-
-    # List of traits to seed
-    traits = [
-        "Friendly",
-        "Ambitious",
-        "Calm",
-        "Outgoing",
-        "Creative",
-        "Honest",
-        "Adventurous",
-        "Patient",
-        "Empathetic",
-        "Optimistic",
-    ]
-
-    # Insert each trait if it doesn't already exist
-    for name in traits:
-        Trait.objects.get_or_create(name=name)
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
         ("dating", "0014_report"),
     ]
 
-    operations = [
-        migrations.RunPython(seed_traits),
-    ]
+    operations = []
