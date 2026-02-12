@@ -239,6 +239,7 @@ from .serializers import (
     UserSwipeCardSerializer,
     PendingMatchUserSerializer,
     OTPSerializer,
+    StaticUserProfileSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -3104,15 +3105,16 @@ class UserSearchView(generics.ListAPIView):
 
 class UserProfileDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = StaticUserProfileSerializer
 
     def retrieve(self, request, *args, **kwargs):
         user_id = kwargs.get("user_id")
         viewed_user = User.objects.get(id=user_id)
 
-        # 1️⃣ Get cached static profile
+        # 1 Get cached static profile
         data = get_cached_static_profile(user_id)
 
-        # 2️⃣ Inject dynamic fields
+        # 2 Inject dynamic fields
         data["profile_views_count"] = UserProfileView.objects.filter(
             viewed_user=viewed_user
         ).count()
@@ -3135,7 +3137,7 @@ class UserProfileDetailView(generics.RetrieveAPIView):
         else:
             data["compatibility_score"] = None
 
-        # 3️⃣ Track profile view
+        # 3 Track profile view
         UserProfileView.objects.get_or_create(
             viewer=request.user,
             viewed_user=viewed_user,
