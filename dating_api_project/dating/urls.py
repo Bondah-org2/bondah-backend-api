@@ -38,7 +38,7 @@ from .views import (
     TokenRefreshView,
     PasswordResetView,
     PasswordResetConfirmView,
-    UserProfileView,
+    UserProfileViews,
     AccountDeactivationView,
     NotificationSettingsView,
     LanguageSettingsView,
@@ -292,7 +292,7 @@ urlpatterns = [
         name="password-reset-verify",
     ),
     path("auth/password/reset/resend-otp/", PasswordResendOTPView.as_view()),
-    path("auth/profile/", UserProfileView.as_view(), name="user-profile"),
+    path("auth/profile/", UserProfileViews.as_view(), name="user-profile"),
     path(
         "auth/deactivate/", AccountDeactivationView.as_view(), name="account-deactivate"
     ),

@@ -96,6 +96,7 @@ from .models import (
     PostInteraction,
     Notification,
     Report,
+    UserProfileView,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -1593,7 +1594,7 @@ class PasswordResendOTPView(generics.GenericAPIView):
         return Response(response_msg, status=200)
 
 
-# class UserProfileView(generics.RetrieveUpdateAPIView):
+# class UserProfileViews(generics.RetrieveUpdateAPIView):
 #     """User profile view for mobile app"""
 
 #     serializer_class = UserProfileDetailSerializer
@@ -1679,7 +1680,7 @@ class PasswordResendOTPView(generics.GenericAPIView):
 #             )
 
 
-class UserProfileView(generics.RetrieveUpdateAPIView):
+class UserProfileViews(generics.RetrieveUpdateAPIView):
     serializer_class = UserProfileDetailSerializer
     permission_classes = [IsAuthenticated]
 
