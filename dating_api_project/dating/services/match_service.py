@@ -15,12 +15,12 @@ COIN_USD_VALUE = Decimal("3.0")  # 1 coin = $3
 
 
 # Charge coins for match request (escrow)
-def charge_match_request(user, bondmaker, target_user, coins, reference_id=None):
+def charge_match_request(user, bondmaker, coins, reference_id=None):
     with transaction.atomic():
         user_wallet = Wallet.objects.select_for_update().get(user=user)
 
-        if user_wallet.available_balance < coins:
-            raise ValidationError("Insufficient coins")
+        # if user_wallet.available_balance < coins:
+        #     raise ValidationError("Insufficient coins")
 
         # 1. Move coins to ESCROW (locked)
         user_wallet.available_balance -= coins
@@ -39,7 +39,6 @@ def charge_match_request(user, bondmaker, target_user, coins, reference_id=None)
         # 2. Create MatchRequest (holds escrow record)
         match_request = MatchRequest.objects.create(
             requester=user,
-            target_user=target_user,
             bondmaker=bondmaker,
             coins_charged=coins,
             status="pending",

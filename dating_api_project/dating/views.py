@@ -23,6 +23,8 @@ from .pagination import (
     BondmakerPagination,
     BondmakerPublicPagination,
     PendingRequestListPagination,
+    UserSwipeDeckPagination,
+    BondmakerSearchPagination,
 )
 from django.core.exceptions import ValidationError
 from .location_utils import update_user_location, geocode_address
@@ -38,7 +40,6 @@ from .firebase_utils import ensure_firestore_user_document
 from .models import (
     NewsletterSubscriber,
     PuzzleVerification,
-    CoinTransaction,
     Waitlist,
     EmailLog,
     Job,
@@ -97,19 +98,21 @@ from .models import (
     Notification,
     Report,
     UserProfileView,
+    Specialisation,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
+from .notification import notify_user
 from django.conf import settings
 import logging
+from rest_framework import filters
 from .serializers import (
     UserSerializer,
     LanguageSettingsSerializer,
     NewsletterSubscriberSerializer,
     PuzzleVerificationSerializer,
-    CoinTransactionSerializer,
     WaitlistSerializer,
     NewsletterWelcomeEmailSerializer,
     WaitlistConfirmationEmailSerializer,
@@ -132,7 +135,6 @@ from .serializers import (
     PasswordResetSerializer,
     PasswordResetConfirmSerializer,
     UserProfileSerializer,
-    UserProfileUpdateSerializer,
     UserProfileDetailSerializer,
     SocialLoginSerializer,
     DeviceRegistrationSerializer,
@@ -154,7 +156,7 @@ from .serializers import (
     UserProfileWithLocationSerializer,
     NearbyUserSerializer,
     MatchPreferencesSerializer,
-    UsernameValidationSerializer,
+    CreateUsernameSerializer,
     PaymentWebhookCreateSerializer,
     PaymentTransactionSerializer,
     PaymentTransactionCreateSerializer,
@@ -231,7 +233,7 @@ from .serializers import (
     BondmakerMatchActionResponseSerializer,
     VirtualGiftSerializer,
     RegisterRequestOTPSerializer,
-    VerifyOTPAndRegisterSerializer,
+    VerifyOTPSerializer,
     ResendEmailOTPSerializer,
     StoryCreateSerializer,
     PostShareSerializer,
@@ -241,6 +243,14 @@ from .serializers import (
     PendingMatchUserSerializer,
     OTPSerializer,
     StaticUserProfileSerializer,
+    BondmakerProfileUpdateSerializer,
+    ConfirmRegistrationSerializer,
+    ApproveVisibilitySerializer,
+    BondmakerSpecialisationSerializer,
+    BondmakerSearchListSerializer,
+    SpecialisationCategorySerializer,
+    BondmakerDashboardSerializer,
+    BondmakerAnalyticsSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -286,7 +296,6 @@ from response_serializers import (
     SimpleStatusResponseSerializer,
     CustomErrorResponseSerializer,
     StatusMessageSerializer,
-    CoinTransactionSerializer,
     AdminLoginOTPResponseSerializer,
     AdminLoginSuccessResponseSerializer,
     SupportedLanguagesResponseSerializer,
@@ -321,6 +330,10 @@ from schema_serializers import (
 )
 from .coin_utils import has_solved_puzzle
 from rest_framework.generics import GenericAPIView
+from .analytics.constants import (
+    DEFAULT_PERIOD_DAYS,
+)
+from .analytics.services import BondmakerAnalyticsService
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -572,7 +585,7 @@ class EarnCoinsView(generics.GenericAPIView):
 
     @extend_schema(
         request=EarnCoinsRequestSerializer,
-        responses={201: CoinTransactionSerializer},
+        responses={201: WalletTransactionSerializer},
     )
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -592,11 +605,11 @@ class EarnCoinsView(generics.GenericAPIView):
                 status=403,
             )
 
-        transaction = CoinTransaction.objects.create(
-            user=user, transaction_type="earn", amount=amount
+        transaction = WalletTransaction.objects.create(
+            user=user, tx_type="credit", amount=amount
         )
 
-        return Response(CoinTransactionSerializer(transaction).data, status=201)
+        return Response(WalletTransactionSerializer(transaction).data, status=201)
 
 
 # ------------------------------
@@ -607,7 +620,7 @@ class SpendCoinsView(generics.GenericAPIView):
 
     @extend_schema(
         request=SpendCoinsRequestSerializer,
-        responses={201: CoinTransactionSerializer},
+        responses={201: WalletTransactionSerializer},
     )
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -629,14 +642,14 @@ class SpendCoinsView(generics.GenericAPIView):
 
         # calculate balance
         total_earned = (
-            CoinTransaction.objects.filter(
-                user=user, transaction_type="earn"
+            WalletTransaction.objects.filter(
+                user=user, tx_type="credit"
             ).aggregate(total=Sum("amount"))["total"]
             or 0
         )
         total_spent = (
-            CoinTransaction.objects.filter(
-                user=user, transaction_type="spend"
+            WalletTransaction.objects.filter(
+                user=user, tx_type="debit"
             ).aggregate(total=Sum("amount"))["total"]
             or 0
         )
@@ -645,11 +658,11 @@ class SpendCoinsView(generics.GenericAPIView):
         if amount > balance:
             return Response({"error": "Insufficient coin balance."}, status=400)
 
-        transaction = CoinTransaction.objects.create(
-            user=user, transaction_type="spend", amount=amount
+        transaction = WalletTransaction.objects.create(
+            user=user, tx_type="debit", amount=amount
         )
 
-        return Response(CoinTransactionSerializer(transaction).data, status=201)
+        return Response(WalletTransactionSerializer(transaction).data, status=201)
 
 
 # class JobListView(generics.ListAPIView):
@@ -1210,56 +1223,47 @@ class RegisterRequestOTPView(generics.CreateAPIView):
     serializer_class = RegisterRequestOTPSerializer
     permission_classes = [AllowAny]
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # serializer.save() returns a dict
-        data = serializer.save()
-
-        # Always return a dict as JSON
-        return Response(data, status=status.HTTP_200_OK)
-
 
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
-class VerifyOTPAndRegisterView(generics.CreateAPIView):
-    serializer_class = VerifyOTPAndRegisterSerializer
+class VerifyOTPView(generics.CreateAPIView):
+    serializer_class = VerifyOTPSerializer
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
-
-        # Check if the request exceeded the rate limit
         if getattr(request, "limited", False):
             return Response(
-                {"error": "Too many requests. Please try again in a minute."},
+                {"error": "Too many requests. Please try again later."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.save()
+        return Response(data, status=status.HTTP_200_OK)
 
-        # serializer.save() returns a dict containing user + tokens
+
+class ConfirmRegistrationView(generics.CreateAPIView):
+    serializer_class = ConfirmRegistrationSerializer
+    permission_classes = [AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         data = serializer.save()
 
         user = data["user"]
         tokens = data["tokens"]
 
-        # Ensure Firestore document exists for this user
-        # Use email as fallback UID if firebase_uid is not set yet
+        # Ensure Firestore document exists
         firebase_uid = getattr(user, "firebase_uid", user.email)
         ensure_firestore_user_document(firebase_uid, user)
 
-        # Return a clean dict
         response_data = {
-            "user": {
-                "id": user.id,
-                "email": user.email,
-            },
+            "user": {"id": user.id, "email": user.email},
             "tokens": tokens,
         }
-
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
@@ -1592,92 +1596,6 @@ class PasswordResendOTPView(generics.GenericAPIView):
         )
 
         return Response(response_msg, status=200)
-
-
-# class UserProfileViews(generics.RetrieveUpdateAPIView):
-#     """User profile view for mobile app"""
-
-#     serializer_class = UserProfileDetailSerializer
-#     permission_classes = [IsAuthenticated]
-
-#     def get_object(self):
-#         return self.request.user
-
-#     def retrieve(self, request, *args, **kwargs):
-#         try:
-#             instance = self.get_object()
-#             serializer = self.get_serializer(instance)
-#             profile_data = serializer.data
-
-#             # Try to get additional data from Firestore
-#             from .firebase_utils import get_user_profile_from_firestore
-
-#             # Assuming user has firebase_uid, or use email as key
-#             firebase_uid = getattr(
-#                 instance, "firebase_uid", instance.email
-#             )  # Adjust if you add firebase_uid field
-#             firestore_profile = get_user_profile_from_firestore(firebase_uid)
-#             if firestore_profile:
-#                 profile_data.update(firestore_profile)  # Merge Firestore data
-
-#             return Response(
-#                 {
-#                     "message": "Profile retrieved successfully",
-#                     "status": "success",
-#                     "user": profile_data,
-#                 },
-#                 status=status.HTTP_200_OK,
-#             )
-#         except Exception as e:
-#             return Response(
-#                 {
-#                     "message": f"Failed to retrieve profile: {str(e)}",
-#                     "status": "error",
-#                 },
-#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             )
-
-#     def update(self, request, *args, **kwargs):
-#         try:
-#             partial = kwargs.pop("partial", False)
-#             instance = self.get_object()
-#             serializer = self.get_serializer(
-#                 instance, data=request.data, partial=partial
-#             )
-#             serializer.is_valid(raise_exception=True)
-#             updated_user = serializer.save()
-
-#             # Update Firestore if additional data provided
-#             firestore_data = {}
-#             firestore_fields = [
-#                 "bio",
-#                 "interests",
-#                 "photos",
-#             ]  # Example fields stored in Firestore
-#             for field in firestore_fields:
-#                 if field in request.data:
-#                     firestore_data[field] = request.data[field]
-
-#             if firestore_data:
-#                 firebase_uid = getattr(instance, "firebase_uid", instance.email)
-#                 update_user_profile_in_firestore(firebase_uid, firestore_data)
-
-#             return Response(
-#                 {
-#                     "message": "Profile updated successfully",
-#                     "status": "success",
-#                     "user": self.get_serializer(updated_user).data,
-#                 },
-#                 status=status.HTTP_200_OK,
-#             )
-#         except Exception as e:
-#             return Response(
-#                 {
-#                     "message": f"Failed to update profile: {str(e)}",
-#                     "status": "error",
-#                 },
-#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             )
 
 
 class UserProfileViews(generics.RetrieveUpdateAPIView):
@@ -4636,72 +4554,35 @@ class DocumentUploadView(GenericAPIView):
 # =============================================================================
 
 
-class UsernameValidationView(APIView):
-    """
-    Validate username availability and format
-    """
+class CreateUsernameView(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CreateUsernameSerializer
 
-    permission_classes = [AllowAny]
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
 
-    @extend_schema(
-        request=UsernameValidationSerializer,
-        responses={
-            200: inline_serializer(
-                name="UsernameValidationResponse",
-                fields={
-                    "message": serializers.CharField(),
-                    "status": serializers.CharField(),
-                    "data": UsernameValidationSerializer(),
-                },
-            ),
-            400: inline_serializer(
-                name="UsernameValidationError",
-                fields={
-                    "message": serializers.CharField(),
-                    "status": serializers.CharField(),
-                    "errors": serializers.DictField(),
-                },
-            ),
-            500: inline_serializer(
-                name="UsernameValidationServerError",
-                fields={
-                    "message": serializers.CharField(),
-                    "status": serializers.CharField(),
-                },
-            ),
-        },
-    )
-    def post(self, request):
-        """Validate username"""
         try:
-
-            serializer = UsernameValidationSerializer(data=request.data)
-            if serializer.is_valid():
-                return Response(
-                    {
-                        "message": "Username validation completed",
-                        "status": "success",
-                        "data": serializer.validated_data,
-                    },
-                    status=status.HTTP_200_OK,
-                )
+            serializer.is_valid(raise_exception=True)
+            user = serializer.save()
 
             return Response(
                 {
-                    "message": "Invalid data provided",
-                    "status": "error",
-                    "errors": serializer.errors,
+                    "message": "Username created successfully",
+                    "status": "success",
+                    "username": user.username,
                 },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_201_CREATED,
             )
 
-        except Exception as e:
+        except serializers.ValidationError as e:
+            # This is where suggestions come back
             return Response(
                 {
-                    "message": f"Failed to validate username: {str(e)}",
+                    "message": "Username unavailable",
                     "status": "error",
+                    **e.detail,
                 },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
 
@@ -5403,165 +5284,165 @@ class RefundPaymentView(generics.GenericAPIView):
 # user authentication, profiles, and matches.
 
 
-class FirebaseLoginView(generics.GenericAPIView):
-    """
-    Authenticate user with Firebase ID token.
-    Returns Django JWT tokens.
-    """
+# class FirebaseLoginView(generics.GenericAPIView):
+#     """
+#     Authenticate user with Firebase ID token.
+#     Returns Django JWT tokens.
+#     """
 
-    permission_classes = [AllowAny]
-    serializer_class = UserSerializer
+#     permission_classes = [AllowAny]
+#     serializer_class = UserSerializer
 
-    @extend_schema(request=None, responses={200: UserSerializer})
-    def post(self, request, *args, **kwargs):
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return Response(
-                {"error": "Missing or invalid Authorization header"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+#     @extend_schema(request=None, responses={200: UserSerializer})
+#     def post(self, request, *args, **kwargs):
+#         auth_header = request.headers.get("Authorization")
+#         if not auth_header or not auth_header.startswith("Bearer "):
+#             return Response(
+#                 {"error": "Missing or invalid Authorization header"},
+#                 status=status.HTTP_401_UNAUTHORIZED,
+#             )
 
-        id_token = auth_header.split(" ")[1]
-        decoded_token = verify_firebase_token(id_token)
-        if not decoded_token:
-            return Response(
-                {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
-            )
+#         id_token = auth_header.split(" ")[1]
+#         decoded_token = verify_firebase_token(id_token)
+#         if not decoded_token:
+#             return Response(
+#                 {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
+#             )
 
-        user = get_or_create_user_from_firebase(decoded_token)
+#         user = get_or_create_user_from_firebase(decoded_token)
 
-        from rest_framework_simplejwt.tokens import RefreshToken
+#         from rest_framework_simplejwt.tokens import RefreshToken
 
-        refresh = RefreshToken.for_user(user)
+#         refresh = RefreshToken.for_user(user)
 
-        return Response(
-            {
-                "message": "Login successful",
-                "user": UserSerializer(user).data,
-                "access_token": str(refresh.access_token),
-                "refresh_token": str(refresh),
-            }
-        )
-
-
-class FirebaseUserProfileView(generics.GenericAPIView):
-    """
-    Get or update user profile in Firestore.
-    """
-
-    permission_classes = [IsAuthenticated]
-    serializer_class = UserProfileSerializer
-
-    def _get_uid(self, request):
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return None
-        id_token = auth_header.split(" ")[1]
-        decoded_token = verify_firebase_token(id_token)
-        if not decoded_token:
-            return None
-        return decoded_token["uid"]
-
-    def get(self, request, *args, **kwargs):
-        uid = self._get_uid(request)
-        if not uid:
-            return Response(
-                {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        profile = get_user_profile_from_firestore(uid)
-        if not profile:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        serializer = self.get_serializer(profile)
-        return Response(serializer.data)
-
-    def post(self, request, *args, **kwargs):
-        uid = self._get_uid(request)
-        if not uid:
-            return Response(
-                {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        success = update_user_profile_in_firestore(uid, serializer.validated_data)
-        if success:
-            return Response({"message": "Profile updated"})
-        return Response(
-            {"error": "Update failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+#         return Response(
+#             {
+#                 "message": "Login successful",
+#                 "user": UserSerializer(user).data,
+#                 "access_token": str(refresh.access_token),
+#                 "refresh_token": str(refresh),
+#             }
+#         )
 
 
-class FirebaseMatchView(generics.GenericAPIView):
-    """
-    Create a match between users.
-    """
+# class FirebaseUserProfileView(generics.GenericAPIView):
+#     """
+#     Get or update user profile in Firestore.
+#     """
 
-    permission_classes = [IsAuthenticated]
-    serializer_class = FirebaseMatchSerializer
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = UserProfileSerializer
 
-    def post(self, request, *args, **kwargs):
-        uid = FirebaseUserProfileView()._get_uid(request)
-        if not uid:
-            return Response(
-                {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
-            )
+#     def _get_uid(self, request):
+#         auth_header = request.headers.get("Authorization")
+#         if not auth_header or not auth_header.startswith("Bearer "):
+#             return None
+#         id_token = auth_header.split(" ")[1]
+#         decoded_token = verify_firebase_token(id_token)
+#         if not decoded_token:
+#             return None
+#         return decoded_token["uid"]
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        matched_uid = serializer.validated_data["matched_uid"]
+#     def get(self, request, *args, **kwargs):
+#         uid = self._get_uid(request)
+#         if not uid:
+#             return Response(
+#                 {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+#             )
 
-        success = create_match_in_firestore(uid, matched_uid)
-        if success:
-            return Response({"message": "Match created"})
-        return Response(
-            {"error": "Match creation failed"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+#         profile = get_user_profile_from_firestore(uid)
+#         if not profile:
+#             return Response(
+#                 {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
+#             )
+
+#         serializer = self.get_serializer(profile)
+#         return Response(serializer.data)
+
+#     def post(self, request, *args, **kwargs):
+#         uid = self._get_uid(request)
+#         if not uid:
+#             return Response(
+#                 {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+#             )
+
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+
+#         success = update_user_profile_in_firestore(uid, serializer.validated_data)
+#         if success:
+#             return Response({"message": "Profile updated"})
+#         return Response(
+#             {"error": "Update failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#         )
 
 
-class FirebaseMatchesListView(generics.ListAPIView):
-    """
-    Get list of matches for the authenticated user.
-    """
+# class FirebaseMatchView(generics.GenericAPIView):
+#     """
+#     Create a match between users.
+#     """
 
-    permission_classes = [IsAuthenticated]
-    serializer_class = FirebaseMatchSerializer
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = FirebaseMatchSerializer
 
-    def list(self, request, *args, **kwargs):
-        uid = FirebaseUserProfileView()._get_uid(request)
-        if not uid:
-            return Response(
-                {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
-            )
-        matches = get_matches_for_user(uid)
-        serializer = self.get_serializer(matches, many=True)
-        return Response(serializer.data)
+#     def post(self, request, *args, **kwargs):
+#         uid = FirebaseUserProfileView()._get_uid(request)
+#         if not uid:
+#             return Response(
+#                 {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+#             )
+
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+#         matched_uid = serializer.validated_data["matched_uid"]
+
+#         success = create_match_in_firestore(uid, matched_uid)
+#         if success:
+#             return Response({"message": "Match created"})
+#         return Response(
+#             {"error": "Match creation failed"},
+#             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#         )
 
 
-class FirebasePushNotificationView(generics.GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = PushNotificationSerializer
+# class FirebaseMatchesListView(generics.ListAPIView):
+#     """
+#     Get list of matches for the authenticated user.
+#     """
 
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = FirebaseMatchSerializer
 
-        token = serializer.validated_data["token"]
-        title = serializer.validated_data.get("title", "Notification")
-        body = serializer.validated_data.get("body", "Message")
+#     def list(self, request, *args, **kwargs):
+#         uid = FirebaseUserProfileView()._get_uid(request)
+#         if not uid:
+#             return Response(
+#                 {"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED
+#             )
+#         matches = get_matches_for_user(uid)
+#         serializer = self.get_serializer(matches, many=True)
+#         return Response(serializer.data)
 
-        response = send_push_notification(token, title, body)
-        if response:
-            return Response({"message": "Notification sent", "response": response})
-        return Response(
-            {"error": "Failed to send notification"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+
+# class FirebasePushNotificationView(generics.GenericAPIView):
+#     permission_classes = [AllowAny]
+#     serializer_class = PushNotificationSerializer
+
+#     def post(self, request, *args, **kwargs):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+
+#         token = serializer.validated_data["token"]
+#         title = serializer.validated_data.get("title", "Notification")
+#         body = serializer.validated_data.get("body", "Message")
+
+#         response = send_push_notification(token, title, body)
+#         if response:
+#             return Response({"message": "Notification sent", "response": response})
+#         return Response(
+#             {"error": "Failed to send notification"},
+#             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#        )
 
 
 # ==========================
@@ -5982,7 +5863,7 @@ class AdminBondmakerListView(generics.ListAPIView):
         role = self.request.query_params.get("role")
         if role == "bondmaker":
             queryset = queryset.filter(is_matchmaker=True)
-        elif role == "applicant":
+        elif role == "looking_for_love":
             queryset = queryset.filter(is_matchmaker=False)
 
         return queryset.order_by("-id")
@@ -5990,7 +5871,7 @@ class AdminBondmakerListView(generics.ListAPIView):
 
 # bondmaker profile Detail view
 class BondmakerProfileDetailView(generics.RetrieveAPIView):
-    serializer_class = PublicBondmakerProfileSerializer
+    serializer_class = UserProfileDetailSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
@@ -6022,17 +5903,59 @@ class PublicBondmakerListView(generics.ListAPIView):
             .prefetch_related("document_verifications")
         )
 
-        # Search
-        search = self.request.query_params.get("search")
-        if search:
-            qs = qs.filter(Q(name__icontains=search) | Q(location__icontains=search))
+        # Annotate number of accepted match requests
+        qs = qs.annotate(
+            accepted_match_count=Count(
+                "received_requests",
+                filter=Q(received_requests__status="accepted"),
+            )
+        )
+
+        # Filter by requesting user's location
+        # if user.location:
+        #     qs = qs.filter(location=user.location)
 
         # Filter by availability
-        availability = self.request.query_params.get("availability")  # online / offline
-        if availability in ["online", "offline"]:
-            qs = qs.filter(availability_status=availability)
+        # availability = self.request.query_params.get("availability")  # online / offline
+        # if availability in ["online", "offline"]:
+        #     qs = qs.filter(availability_status=availability)
 
-        return qs.order_by("-id")
+        # Search by username or location query param
+        search = self.request.query_params.get("search")
+        if search:
+            qs = qs.filter(Q(username__icontains=search) | Q(location__icontains=search))
+
+        # Order by most accepted requests
+        return qs.order_by("-accepted_match_count", "-id")
+
+
+class BondmakerProfileUpdateView(generics.UpdateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = BondmakerProfileUpdateSerializer
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        """
+        Update profile, create username if not set, and manage security questions
+        """
+        partial = kwargs.pop("partial", True)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        # Return updated user profile including security questions
+        response_serializer = self.get_serializer(instance)
+        return Response(
+            {
+                "message": "Profile updated successfully",
+                "status": "success",
+                "data": response_serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 # List View of User Subscribed to a Bondmaker
@@ -6313,22 +6236,54 @@ class SetVisibilityView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
 
 
+class ApproveVisibilityView(generics.UpdateAPIView):
+    serializer_class = ApproveVisibilitySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Visibility.objects.filter(
+            bondmaker=self.request.user,
+            status="pending",
+        )
+
+
+# pending Visibilty list View for bondmaker Review
+class PendingVisibilityListView(generics.ListAPIView):
+    serializer_class = VisibilitySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # ensure only bondmakers can access
+        if not user.is_matchmaker:
+            return Visibility.objects.none()
+
+        return (
+            Visibility.objects.filter(
+                bondmaker=user,
+                status="pending",
+            )
+            .select_related("owner")
+            .order_by("-created_at")
+        )
+
+
 # a reusable “active visibility” filter
-ACTIVE_VISIBILITY_FILTER = Q(
-    visibility_settings__is_active=True,
-    visibility_settings__expires_at__gt=timezone.now(),
-)
+ACTIVE_VISIBILITY_FILTER = Q(visibility_settings__expires_at__gt=timezone.now())
 
 
 # visibility ListView for Public User
 class GlobalPublicUsersListView(generics.ListAPIView):
+    serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
-    serializer_class = VisibilitySerializer
 
     def get_queryset(self):
         return User.objects.filter(
             ACTIVE_VISIBILITY_FILTER,
+            is_matchmaker=False,
             visibility_settings__visibility="public",
+            Visibility_settings__status="approved"
         ).distinct()
 
 
@@ -6427,7 +6382,9 @@ class MatchRequestCreateView(generics.GenericAPIView):
             )
         except ValidationError as e:
             return Response({"error": str(e)}, status=400)
-
+        
+        # Get match Score
+        match_score = calculate_match_score(user, target_user)
         # Create or update UserMatch record
         distance = user.get_distance_to(target_user) or 0
         user_match, created = UserMatch.objects.update_or_create(
@@ -6436,22 +6393,16 @@ class MatchRequestCreateView(generics.GenericAPIView):
             defaults={
                 "distance": distance,
                 "status": "pending",
-                "match_score": 0,
+                "match_score": match_score,
             },
         )
 
-        # Create notification for bondmaker
-        notification = Notification.objects.create(
-            user=bondmaker,
+        # Update Notification Table
+        # Send push notification to bondmaker
+        notify_user(
+            bondmaker,
             title="New Match Request",
             message=f"{user.name} liked {target_user.name}. Review the request.",
-        )
-
-        # Send push notification
-        send_push_notification(
-            bondmaker,
-            title=notification.title,
-            message=notification.message,
             data={"match_request_id": match_request.id},
         )
 
@@ -6495,37 +6446,7 @@ class BondmakerAcceptMatchView(generics.GenericAPIView):
 
         match.status = "matched"
         match.save()
-
-        # user_a = match.user1
-        # user_b = match.user2
-
-        # #  Create notifications
-        # notif_a = Notification.objects.create(
-        #     user=user_a,
-        #     title="It's a Match!",
-        #     message=f"You have been matched with {user_b.name}",
-        # )
-
-        # notif_b = Notification.objects.create(
-        #     user=user_b,
-        #     title="It's a Match!",
-        #     message=f"You have been matched with {user_a.name}",
-        # )
-
-        # #  Push notifications
-        # send_push_notification(
-        #     user_a,
-        #     title=notif_a.title,
-        #     message=notif_a.message,
-        #     data={"match_id": match.id},
-        # )
-
-        # send_push_notification(
-        #     user_b,
-        #     title=notif_b.title,
-        #     message=notif_b.message,
-        #     data={"match_id": match.id},
-        # )
+# signals sends push notification and update notification table
 
         return Response(
             {
@@ -6684,8 +6605,25 @@ class UserInteractionView(generics.CreateAPIView):
         # LIKE  → CHARGE COINS → CREATE MATCH REQUEST → USERMATCH
         # ---------------------------------------------------------
         if interaction_type == "like":
-            bondmaker = getattr(target_user, "bondmaker", None)
 
+            visibility = (
+                Visibility.objects
+                .filter(
+                    owner=target_user,
+                    visibility__in=["public", "private"],
+                    expires_at__gt=timezone.now(),
+                )
+                .select_related("bondmaker")
+                .first()
+            )
+
+            if not visibility:
+                return Response(
+                    {"error": "Target user is not currently visible under any bondmaker"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            bondmaker = visibility.bondmaker
             if not bondmaker:
                 return Response(
                     {"error": "Target user is not under any bondmaker"},
@@ -6696,7 +6634,6 @@ class UserInteractionView(generics.CreateAPIView):
                 match_request = charge_match_request(
                     user=user,
                     bondmaker=bondmaker,
-                    target_user=target_user,
                     coins=self.SWIPE_COST,
                 )
             except ValidationError as e:
@@ -6715,19 +6652,17 @@ class UserInteractionView(generics.CreateAPIView):
             )
 
             # Track notification in DB
-            notification = Notification.objects.create(
-                user=bondmaker,
+            # Push notification to bondmaker
+
+            notify_user(
+                bondmaker,
                 title="New Match Request",
                 message=f"{user.name} liked {target_user.name}. Review request.",
-            )
-
-            # Push notification to bondmaker
-            send_push_notification(
-                bondmaker,
-                title=notification.title,
-                body=notification.message,
-                data={"match_request_id": match_request.id},
-            )
+                data={
+                    "match_request_id": str(match_request.id),
+                    "type": "match_request",
+                },
+    )
 
         # ---------------------------------------------------------
         # BLOCK / REPORT  → RELATIONSHIP STATE (UserMatch)
@@ -6780,7 +6715,7 @@ class UserSwipeDeckView(generics.ListAPIView):
 
     serializer_class = UserSwipeCardSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = None  # Use pagination if needed
+    pagination_class = UserSwipeDeckPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -6789,6 +6724,7 @@ class UserSwipeDeckView(generics.ListAPIView):
         # 1. Only public visible users
         visible_users = User.objects.filter(
             visibility_settings__visibility="public",
+            visibility_settings__status="approved",
             visibility_settings__is_active=True,
             visibility_settings__expires_at__gt=timezone.now(),
         ).exclude(id=user.id)
@@ -6826,13 +6762,21 @@ class UserSwipeDeckView(generics.ListAPIView):
         return context
 
 
-class PendingMatchUserListView(generics.ListAPIView):
+# list of pending MatchRequest for a Bondmaker
+class BondmakerPendingMatchListView(generics.ListAPIView):
     serializer_class = PendingMatchUserSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = PendingRequestListPagination
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    search_fields = ["user1__name", "user1__email"]
+    ordering_fields = ["created_at"]
+    ordering = ["-created_at"]
 
     def get_queryset(self):
         bondmaker = self.request.user
+
+        if not bondmaker.is_matchmaker:
+            return UserMatch.objects.none()
 
         return (
             UserMatch.objects.filter(
@@ -6842,3 +6786,305 @@ class PendingMatchUserListView(generics.ListAPIView):
             .select_related("user1", "user2", "match_request")
             .order_by("-created_at")
         )
+
+
+class SetBondmakerSpecialisationView(generics.UpdateAPIView):
+    serializer_class = BondmakerSpecialisationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response(
+            {
+                "message": "Specialisations updated successfully",
+                "data": response.data,
+            }
+        )
+
+
+class BondmakerSearchView(generics.ListAPIView):
+    serializer_class = BondmakerSearchListSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = BondmakerSearchPagination
+
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = [
+        "username",
+        "bio",
+        "city",
+        "state",
+        "country",
+        "specialisations__category",
+    ]
+    ordering_fields = ["accepted_match_count"]
+    ordering = ["-accepted_match_count"]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        queryset = User.objects.filter(is_matchmaker=True).prefetch_related(
+            "specialisations"
+        )
+
+        queryset = queryset.annotate(
+            accepted_match_count=Count(
+                "received_requests",
+                filter=Q(received_requests__status__in=["accepted"]),
+            )
+        )
+
+        # Location (query param OR fallback to user)
+        city = self.request.query_params.get("city") or user.city
+        state = self.request.query_params.get("state") or user.state
+        country = self.request.query_params.get("country") or user.country
+
+        if city:
+            queryset = queryset.filter(city__iexact=city)
+
+        if state:
+            queryset = queryset.filter(state__iexact=state)
+
+        if country:
+            queryset = queryset.filter(country__iexact=country)
+
+        # Category filter
+        category = self.request.query_params.get("category")
+        if category:
+            categories = category.split(",")
+            queryset = queryset.filter(
+                specialisations__category__in=categories
+            )
+
+        return queryset.distinct()
+
+
+class SpecialisationCategoryListView(generics.GenericAPIView):
+    serializer_class = SpecialisationCategorySerializer
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        categories = [
+            {
+                "value": choice[0],
+                "label": choice[1],
+            }
+            for choice in Specialisation.Category.choices
+        ]
+        return Response(categories)
+
+
+class BondmakerDashboardView(generics.GenericAPIView):
+    serializer_class = BondmakerDashboardSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+
+        if not user.is_matchmaker:
+            return Response({"detail": "Not allowed."}, status=403)
+
+        now = timezone.now()
+
+        # ------------------------------
+        # 1 Level & Matches
+        # ------------------------------
+        total_accepted_matches = MatchRequest.objects.filter(
+            bondmaker=user, status="accepted"
+        ).count()
+        matches_per_level = 50
+        level = total_accepted_matches // matches_per_level + 1
+        matches_to_next_level = matches_per_level - (
+            total_accepted_matches % matches_per_level
+        )
+        if matches_to_next_level == matches_per_level:
+            matches_to_next_level = 0
+
+        # Matches already earned in this level
+        matches_in_current_level = total_accepted_matches % matches_per_level
+
+        # Percentage progress to next level
+        if matches_to_next_level == 0:
+            progress_percentage = 100
+        else:
+            progress_percentage = int((matches_in_current_level / matches_per_level) * 100)
+        # ------------------------------
+        # 2 Pending Match Requests
+        # # ------------------------------
+        # pending_requests = MatchRequest.objects.filter(
+        #     bondmaker=user, status="pending"
+        # ).count()
+
+        # ------------------------------
+        # 3 Live Profiles & Net Subscribers
+        # ------------------------------
+        active_subscriptions = BondmakerSubscription.objects.filter(
+            bondmaker=user, end_date__gt=now, active=True
+        )
+        live_profiles = Visibility.objects.filter(
+            bondmaker=user,
+            expires_at__gt=now,
+            status="approved",
+        ).count()
+        net_subscribers = active_subscriptions.count()
+
+        # ------------------------------
+        # 4 Profile Views
+        # ------------------------------
+        client_ids = active_subscriptions.values_list("user_id", flat=True)
+        profile_views = UserProfileView.objects.filter(
+            viewed_user_id__in=client_ids
+        ).count()
+
+        # ------------------------------
+        # 5 Wallet
+        # ------------------------------
+        # wallet = getattr(user, "wallet", None)
+        # wallet_balance = {
+        #     "available": wallet.available_balance if wallet else 0,
+        #     "locked": wallet.locked_balance if wallet else 0,
+        # }
+
+        # ------------------------------
+        # 6 Recent Activity Feed (last 5 events)
+        # ------------------------------
+        recent_activity = []
+
+        # a) Recent profile views
+        recent_views = (
+            UserProfileView.objects.filter(viewed_user_id__in=client_ids)
+            .select_related("viewer", "viewed_user")
+            .order_by("-viewed_at")[:5]
+        )
+
+        for view in recent_views:
+            recent_activity.append(
+                {
+                    "type": "profile_view",
+                    "viewer_name": view.viewer.name or view.viewer.username,
+                    "viewer_country": view.viewer.country,
+                    "viewed_client_name": view.viewed_user.name
+                    or view.viewed_user.username,
+                    "source": view.source,
+                    "time": view.viewed_at,
+                }
+            )
+
+        # b) Recent matches accepted
+        recent_matches = (
+            MatchRequest.objects.filter(bondmaker=user, status="accepted")
+            .select_related("requester")
+            .order_by("-created_at")[:5]
+        )
+
+        for match in recent_matches:
+            recent_activity.append(
+                {
+                    "type": "match_accepted",
+                    "requester_name": match.requester.name or match.requester.username,
+                    "coins_charged": match.coins_charged,
+                    "time": match.created_at,
+                }
+            )
+
+        # Sort combined activity by time descending & keep top 5
+        recent_activity.sort(key=lambda x: x["time"], reverse=True)
+        recent_activity = recent_activity[:5]
+
+        # ------------------------------
+        # 7 Daily Tasks & Streaks (example)
+        # ------------------------------
+        # daily_tasks = [
+        #     {"task": "Review 5 New Profiles", "done": 3, "goal": 5},
+        #     {"task": "Send 5 Match Suggestions", "done": 2, "goal": 5},
+        #     {"task": "Follow Up on Past Match", "done": 1, "goal": 1},
+        #     {"task": "Post on Bond Story", "done": 0, "goal": 1},
+        #     {"task": "Invite a New User", "done": 0, "goal": 1},
+        # ]
+        # streak_days = 5  # example placeholder
+
+        # ------------------------------
+        # 8 Badges
+        # ------------------------------
+        # badges = [
+        #     {
+        #         "name": "Emerging Bondmaker",
+        #         "level_required": 10,
+        #         "achieved": level >= 10,
+        #     },
+        #     {"name": "Connector", "level_required": 11, "achieved": level >= 11},
+        # ]
+
+        # ------------------------------
+        # 9 Serialize & Return
+        # ------------------------------
+        data = {
+            "bondmaker_id": user.id,
+            "bondmaker_name": user.name,
+            "bondmaker_profile_picture": user.profile_picture,
+            "level": level,
+            "total_matches": total_accepted_matches,
+            "matches_to_next_level": matches_to_next_level,
+            "progress_to_next_level": progress_percentage,
+            # "pending_match_requests": pending_requests,
+            "live_profiles": live_profiles,
+            "net_subscribers": net_subscribers,
+            "profile_views": profile_views,
+            # "wallet_balance": wallet_balance,
+            "recent_activity": recent_activity,
+            # "daily_tasks": daily_tasks,
+            # "streak_days": streak_days,
+            # "badges": badges,
+        }
+
+        serializer = self.get_serializer(data)
+        return Response(serializer.data)
+
+
+ALLOWED_PERIODS = [30, 60, 90, 120]  # allowed analytics periods in days
+# DEFAULT_PERIOD_DAYS = 30
+
+
+class BondmakerAnalyticsView(generics.GenericAPIView):
+    serializer_class = BondmakerAnalyticsSerializer
+    permission_classes = [IsAuthenticated]
+
+    # Declare the query param for Swagger
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="days",
+                description="Number of days for analytics. Allowed values: 30, 60, 90, 120",
+                required=False,
+                type=int,
+                default=30,
+            )
+        ],
+        responses=BondmakerAnalyticsSerializer,
+        description="Retrieve bondmaker analytics for a given period",
+    )
+    def get(self, request):
+        user = request.user
+
+        if not user.is_matchmaker:
+            return Response({"detail": "Not allowed."}, status=403)
+
+        # Get 'days' from query params, validate it
+        try:
+            days = int(request.query_params.get("days", DEFAULT_PERIOD_DAYS))
+        except ValueError:
+            days = DEFAULT_PERIOD_DAYS
+
+        if days not in ALLOWED_PERIODS:
+            return Response(
+                {"detail": f"Invalid period. Allowed values: {ALLOWED_PERIODS}"},
+                status=400,
+            )
+
+        service = BondmakerAnalyticsService(user=user, days=days)
+        data = service.get_analytics()
+
+        serializer = self.get_serializer(data)
+        return Response(serializer.data)

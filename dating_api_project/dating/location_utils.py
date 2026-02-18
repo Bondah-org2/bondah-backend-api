@@ -147,7 +147,7 @@ def reverse_geocode(latitude: float, longitude: float) -> Optional[Dict]:
 # NEARBY USER SEARCH
 # =========================================================
 def find_nearby_users(user, max_distance: Optional[int] = None) -> List[Dict]:
-    from .models import User, UserMatch  # LOCAL import
+    from .models import User
 
     if not getattr(user, "has_location", False):
         return []
@@ -317,7 +317,7 @@ def get_approximate_location_from_ip(ip_address: str) -> Optional[Dict]:
 
 def get_location_statistics() -> Dict:
     from datetime import timedelta
-    from .models import User, LocationHistory  # LOCAL import
+    from .models import User, LocationHistory
 
     now = timezone.now()
     last_24h = now - timedelta(hours=24)
@@ -356,6 +356,7 @@ def is_user_visible_to(bondmaker, user) -> bool:
         Visibility.objects.filter(
             owner=user,
             is_active=True,
+            status="approved",
             expires_at__gt=timezone.now(),
         )
         .filter(Q(visibility="public") | Q(visibility="private", bondmaker=bondmaker))

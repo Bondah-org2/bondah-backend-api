@@ -3,7 +3,7 @@ from .models import (
     User,
     NewsletterSubscriber,
     PuzzleVerification,
-    CoinTransaction,
+    # CoinTransaction,
     Waitlist,
     EmailLog,
     Job,
@@ -138,8 +138,8 @@ class TranslationLogAdmin(admin.ModelAdmin):
 
 
 # Register other models
-admin.site.register(PuzzleVerification)
-admin.site.register(CoinTransaction)
+# admin.site.register(PuzzleVerification)
+# admin.site.register(CoinTransaction)
 
 
 # OAuth and Social Authentication Models

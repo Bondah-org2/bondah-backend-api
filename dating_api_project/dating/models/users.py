@@ -11,6 +11,36 @@ from django.conf import settings
 import uuid
 from dating.location_utils import reverse_geocode, get_approximate_location_from_ip
 from datetime import date
+from .user_manager import UserManager
+
+
+class Specialisation(models.Model):
+
+    class Category(models.TextChoices):
+        CASUAL = "casual", "Casual Dating"
+        LGBTQ = "lgbtq", "LGBTQ+"
+        LAVENDER = "lavender", "Lavender Marriage"
+        SUGAR = "sugar", "Sugar Relationship"
+        MARRIAGE = "marriage", "Marriage-Oriented"
+        COMPANIONSHIP = "companionship", "Companionship"
+        CULTURAL = "cultural", "Cultural Matching"
+        ELITE = "elite", "Elite Only Matching"
+        WIDOW = "widow", "Widow/Widower Matchmaking"
+        DIVORCED = "divorced", "Divorced/Single Parent Matching"
+        CAREER = "career", "Career Focused Matching"
+        ARABS = "arabs", "Arabs/Khaṭṭābah Matching"
+        HINDI = "hindi", "Hindi/Punjabi Matching"
+        CHRISTIAN = "christian", "Christian Matching"
+        ISLAM = "islam", "Islam Matching"
+
+    category = models.CharField(
+        max_length=50,
+        choices=Category.choices,
+        unique=True,
+    )
+
+    def __str__(self):
+        return self.get_category_display()
 
 
 class User(AbstractUser):
@@ -27,6 +57,12 @@ class User(AbstractUser):
         ],
         blank=True,
         null=True,
+    )
+    username = models.CharField(
+        max_length=30,
+        unique=True,
+        null=True,
+        blank=True,
     )
     date_of_birth = models.DateField(null=True, blank=True)
     phone_number = models.CharField(blank=True, null=True)
@@ -61,12 +97,15 @@ class User(AbstractUser):
     )
 
     address = models.TextField(blank=True, null=True)
-    city = models.CharField(max_length=100, blank=True, null=True)
-    state = models.CharField(max_length=100, blank=True, null=True)
-    country = models.CharField(max_length=100, blank=True, null=True)
+    city = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    state = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    country = models.CharField(max_length=100, blank=True, null=True, db_index=True)
     postal_code = models.CharField(max_length=20, blank=True, null=True)
     deal_breaker = models.CharField(max_length=100, blank=True, null=True)
     partner_qualities = models.JSONField(default=list, blank=True, null=True)
+    specialisations = models.ManyToManyField(
+        Specialisation, blank=True, related_name="bondmakers"
+    )
 
     # Location Privacy Settings
     location_privacy = models.CharField(
@@ -328,7 +367,9 @@ class User(AbstractUser):
             ("serious", "Serious Relationship"),
             ("marriage", "Marriage"),
             ("sugar", "Sugar Relationship"),
-            ("friends", "Friends First"),
+            ("friendship", "Friendship"),
+            ("short_term", "Short Term"),
+            ("not_sure_yet", "Not Sure Yet")
         ],
     )
     open_to_long_distance = models.CharField(
@@ -377,7 +418,9 @@ class User(AbstractUser):
     )
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username"]
+    REQUIRED_FIELDS = []
+
+    objects = UserManager()
 
     def __str__(self):
         return self.email
@@ -566,7 +609,7 @@ class PuzzleVerification(models.Model):
 
     def __str__(self):
         status = "Correct" if self.is_correct else "Pending"
-        return f"Puzzle for {self.user.username} – {status}"
+        return f"Puzzle for {self.user.name} – {status}"
 
     def verify_answer(self):
         """
@@ -590,19 +633,19 @@ class PuzzleVerification(models.Model):
         return question, answer
 
 
-class CoinTransaction(models.Model):
-    TRANSACTION_TYPES = (
-        ("earn", "Earn"),
-        ("spend", "Spend"),
-    )
+# class CoinTransaction(models.Model):
+#     TRANSACTION_TYPES = (
+#         ("earn", "Earn"),
+#         ("spend", "Spend"),
+#     )
 
-    user = models.ForeignKey("User", on_delete=models.CASCADE)
-    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
-    amount = models.PositiveIntegerField()
-    created_at = models.DateTimeField(auto_now_add=True)
+#     user = models.ForeignKey("User", on_delete=models.CASCADE)
+#     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
+#     amount = models.PositiveIntegerField()
+#     created_at = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
-        return f"{self.user.username} - {self.transaction_type} {self.amount} coins"
+#     def __str__(self):
+#         return f"{self.user.name} - {self.transaction_type} {self.amount} coins"
 
 
 class Waitlist(models.Model):
@@ -1060,8 +1103,15 @@ class Visibility(models.Model):
 
     VISIBILITY_CHOICES = (
             ('private', 'Private'),
-            ('public', 'Public')
+            ('public', 'Public'),
     )
+
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    )
+
     owner = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="visibility_settings"
     )
@@ -1069,19 +1119,29 @@ class Visibility(models.Model):
         User, on_delete=models.CASCADE, related_name="visible_to_users"
     )
     visibility = models.CharField(
-        max_length=20, choices=VISIBILITY_CHOICES, default="public"
+        max_length=20, choices=VISIBILITY_CHOICES,
     )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     expires_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    
     class Meta:
         unique_together = ("owner", "bondmaker")
+        indexes = [
+            models.Index(fields=["bondmaker", "status", "visibility"]),
+            models.Index(fields=["expires_at"]),
+        ]
 
-    def activate(self):
-        self.is_active = True
-        self.expires_at = timezone.now() + timedelta(days=7)
+    @property
+    def is_active(self) -> bool:
+        """Dynamic property to check if visibility is currently active"""
+        return self.expires_at and self.expires_at > timezone.now()
+
+    def activate(self, duration_days: int = 7):
+        """Activate visibility for a given duration"""
+        self.expires_at = timezone.now() + timedelta(days=duration_days)
         self.save()
 
 
@@ -1142,12 +1202,27 @@ class MatchRequest(models.Model):
     )
 
     coins_charged = models.IntegerField()
-    platform_revenue = models.DecimalField(max_digits=10, decimal_places=2)
-    bondmaker_earning = models.DecimalField(max_digits=10, decimal_places=2)
+    platform_revenue = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True
+    )
+    bondmaker_earning = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True
+    )
 
-    status = models.CharField(max_length=20, choices=STATUS, default="pending")
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS,
+        default="pending",
+        db_index=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["bondmaker", "status"]),  # helpful
+            models.Index(fields=["status"]),  # fast filtering by status
+        ]
 
 
 class UserMatch(models.Model):

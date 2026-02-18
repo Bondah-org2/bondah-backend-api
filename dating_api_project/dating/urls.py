@@ -63,7 +63,7 @@ from .views import (
     # Email and Phone Verification Views
     RegisterRequestOTPView,
     ResendEmailOTPView,
-    VerifyOTPAndRegisterView,
+    RegisterRequestOTPView,
     UserRoleSelectionView,
     # Advanced Search and Discovery Views
     UserSearchView,
@@ -108,7 +108,7 @@ from .views import (
     DocumentVerificationListView,
     DocumentVerificationDetailView,
     DocumentUploadView,
-    UsernameValidationView,
+    CreateUsernameView,
     UsernameUpdateView,
     # Subscription Plans Views (NEW FROM FIGMA)
     SubscriptionPlanListView,
@@ -140,11 +140,11 @@ from .views import (
     PaymentWebhookView,
     RefundPaymentView,
     # Firebase Integration Views
-    FirebaseLoginView,
-    FirebaseUserProfileView,
-    FirebaseMatchView,
-    FirebaseMatchesListView,
-    FirebasePushNotificationView,
+    # FirebaseLoginView,
+    # FirebaseUserProfileView,
+    # FirebaseMatchView,
+    # FirebaseMatchesListView,
+    # FirebasePushNotificationView,
     AdminBondmakerReviewView,
     AdminPendingBondmakersView,
     UserRoleStatusView,
@@ -169,7 +169,17 @@ from .views import (
     PasswordResetVerifyOTPView,
     PasswordResetConfirmView,
     UserSwipeDeckView,
-    PendingMatchUserListView,
+    BondmakerPendingMatchListView,
+    BondmakerProfileUpdateView,
+    VerifyOTPView,
+    ConfirmRegistrationView,
+    ApproveVisibilityView,
+    PendingVisibilityListView,
+    BondmakerSearchView,
+    SetBondmakerSpecialisationView,
+    SpecialisationCategoryListView,
+    BondmakerDashboardView,
+    BondmakerAnalyticsView,
 )
 
 urlpatterns = [
@@ -273,8 +283,13 @@ urlpatterns = [
         name="resend-email-otp",
     ),
     path(
+        "auth/register/confirm/",
+        ConfirmRegistrationView.as_view(),
+        name="confirm - signin",
+    ),
+    path(
         "auth/register/verify-otp/",
-        VerifyOTPAndRegisterView.as_view(),
+        VerifyOTPView.as_view(),
         name="verify-email-otp",
     ),
     path("auth/login/", UserLoginView.as_view(), name="user-login"),
@@ -519,9 +534,7 @@ urlpatterns = [
         name="document-upload",
     ),
     # Username Validation Endpoints (NEW FROM FIGMA)
-    path(
-        "username/validate/", UsernameValidationView.as_view(), name="username-validate"
-    ),
+    path("username/create/", CreateUsernameView.as_view(), name="username-validate"),
     path("username/update/", UsernameUpdateView.as_view(), name="username-update"),
     # Subscription Plans Endpoints (NEW FROM FIGMA)
     path(
@@ -618,19 +631,19 @@ urlpatterns = [
         name="refund-payment",
     ),
     # Firebase Integration Endpoints
-    path("firebase/login/", FirebaseLoginView.as_view(), name="firebase-login"),
-    path(
-        "firebase/profile/", FirebaseUserProfileView.as_view(), name="firebase-profile"
-    ),
-    path("firebase/match/", FirebaseMatchView.as_view(), name="firebase-match"),
-    path(
-        "firebase/matches/", FirebaseMatchesListView.as_view(), name="firebase-matches"
-    ),
-    path(
-        "firebase/notify/",
-        FirebasePushNotificationView.as_view(),
-        name="firebase-notify",
-    ),
+    # path("firebase/login/", FirebaseLoginView.as_view(), name="firebase-login"),
+    # path(
+    #     "firebase/profile/", FirebaseUserProfileView.as_view(), name="firebase-profile"
+    # ),
+    # path("firebase/match/", FirebaseMatchView.as_view(), name="firebase-match"),
+    # path(
+    #     "firebase/matches/", FirebaseMatchesListView.as_view(), name="firebase-matches"
+    # ),
+    # path(
+    #     "firebase/notify/",
+    #     FirebasePushNotificationView.as_view(),
+    #     name="firebase-notify",
+    # ),
     path(
         "admin/bondmakers/review/<int:verification_id>/",
         AdminBondmakerReviewView.as_view(),
@@ -658,6 +671,12 @@ urlpatterns = [
         "bondmaker/<int:pk>/",
         BondmakerProfileDetailView.as_view(),
         name="bondmaker-profile-detail",
+    ),
+    # bondmaker Profile UpdateView
+    path(
+        "bondmaker/profile/update/",
+        BondmakerProfileUpdateView.as_view(),
+        name="bondmaker-profile-update",
     ),
     path(
         "bondmaker/subscribe/",
@@ -699,15 +718,27 @@ urlpatterns = [
         SetVisibilityView.as_view(),
         name="set-visibility",
     ),
+    #  Bondmaker approves/rejects
+    path(
+        "visibility/<int:pk>/approve/",
+        ApproveVisibilityView.as_view(),
+        name="approve-visibility",
+    ),
     # End current visibility
     path(
         "visibility/end/",
         EndVisbilityView.as_view(),
         name="end-visibility",
     ),
+    # pending Visibility reqest List for bondmaker
+    path(
+        "visibility/pending/",
+        PendingVisibilityListView.as_view(),
+        name="pending-visibility-list",
+    ),
     # Public users (visible to everyone)
     path(
-        "visibility/public_list/",
+        "visibility/public/list/",
         GlobalPublicUsersListView.as_view(),
         name="public-users-list",
     ),
@@ -745,7 +776,35 @@ urlpatterns = [
     # List of Pending Request to each Bondmaker
     path(
         "pending/matches_Request/List/",
-        PendingMatchUserListView.as_view(),
+        BondmakerPendingMatchListView.as_view(),
         name="bondmaker-pending-matches",
+    ),
+    path(
+        "bondmakers/search/",
+        BondmakerSearchView.as_view(),
+        name="bondmaker-search",
+    ),
+    # Set bondmaker specialisations
+    path(
+        "bondmaker/set-specialisation/",
+        SetBondmakerSpecialisationView.as_view(),
+        name="set-bondmaker-specialisation",
+    ),
+    path(
+        "bondmaker/specialisations/categories/",
+        SpecialisationCategoryListView.as_view(),
+        name="specialisation-categories",
+    ),
+    # Bondmaker dashboard
+    path(
+        "bondmaker/dashboard/",
+        BondmakerDashboardView.as_view(),
+        name="bondmaker-dashboard",
+    ),
+
+    path(
+        "bondmaker/analytics/",
+        BondmakerAnalyticsView.as_view(),
+        name="bondmaker-dashboard",
     ),
 ]

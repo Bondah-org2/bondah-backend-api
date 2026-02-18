@@ -9,6 +9,7 @@ from django.conf import settings
 from .models.users import User  # Import your User model
 import logging
 from firebase_admin import credentials
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -150,25 +151,42 @@ def create_match_in_firestore(user_uid, matched_uid):
         return False
 
 
-def send_push_notification(token, title, body, data=None):
+def send_push_notification(
+    token: str, title: str, body: str, data: Optional[Dict[str, str]] = None
+) -> Optional[str]:
     """
-    Send a push notification via Firebase Cloud Messaging (FCM).
-    Token is the device registration token from FCM.
+    Send a push notification via Firebase Cloud Messaging (FCM) to a single device.
+
+    Args:
+        token (str): FCM device token.
+        title (str): Notification title.
+        body (str): Notification body.
+        data (dict[str, str], optional): Additional key-value payload (all values must be strings).
+
+    Returns:
+        str | None: FCM message ID if sent successfully, otherwise None.
     """
+    if not token:
+        logger.warning("No FCM token provided. Skipping push notification.")
+        return None
+
     try:
+        # Ensure all data values are strings
+        if data:
+            data = {k: str(v) for k, v in data.items()}
+
         message = messaging.Message(
-            notification=messaging.Notification(
-                title=title,
-                body=body,
-            ),
+            notification=messaging.Notification(title=title, body=body),
             data=data or {},
             token=token,
         )
+
         response = messaging.send(message)
-        logger.info(f"Successfully sent message: {response}")
+        logger.info(f"Successfully sent FCM message: {response}")
         return response
+
     except Exception as e:
-        logger.error(f"Error sending push notification: {e}")
+        logger.error(f"Error sending push notification to token {token}: {e}")
         return None
 
 

@@ -24,7 +24,7 @@ def get_cached_my_profile(user):
 
     if data is None:
         serializer = UserProfileDetailSerializer(
-            user, context={"request": None}  # no viewer logic needed
+            user, context={"request": None}
         )
         data = serializer.data
         cache.set(key, data, timeout=60 * 60)

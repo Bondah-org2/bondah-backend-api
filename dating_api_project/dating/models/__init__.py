@@ -46,7 +46,7 @@ from .users import (
     User,
     NewsletterSubscriber,
     PuzzleVerification,
-    CoinTransaction,
+    # CoinTransaction,
     Waitlist,
     EmailLog,
     Job,
@@ -72,8 +72,10 @@ from .users import (
     PasswordResetOTP,
     Notification,
     Report,
+    Specialisation,
 )
 from .username import UsernameValidation, validate_username_format
+from .feed import BondmakerTaskCompletion
 
 __all__ = [
     # Bondcoin
@@ -108,6 +110,7 @@ __all__ = [
     "UserSocialHandle",
     "UserSecurityQuestion",
     "DocumentVerification",
+    "BondmakerTaskCompletion",
     # Gifts
     "GiftCategory",
     "VirtualGift",
@@ -129,7 +132,8 @@ __all__ = [
     "User",
     "NewsletterSubscriber",
     "PuzzleVerification",
-    "CoinTransaction",
+    "Specialisation",
+    # "CoinTransaction",
     "Waitlist",
     "EmailLog",
     "Job",

@@ -448,7 +448,7 @@ class UserSocialHandle(models.Model):
 
 
 class UserSecurityQuestion(models.Model):
-    """Store user responses to security and data responsibility questions"""
+    """Store user responses to onboarding/security questions"""
 
     QUESTION_TYPES = [
         ("data_protection", "How will you protect user data?"),
@@ -466,31 +466,35 @@ class UserSecurityQuestion(models.Model):
             "business_service",
             "Do you run matchmaking as a business or community service?",
         ),
+        ("user_verification", "How do you verify users are real people?"),
     ]
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="security_questions"
     )
+
     question_type = models.CharField(max_length=50, choices=QUESTION_TYPES)
-    response = models.TextField(help_text="User's response to the security question")
-    is_public = models.BooleanField(
-        default=False, help_text="Whether this response is shown publicly"
-    )
+
+    # Used for long answers
+    response_text = models.TextField(blank=True, null=True)
+
+    # Used for dropdown answers
+    response_choice = models.CharField(max_length=50, blank=True, null=True)
+
+    is_public = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = [
-            "user",
-            "question_type",
-        ]  # One response per question type per user
+        unique_together = ["user", "question_type"]
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["user", "question_type"]),
         ]
 
     def __str__(self):
-        return f"{self.user.name}'s response to {self.get_question_type_display()}"
+        return f"{self.user.username} - {self.get_question_type_display()}"
 
 
 class DocumentVerification(models.Model):
@@ -580,3 +584,18 @@ class DocumentVerification(models.Model):
     def get_extracted_document_number(self):
         """Get extracted document number from document"""
         return self.extracted_data.get("document_number", "")
+
+
+class BondmakerTaskCompletion(models.Model):
+    bondmaker = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="completed_tasks"
+    )
+    task_name = models.CharField(max_length=255)
+    completed_at = models.DateTimeField(auto_now_add=True)
+    period_start = models.DateField()  # optional, for grouping by day/week
+
+    class Meta:
+        ordering = ["-completed_at"]
+        indexes = [
+            models.Index(fields=["bondmaker", "completed_at"]),
+        ]
