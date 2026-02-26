@@ -151,3 +151,6 @@ bvenv
 firebase-service-account.json
 
 apple.md
+
+__pycache__/
+*.pyc"

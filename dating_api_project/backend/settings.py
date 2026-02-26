@@ -15,6 +15,7 @@ import os
 from dotenv import load_dotenv
 from clean_enums import cleanup_openapi_schema
 from celery.schedules import crontab
+import json
 
 # Firebase Configuration
 import firebase_admin
@@ -22,28 +23,35 @@ from firebase_admin import credentials
 
 # Load environment variables
 load_dotenv()
+
+# JWT Secret
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 
 # Firebase Configuration
-# For Railway deployment - JSON content from environment variable
+# 1️⃣ For deployment: full JSON content in environment variable
 FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
-# For local development - path to JSON file
+# 2️⃣ For local development: path to JSON file (relative to BASE_DIR)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIREBASE_CREDENTIALS_PATH = os.getenv(
-    "FIREBASE_CREDENTIALS_PATH", "firebase-service-account.json"
+    "FIREBASE_CREDENTIALS_PATH",
+    os.path.join(BASE_DIR, "firebase-service-account.json")
 )
 
-# Initialize Firebase Admin SDK
-if not firebase_admin._apps:  # Prevent re-initialization
+# Initialize Firebase Admin SDK (only once)
+if not firebase_admin._apps:
     if FIREBASE_CREDENTIALS_JSON:
-        # Use JSON content from environment variable (Railway)
-        import json
-
+        # Load credentials from JSON string (deployment)
         cred_dict = json.loads(FIREBASE_CREDENTIALS_JSON)
         cred = credentials.Certificate(cred_dict)
-    else:
-        # Use file path (local development)
+    elif os.path.exists(FIREBASE_CREDENTIALS_PATH):
+        # Load credentials from local file (WSL or Windows)
         cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+    else:
+        raise FileNotFoundError(
+            f"Firebase credentials not found. "
+            f"Set FIREBASE_CREDENTIALS_JSON or place the file at {FIREBASE_CREDENTIALS_PATH}"
+        )
 
     firebase_admin.initialize_app(cred)
 
@@ -138,7 +146,7 @@ DATABASES = {
         "NAME": "bondah_db2",
         "USER": "bondah_user2",
         "PASSWORD": "bondahpassorg",
-        "HOST": "localhost",
+        'HOST': 'localhost',
         "PORT": "5432",
     }
 }

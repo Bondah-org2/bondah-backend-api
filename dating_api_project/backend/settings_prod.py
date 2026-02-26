@@ -15,6 +15,7 @@ from firebase_admin import credentials
 import json
 from decouple import config
 from celery.schedules import crontab
+from celery.schedules import crontab
 
 
 # Load environment variables
