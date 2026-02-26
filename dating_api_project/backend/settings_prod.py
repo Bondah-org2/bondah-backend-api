@@ -21,7 +21,6 @@ from celery.schedules import crontab
 # Load environment variables
 load_dotenv()
 
-print("REDIS_URL =", os.environ.get("REDIS_URL"))
 # Firebase Configuration
 # For Railway deployment - JSON content from environment variable
 FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
