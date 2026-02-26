@@ -15,5 +15,6 @@ echo "👤 Creating superuser if not exists..."
 python create_admin_superuser.py
 
 
-echo "🚀 Starting Gunicorn server..."
-gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT
+gunicorn backend.wsgi:application \
+  --bind 0.0.0.0:$PORT \
+  --env DJANGO_SETTINGS_MODULE=backend.settings_prod
