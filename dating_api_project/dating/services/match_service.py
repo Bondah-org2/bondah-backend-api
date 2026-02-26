@@ -6,29 +6,64 @@ from dating.models import (
     WalletTransaction,
     MatchRequest,
     BondmakerWallet,
-    MatchRevenueSplit,
+    ProductRevenueRecord,
     User,
+    UserMatch,
 )
+from ..location_utils import calculate_match_score
 from django.utils import timezone
 
 COIN_USD_VALUE = Decimal("3.0")  # 1 coin = $3
 
 
 # Charge coins for match request (escrow)
-def charge_match_request(user, bondmaker, coins, reference_id=None):
+def create_match_request(
+    *,
+    requester,
+    bondmaker,
+    target_user,
+    coins: int,
+    reference_id: str | None = None,
+):
+    """
+    Production-grade atomic match request creation.
+
+    - Prevents self-match
+    - Prevents duplicate pending requests
+    - Locks wallet row for escrow protection
+    - Creates MatchRequest + UserMatch
+    - Uses select_related for efficiency
+    """
+
+    if requester == target_user:
+        raise ValidationError("You cannot match yourself.")
+
     with transaction.atomic():
-        user_wallet = Wallet.objects.select_for_update().get(user=user)
+        # Lock wallet row
+        wallet = Wallet.objects.select_for_update().get(user=requester)
 
-        # if user_wallet.available_balance < coins:
-        #     raise ValidationError("Insufficient coins")
+        if wallet.available_balance < coins:
+            raise ValidationError("Insufficient coins.")
 
-        # 1. Move coins to ESCROW (locked)
-        user_wallet.available_balance -= coins
-        user_wallet.locked_balance += coins
-        user_wallet.save()
+        # Check for existing pending request for the same target
+        existing_request = (
+            MatchRequest.objects.select_related("user_match")
+            .filter(requester=requester, status="pending")
+            .first()
+        )
+        if existing_request and existing_request.user_match.user2 == target_user:
+            raise ValidationError(
+                "You already have a pending match request for this user."
+            )
 
+        # Move coins to escrow
+        wallet.available_balance -= coins
+        wallet.locked_balance += coins
+        wallet.save(update_fields=["available_balance", "locked_balance"])
+
+        # Log wallet transaction
         WalletTransaction.objects.create(
-            user=user,
+            user=requester,
             tx_type="debit",
             amount=coins,
             payment_method="match_request",
@@ -36,86 +71,102 @@ def charge_match_request(user, bondmaker, coins, reference_id=None):
             status="completed",
         )
 
-        # 2. Create MatchRequest (holds escrow record)
+        # Create MatchRequest
         match_request = MatchRequest.objects.create(
-            requester=user,
+            requester=requester,
             bondmaker=bondmaker,
             coins_charged=coins,
             status="pending",
         )
 
-        return match_request
+        # Calculate scoring metrics
+        match_score = calculate_match_score(requester, target_user)
+        distance = requester.get_distance_to(target_user) or 0
+
+        # Create UserMatch
+        user_match = UserMatch.objects.create(
+            match_request=match_request,
+            user1=requester,
+            user2=target_user,
+            distance=distance,
+            match_score=match_score,
+            status="pending",
+        )
+
+    return {
+        "match_request": match_request,
+        "user_match": user_match,
+    }
 
 
-# Accept match request: move coins from escrow to revenue split
-def accept_match_request(match_request):
-    """
-    Accept a match request:
-    - Release coins from escrow
-    - Track revenue split in MatchRevenueSplit (USD)
-    - Bondmaker payout is deferred for 30 days
-    """
+def accept_match_request(match_request_id: int):
     with transaction.atomic():
-        # Lock requester's wallet
-        requester_wallet = Wallet.objects.select_for_update().get(
-            user=match_request.requester
+        # Lock only MatchRequest
+        match_request = MatchRequest.objects.select_for_update().get(
+            id=match_request_id
         )
 
-        # Release coins from escrow
+        if match_request.status != "pending":
+            raise ValidationError("Match request already processed.")
+
+        # Ensure user_match exists
+        if not match_request.user_match:
+            raise ValidationError("No associated UserMatch found for this request.")
+
+        # Lock wallet row
+        wallet = Wallet.objects.select_for_update().get(user=match_request.requester)
+
         coins = match_request.coins_charged
-        if requester_wallet.locked_balance < coins:
-            raise ValidationError("Insufficient locked coins to release")
+        if wallet.locked_balance < coins:
+            raise ValidationError("Insufficient locked coins.")
 
-        requester_wallet.locked_balance -= coins
-        requester_wallet.save()
+        # Release escrow
+        wallet.locked_balance -= coins
+        wallet.save(update_fields=["locked_balance"])
 
-        # Calculate revenue in USD
-        real_revenue_usd = Decimal(coins) * COIN_USD_VALUE
-        platform_share_usd = (real_revenue_usd * Decimal("0.70")).quantize(
-            Decimal("0.01")
-        )
-        bondmaker_share_usd = (real_revenue_usd - platform_share_usd).quantize(
-            Decimal("0.01")
-        )
+        # Revenue split
+        real_revenue = Decimal(coins) * COIN_USD_VALUE
+        platform_share = (real_revenue * Decimal("0.70")).quantize(Decimal("0.01"))
+        bondmaker_share = (real_revenue - platform_share).quantize(Decimal("0.01"))
 
-        # Record revenue split
-        MatchRevenueSplit.objects.create(
-            match=match_request,
+        # Record revenue
+        ProductRevenueRecord.objects.create(
+            product_type="match_request",
             bondmaker=match_request.bondmaker,
             coins_used=coins,
-            real_revenue_usd=real_revenue_usd,
-            platform_share_usd=platform_share_usd,
-            bondmaker_share_usd=bondmaker_share_usd,
+            real_revenue_usd=real_revenue,
+            platform_share_usd=platform_share,
+            bondmaker_share_usd=bondmaker_share,
         )
 
-        # Update match request status
+        # Update statuses atomically
         match_request.status = "accepted"
-        match_request.save()
+        match_request.save(update_fields=["status"])
 
-        return platform_share_usd, bondmaker_share_usd
+        match_request.user_match.status = "matched"
+        match_request.user_match.save(update_fields=["status"])
+
+    return platform_share, bondmaker_share
 
 
 def reject_match_request(match_request):
-    """
-    Reject a match request:
-    - Refund coins from escrow back to user
-    - Log refund transaction
-    """
+
+    if match_request.status != "pending":
+        raise ValidationError("Match request already processed.")
+
     with transaction.atomic():
-        requester_wallet = Wallet.objects.select_for_update().get(
-            user=match_request.requester
-        )
+
+        wallet = Wallet.objects.select_for_update().get(user=match_request.requester)
+
         coins = match_request.coins_charged
 
-        if requester_wallet.locked_balance < coins:
-            raise ValidationError("Insufficient locked coins to refund")
+        if wallet.locked_balance < coins:
+            raise ValidationError("Insufficient locked coins.")
 
-        # Return coins from escrow
-        requester_wallet.locked_balance -= coins
-        requester_wallet.available_balance += coins
-        requester_wallet.save()
+        wallet.locked_balance -= coins
+        wallet.available_balance += coins
+        wallet.save(update_fields=["locked_balance", "available_balance"])
 
-        # Log wallet transaction
         WalletTransaction.objects.create(
             user=match_request.requester,
             tx_type="credit",
@@ -125,15 +176,17 @@ def reject_match_request(match_request):
             status="completed",
         )
 
-        # Update match request status
         match_request.status = "rejected"
-        match_request.save()
+        match_request.save(update_fields=["status"])
+
+        match_request.user_match.status = "disliked"
+        match_request.user_match.save(update_fields=["status"])
 
 
 # Payout bondmaker every 30 days
 def payout_bondmaker(bondmaker: User):
     """
-    Pays out all unpaid MatchRevenueSplits to a bondmaker.
+    Pays out all unpaid ProductRevenueRecord to a bondmaker.
     - Sums all unpaid splits
     - Credits the bondmaker's wallet
     - Marks splits as paid
@@ -146,9 +199,8 @@ def payout_bondmaker(bondmaker: User):
         )
 
         # Fetch all unpaid splits
-        splits = MatchRevenueSplit.objects.select_for_update().filter(
+        splits = ProductRevenueRecord.objects.select_for_update().filter(
             bondmaker=bondmaker,
-            match__status="accepted",
             paid=False,
         )
 

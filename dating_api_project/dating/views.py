@@ -2,7 +2,7 @@ from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.db.models import Sum
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework import generics
 from decimal import Decimal
 import time
@@ -25,6 +25,7 @@ from .pagination import (
     PendingRequestListPagination,
     UserSwipeDeckPagination,
     BondmakerSearchPagination,
+    BondCirclePostPagination,
 )
 from django.core.exceptions import ValidationError
 from .location_utils import update_user_location, geocode_address
@@ -85,11 +86,10 @@ from .models import (
     Visibility,
     RevenueRecord,
     MatchRequest,
-    MatchRevenueSplit,
     VirtualGift,
     PasswordResetOTP,
     Story,
-    StoryReaction,
+    StoryInteraction,
     StoryView,
     PostComment,
     CommentInteraction,
@@ -99,6 +99,10 @@ from .models import (
     Report,
     UserProfileView,
     Specialisation,
+    BondCircleMember,
+    BondCirclePost,
+    BondCircle,
+    BondCirclePostLike,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -176,20 +180,20 @@ from .serializers import (
     UserSocialHandleSerializer,
     UserSocialHandleCreateSerializer,
     ChatDetailSerializer,
-    ChatSerializer,
-    ChatCreateSerializer,
-    CallInitiateSerializer,
-    CallSerializer,
+    # ChatSerializer,
+    # ChatCreateSerializer,
+    # CallInitiateSerializer,
+    # CallSerializer,
     PostSerializer,
     StorySerializer,
     UserInterestSerializer,
-    RecommendationSerializer,
+    # RecommendationSerializer,
     UserInteractionSerializer,
     PostInteractionSerializer,
-    CommentInteractionSerializer,
-    StoryReactionSerializer,
+    # CommentInteractionSerializer,
+    StoryInteractionSerializer,
     AdminJobApplicationDetailSerializer,
-    FeedSuggestionsResponseSerializer,
+    # FeedSuggestionsResponseSerializer,
     TranslationRequestSerializer,
     TranslationResponseSerializer,
     GenericEmailSerializer,
@@ -205,13 +209,14 @@ from .serializers import (
     TokenRefreshRequestSerializer,
     UserRoleSelectionSerializer,
     ResendOTPSerializer,
-    UserSearchSerializer,
+    # UserSearchSerializer,
     UserSearchFilterSerializer,
     MessageSerializer,
-    ChatSettingsSerializer,
-    MessageCreateSerializer,
-    PostCreateSerializer,
-    PostCommentSerializer,
+    PostDetailSerializer,
+    # ChatSettingsSerializer,
+    # MessageCreateSerializer,
+    # PostCreateSerializer,
+    PostCommentCreateSerializer,
     LiveGiftSerializer,
     PaymentWebhookSerializer,
     FirebaseMatchSerializer,
@@ -236,7 +241,10 @@ from .serializers import (
     VerifyOTPSerializer,
     ResendEmailOTPSerializer,
     StoryCreateSerializer,
-    PostShareSerializer,
+    StoryListSerializer,
+    StoryDetailSerializer,
+    StoryViewerSerializer,
+    # PostShareSerializer,
     LiveSessionSerializer,
     PasswordResetResendSerializer,
     UserSwipeCardSerializer,
@@ -251,6 +259,18 @@ from .serializers import (
     SpecialisationCategorySerializer,
     BondmakerDashboardSerializer,
     BondmakerAnalyticsSerializer,
+    VisibilityStatusSerializer,
+    MatchedUserSerializer,
+    IncomingPendingMatchSerializer,
+    SuggestedMatchSerializer,
+    BondCirclePostSerializer,
+    AddCircleMembersSerializer,
+    BondCircleCommentSerializer,
+    TogglePostLikeSerializer,
+    BondCircleSerializer,
+    ChatListSerializer,
+    SubscribeSerializer,
+    PostCommentNestedSerializer,
 )
 from .firebase_utils import (
     verify_firebase_token,
@@ -276,11 +296,11 @@ from .schema import (
     paginated_list_schema,
     BondahSchemaMixin,
 )
-from .services.match_service import charge_match_request, reject_match_request
+from .services.match_service import reject_match_request
 from .services.payment_service import process_apple_purchase, process_google_purchase
 from .services.gift_service import send_gift, convert_gift_to_coins
 from .services.wallet_service import credit_wallet
-from .services.match_service import charge_match_request, accept_match_request
+from .services.match_service import create_match_request, accept_match_request
 from django.db import transaction
 from deep_translator import GoogleTranslator
 from django.db import models
@@ -333,7 +353,12 @@ from rest_framework.generics import GenericAPIView
 from .analytics.constants import (
     DEFAULT_PERIOD_DAYS,
 )
-from .analytics.services import BondmakerAnalyticsService
+from .services.analytics import BondmakerAnalyticsService
+from .services.dashboard import BondmakerDashboardService
+from rest_framework.exceptions import PermissionDenied
+from django.db.models import Count, Exists, OuterRef
+from .story_query import StoryQueryMixin
+from rest_framework.decorators import action
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -1611,16 +1636,14 @@ class UserProfileViews(generics.RetrieveUpdateAPIView):
             user = self.get_object()
 
             # 1 Cached profile
-            profile_data = get_cached_my_profile(user)
+            profile_data = get_cached_my_profile(user, request=request)
 
             # 2 Firestore merge (live)
-            from .firebase_utils import get_user_profile_from_firestore
+            # firebase_uid = getattr(user, "firebase_uid", user.email)
+            # firestore_profile = get_user_profile_from_firestore(firebase_uid)
 
-            firebase_uid = getattr(user, "firebase_uid", user.email)
-            firestore_profile = get_user_profile_from_firestore(firebase_uid)
-
-            if firestore_profile:
-                profile_data = {**profile_data, **firestore_profile}
+            # if firestore_profile:
+            #     profile_data = {**profile_data, **firestore_profile}
 
             return Response(
                 {
@@ -2914,92 +2937,92 @@ class UserRoleStatusView(GenericAPIView):
 # =============================================================================
 
 
-class UserSearchView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = UserSearchSerializer  # Output serializer
-    # pagination_class = CustomPagination
+# class UserSearchView(generics.ListAPIView):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = UserSearchSerializer  # Output serializer
+#     # pagination_class = CustomPagination
 
-    @extend_schema(
-        request=UserSearchFilterSerializer,
-        responses={200: UserSearchSerializer(many=True)},
-    )
-    def get_queryset(self):
+#     @extend_schema(
+#         request=UserSearchFilterSerializer,
+#         responses={200: UserSearchSerializer(many=True)},
+#     )
+#     def get_queryset(self):
 
-        filter_serializer = UserSearchFilterSerializer(data=self.request.GET)
-        filter_serializer.is_valid(raise_exception=True)
-        filters = filter_serializer.validated_data
+#         filter_serializer = UserSearchFilterSerializer(data=self.request.GET)
+#         filter_serializer.is_valid(raise_exception=True)
+#         filters = filter_serializer.validated_data
 
-        queryset = User.objects.filter(is_active=True).exclude(id=self.request.user.id)
+#         queryset = User.objects.filter(is_active=True).exclude(id=self.request.user.id)
 
-        # Apply dynamic filters
-        filter_map = {
-            "gender": "gender",
-            "age_min": "age__gte",
-            "age_max": "age__lte",
-            "education_level": "education_level",
-            "relationship_status": "relationship_status",
-            "smoking_preference": "smoking_preference",
-            "drinking_preference": "drinking_preference",
-            "pet_preference": "pet_preference",
-            "exercise_frequency": "exercise_frequency",
-            "kids_preference": "kids_preference",
-            "personality_type": "personality_type",
-            "love_language": "love_language",
-            "dating_type": "dating_type",
-        }
+#         # Apply dynamic filters
+#         filter_map = {
+#             "gender": "gender",
+#             "age_min": "age__gte",
+#             "age_max": "age__lte",
+#             "education_level": "education_level",
+#             "relationship_status": "relationship_status",
+#             "smoking_preference": "smoking_preference",
+#             "drinking_preference": "drinking_preference",
+#             "pet_preference": "pet_preference",
+#             "exercise_frequency": "exercise_frequency",
+#             "kids_preference": "kids_preference",
+#             "personality_type": "personality_type",
+#             "love_language": "love_language",
+#             "dating_type": "dating_type",
+#         }
 
-        for key, field in filter_map.items():
-            if filters.get(key):
-                queryset = queryset.filter(**{field: filters[key]})
+#         for key, field in filter_map.items():
+#             if filters.get(key):
+#                 queryset = queryset.filter(**{field: filters[key]})
 
-        if filters.get("religion"):
-            queryset = queryset.filter(religion__icontains=filters["religion"])
-        if filters.get("is_matchmaker") is not None:
-            queryset = queryset.filter(is_matchmaker=filters["is_matchmaker"])
-        if filters.get("has_photos"):
-            queryset = queryset.exclude(profile_picture__isnull=True).exclude(
-                profile_picture=""
-            )
+#         if filters.get("religion"):
+#             queryset = queryset.filter(religion__icontains=filters["religion"])
+#         if filters.get("is_matchmaker") is not None:
+#             queryset = queryset.filter(is_matchmaker=filters["is_matchmaker"])
+#         if filters.get("has_photos"):
+#             queryset = queryset.exclude(profile_picture__isnull=True).exclude(
+#                 profile_picture=""
+#             )
 
-        # Text search
-        if filters.get("query"):
-            q = filters["query"]
-            queryset = queryset.filter(
-                models.Q(name__icontains=q)
-                | models.Q(bio__icontains=q)
-                | models.Q(city__icontains=q)
-                | models.Q(state__icontains=q)
-                | models.Q(country__icontains=q)
-            )
+#         # Text search
+#         if filters.get("query"):
+#             q = filters["query"]
+#             queryset = queryset.filter(
+#                 models.Q(name__icontains=q)
+#                 | models.Q(bio__icontains=q)
+#                 | models.Q(city__icontains=q)
+#                 | models.Q(state__icontains=q)
+#                 | models.Q(country__icontains=q)
+#             )
 
-        # Interests & hobbies
-        for field in ["interests", "hobbies"]:
-            if filters.get(field):
-                for value in filters[field]:
-                    queryset = queryset.filter(**{f"{field}__icontains": value})
+#         # Interests & hobbies
+#         for field in ["interests", "hobbies"]:
+#             if filters.get(field):
+#                 for value in filters[field]:
+#                     queryset = queryset.filter(**{f"{field}__icontains": value})
 
-        # Distance filtering
-        if filters.get("max_distance") and self.request.user.has_location:
-            max_distance = filters["max_distance"]
-            nearby_ids = [
-                u.id
-                for u in queryset
-                if u.has_location
-                and self.request.user.get_distance_to(u) <= max_distance
-            ]
-            queryset = queryset.filter(id__in=nearby_ids)
+#         # Distance filtering
+#         if filters.get("max_distance") and self.request.user.has_location:
+#             max_distance = filters["max_distance"]
+#             nearby_ids = [
+#                 u.id
+#                 for u in queryset
+#                 if u.has_location
+#                 and self.request.user.get_distance_to(u) <= max_distance
+#             ]
+#             queryset = queryset.filter(id__in=nearby_ids)
 
-        queryset = queryset.order_by("-date_joined")
+#         queryset = queryset.order_by("-date_joined")
 
-        # Optional: Store search query for analytics
-        SearchQuery.objects.create(
-            user=self.request.user,
-            query=filters.get("query", ""),
-            filters=filters,
-            results_count=queryset.count(),
-        )
+#         # Optional: Store search query for analytics
+#         SearchQuery.objects.create(
+#             user=self.request.user,
+#             query=filters.get("query", ""),
+#             filters=filters,
+#             results_count=queryset.count(),
+#         )
 
-        return queryset
+#         return queryset
 
 
 # class UserProfileDetailView(generics.RetrieveAPIView):
@@ -3066,77 +3089,77 @@ class UserProfileDetailView(generics.RetrieveAPIView):
         return Response(data)
 
 
-class UserRecommendationsView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = RecommendationSerializer
+# class UserRecommendationsView(generics.ListAPIView):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = RecommendationSerializer
 
-    def get_queryset(self):
-        user = self.request.user
+#     def get_queryset(self):
+#         user = self.request.user
 
-        if user.has_location:
-            nearby_users = User.objects.filter(
-                is_active=True, latitude__isnull=False, longitude__isnull=False
-            ).exclude(id=user.id)
-            for nearby_user in nearby_users:
-                distance = user.get_distance_to(nearby_user)
-                if distance and distance <= user.max_distance:
-                    from .location_utils import calculate_match_score
+#         if user.has_location:
+#             nearby_users = User.objects.filter(
+#                 is_active=True, latitude__isnull=False, longitude__isnull=False
+#             ).exclude(id=user.id)
+#             for nearby_user in nearby_users:
+#                 distance = user.get_distance_to(nearby_user)
+#                 if distance and distance <= user.max_distance:
+#                     from .location_utils import calculate_match_score
 
-                    score = calculate_match_score(user, nearby_user)
-                    if score > 50:
-                        RecommendationEngine.objects.get_or_create(
-                            user=user,
-                            recommended_user=nearby_user,
-                            defaults={"score": score, "algorithm": "location_based"},
-                        )
+#                     score = calculate_match_score(user, nearby_user)
+#                     if score > 50:
+#                         RecommendationEngine.objects.get_or_create(
+#                             user=user,
+#                             recommended_user=nearby_user,
+#                             defaults={"score": score, "algorithm": "location_based"},
+#                         )
 
-        return RecommendationEngine.objects.filter(user=user, is_active=True).order_by(
-            "-score"
-        )[:20]
+#         return RecommendationEngine.objects.filter(user=user, is_active=True).order_by(
+#             "-score"
+#         )[:20]
 
 
-class CategoryFilterView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = UserSearchSerializer  # Output serializer
+# class CategoryFilterView(generics.ListAPIView):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = UserSearchSerializer  # Output serializer
 
-    @extend_schema(
-        request=None,
-        responses=UserSearchSerializer(many=True),
-        parameters=[
-            OpenApiParameter(
-                name="category",
-                type=str,
-                required=True,
-                description="User category to filter",
-            ),
-            OpenApiParameter(name="page", type=int, required=False),
-            OpenApiParameter(name="page_size", type=int, required=False),
-        ],
-    )
-    def get_queryset(self):
-        from .serializers import CategoryFilterSerializer
+#     @extend_schema(
+#         request=None,
+#         responses=UserSearchSerializer(many=True),
+#         parameters=[
+#             OpenApiParameter(
+#                 name="category",
+#                 type=str,
+#                 required=True,
+#                 description="User category to filter",
+#             ),
+#             OpenApiParameter(name="page", type=int, required=False),
+#             OpenApiParameter(name="page_size", type=int, required=False),
+#         ],
+#     )
+#     def get_queryset(self):
+#         from .serializers import CategoryFilterSerializer
 
-        filter_serializer = CategoryFilterSerializer(data=self.request.GET)
-        filter_serializer.is_valid(raise_exception=True)
-        category = filter_serializer.validated_data["category"]
+#         filter_serializer = CategoryFilterSerializer(data=self.request.GET)
+#         filter_serializer.is_valid(raise_exception=True)
+#         category = filter_serializer.validated_data["category"]
 
-        queryset = User.objects.filter(is_active=True).exclude(id=self.request.user.id)
+#         queryset = User.objects.filter(is_active=True).exclude(id=self.request.user.id)
 
-        category_map = {
-            "casual_dating": {"dating_type": "casual"},
-            "lgbtq": {"gender__in": ["non_binary", "other"]},
-            "sugar": {"dating_type": "sugar"},
-            "serious": {"dating_type": "serious"},
-            "friends": {"dating_type": "friends"},
-            "matchmakers": {"is_matchmaker": True},
-            "all": {},
-        }
+#         category_map = {
+#             "casual_dating": {"dating_type": "casual"},
+#             "lgbtq": {"gender__in": ["non_binary", "other"]},
+#             "sugar": {"dating_type": "sugar"},
+#             "serious": {"dating_type": "serious"},
+#             "friends": {"dating_type": "friends"},
+#             "matchmakers": {"is_matchmaker": True},
+#             "all": {},
+#         }
 
-        filters = category_map.get(category, {})
-        if filters:
-            queryset = queryset.filter(**filters)
+#         filters = category_map.get(category, {})
+#         if filters:
+#             queryset = queryset.filter(**filters)
 
-        return queryset.order_by("-date_joined")
+#         return queryset.order_by("-date_joined")
 
 
 class UserInterestsView(generics.ListAPIView, generics.UpdateAPIView):
@@ -3179,481 +3202,521 @@ class UserInterestsView(generics.ListAPIView, generics.UpdateAPIView):
 # --------------------------
 # Chat Views
 # --------------------------
-class ChatListView(generics.ListCreateAPIView):
-    """
-    List all chats for the authenticated user or create a new chat.
-    """
 
+
+class ChatListView(generics.ListAPIView):
+    serializer_class = ChatListSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return ChatCreateSerializer
-        return ChatSerializer
-
     def get_queryset(self):
-        user = self.request.user
         return (
-            Chat.objects.filter(participants=user, is_active=True)
-            .annotate(last_message_at=models.Max("messages__timestamp"))
+            Chat.objects.filter(
+                participants=self.request.user,
+                is_active=True
+            )
+            .select_related("created_by", "user_match")
+            .prefetch_related("participants")
             .order_by("-last_message_at")
         )
 
-    def perform_create(self, serializer):
-        chat = serializer.save(created_by=self.request.user)
-        chat.participants.add(self.request.user)
 
-
-class ChatDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or soft delete a specific chat.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        if self.request.method in ["PUT", "PATCH"]:
-            return ChatSettingsSerializer
-        return ChatDetailSerializer
-
-    def get_queryset(self):
-        return Chat.objects.filter(participants=self.request.user, is_active=True)
-
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save()
-
-
-# --------------------------
-# Message Views
-# --------------------------
-class MessageListView(generics.ListCreateAPIView):
-    """
-    List messages for a chat or send a new message (supports media and tips).
-    """
-
-    permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return MessageCreateSerializer
-        return MessageSerializer
-
-    def get_queryset(self):
-        chat = get_object_or_404(
-            Chat,
-            id=self.kwargs["chat_id"],
-            participants=self.request.user,
-            is_active=True,
-        )
-        # Mark unread messages as read
-        Message.objects.filter(chat=chat, is_read=False).exclude(
-            sender=self.request.user
-        ).update(is_read=True, read_at=timezone.now())
-        return Message.objects.filter(chat=chat).order_by("timestamp")
-
-    def perform_create(self, serializer):
-        user = self.request.user
-        chat = get_object_or_404(
-            Chat, id=self.kwargs["chat_id"], participants=user, is_active=True
-        )
-
-        # Handle uploaded files
-        media_fields = {
-            "voice_note_file": "voice_notes",
-            "image_file": "chat_images",
-            "video_file": "chat_videos",
-            "document_file": "chat_documents",
-        }
-
-        media_urls = {}
-        for field, folder in media_fields.items():
-            file = self.request.FILES.get(field)
-            if file:
-                media_urls[field.replace("_file", "_url")] = self._save_file(
-                    file, folder
-                )
-                serializer.validated_data["message_type"] = field.replace("_file", "")
-
-        # Handle tip messages
-        msg_type = serializer.validated_data.get("message_type", "text")
-        tip_amount = serializer.validated_data.get("tip_amount", 0)
-        if msg_type == "tip" and tip_amount > 0:
-            if user.bondcoin_balance < tip_amount:
-                raise serializers.ValidationError("Insufficient Bondcoins for this tip")
-            recipient = chat.participants.exclude(id=user.id).first()
-            if not recipient:
-                raise serializers.ValidationError("No recipient found for this tip")
-            # Deduct and credit Bondcoins
-            user.bondcoin_balance -= tip_amount
-            recipient.bondcoin_balance += tip_amount
-            user.save()
-            recipient.save()
-            WalletTransaction.objects.create(
-                user=user,
-                tx_type="debit",
-                amount=-tip_amount,
-                status="completed",
-                payment_method="bondcoin",
-            )
-            WalletTransaction.objects.create(
-                user=recipient,
-                tx_type="gift_received",
-                amount=tip_amount,
-                status="completed",
-                payment_method="bondcoin",
-            )
-
-        serializer.save(chat=chat, sender=user, **media_urls)
-
-    def _save_file(self, file, folder):
-        ext = os.path.splitext(file.name)[1]
-        filename = f"{uuid.uuid4()}{ext}"
-        path = os.path.join(folder, filename)
-        default_storage.save(path, ContentFile(file.read()))
-        return default_storage.url(path)
-
-
-class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or soft-delete a message.
-    """
-
-    permission_classes = [IsAuthenticated]
-    serializer_class = MessageSerializer
-
-    def get_queryset(self):
-        chat = get_object_or_404(
-            Chat,
-            id=self.kwargs["chat_id"],
-            participants=self.request.user,
-            is_active=True,
-        )
-        return Message.objects.filter(chat=chat)
-
-    def perform_update(self, serializer):
-        serializer.save(is_edited=True, edited_at=timezone.now())
-
-    def perform_destroy(self, instance):
-        instance.content = "[Message deleted]"
-        instance.message_type = "system"
-        instance.save()
-
-
-class CallInitiateView(generics.CreateAPIView):
-    """
-    Initiate a voice or video call.
-    """
-
-    serializer_class = CallInitiateSerializer
-    permission_classes = [IsAuthenticated]
-
-    def perform_create(self, serializer):
-        callee_id = serializer.validated_data["callee_id"]
-        call_type = serializer.validated_data["call_type"]
-
-        callee = get_object_or_404(User, id=callee_id, is_active=True)
-
-        # Find or create chat
-        chat = (
-            Chat.objects.filter(participants=self.request.user, chat_type="direct")
-            .filter(participants=callee)
-            .annotate(participant_count=models.Count("participants"))
-            .filter(participant_count=2)
-            .first()
-        )
-        if not chat:
-            chat = Chat.objects.create(chat_type="direct", created_by=self.request.user)
-            chat.participants.set([self.request.user, callee])
-
-        import uuid
-
-        call_id = str(uuid.uuid4())
-        room_id = f"room_{call_id}"
-
-        call = Call.objects.create(
-            chat=chat,
-            caller=self.request.user,
-            callee=callee,
-            call_type=call_type,
-            call_id=call_id,
-            room_id=room_id,
-            status="initiated",
-        )
-
-        # System message
-        Message.objects.create(
-            chat=chat,
-            sender=None,
-            message_type="call_start",
-            content=f"{self.request.user.name} started a {call_type} call",
-        )
-
-        return call
-
-
-class CallAnswerView(generics.UpdateAPIView):
-    """
-    Answer, decline, or mark a call as busy.
-    """
-
-    serializer_class = CallSerializer
-    permission_classes = [IsAuthenticated]
-    lookup_field = "call_id"
-
-    def get_queryset(self):
-        return Call.objects.filter(
-            callee=self.request.user, status__in=["initiated", "ringing"]
-        )
-
-    def update(self, request, *args, **kwargs):
-        call = self.get_object()
-        action = request.data.get("action")
-
-        if action == "answer":
-            call.status = "active"
-            call.answered_at = timezone.now()
-            content = f"{request.user.name} answered the call"
-            message_type = "call_start"
-
-        elif action == "decline":
-            call.status = "declined"
-            call.ended_at = timezone.now()
-            content = f"{request.user.name} declined the call"
-            message_type = "call_end"
-
-        elif action == "busy":
-            call.status = "busy"
-            call.ended_at = timezone.now()
-            content = f"{request.user.name} is busy"
-            message_type = "call_end"
-
-        else:
-            return Response(
-                {"message": "Invalid action", "status": "error"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        call.save()
-
-        # System message
-        Message.objects.create(
-            chat=call.chat,
-            sender=None,
-            message_type=message_type,
-            content=content,
-        )
-
-        serializer = self.get_serializer(call)
-        return Response(
-            {
-                "message": f"Call {action}ed successfully",
-                "status": "success",
-                "call": serializer.data,
-            }
-        )
-
-
-class CallEndView(generics.UpdateAPIView):
-    """
-    End an active call.
-    """
-
-    serializer_class = CallSerializer
-    permission_classes = [IsAuthenticated]
-    lookup_field = "call_id"
-
-    def get_queryset(self):
-        # User must be a participant and call must be active
-        return Call.objects.filter(status="active", participants=self.request.user)
-
-    def update(self, request, *args, **kwargs):
-        call = self.get_object()
-
-        call.status = "ended"
-        call.ended_at = timezone.now()
-        if call.answered_at:
-            call.duration = int((call.ended_at - call.answered_at).total_seconds())
-        call.save()
-
-        Message.objects.create(
-            chat=call.chat,
-            sender=None,
-            message_type="call_end",
-            content=f"Call ended. Duration: {call.get_duration_display()}",
-        )
-
-        serializer = self.get_serializer(call)
-        return Response(
-            {
-                "message": "Call ended successfully",
-                "status": "success",
-                "call": serializer.data,
-            }
-        )
-
-
-class ChatReportView(generics.CreateAPIView):
-    """
-    Report a chat, message, or user
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        from .serializers import ChatReportSerializer
-
-        return ChatReportSerializer
-
-    def perform_create(self, serializer):
-        """Create report with current user as reporter"""
-        chat_id = self.kwargs.get("chat_id")
-        message_id = self.kwargs.get("message_id")
-
-        if chat_id:
-            chat = get_object_or_404(Chat, id=chat_id, participants=self.request.user)
-            serializer.validated_data["chat"] = chat
-
-        if message_id:
-            message = get_object_or_404(Message, id=message_id)
-            serializer.validated_data["message"] = message
-
-        serializer.save(reporter=self.request.user)
-
-
-class MatchmakerIntroView(generics.GenericAPIView):
-    """
-    Create a matchmaker introduction chat between two users
-    """
-
-    permission_classes = [IsAuthenticated]
+class ChatDetailView(generics.RetrieveAPIView):
     serializer_class = ChatDetailSerializer
+    permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        request=None,  # you can define an input serializer if you want docs for request body
-        responses={
-            201: ChatDetailSerializer,
-            400: OpenApiResponse(description="Bad request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="User not found"),
-            500: OpenApiResponse(description="Server error"),
-        },
-    )
-    def post(self, request, *args, **kwargs):
-        try:
-            if not request.user.is_matchmaker:
-                return Response(
-                    {
-                        "message": "Only matchmakers can create introductions",
-                        "status": "error",
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+    def get_queryset(self):
+        return Chat.objects.filter(participants=self.request.user).prefetch_related(
+            "messages__sender"
+        )
 
-            user1_id = request.data.get("user1_id")
-            user2_id = request.data.get("user2_id")
-            intro_message = request.data.get("intro_message", "")
 
-            if not user1_id or not user2_id:
-                return Response(
-                    {
-                        "message": "Both user1_id and user2_id are required",
-                        "status": "error",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+class SendMessageView(generics.CreateAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated]
 
-            try:
-                user1 = User.objects.get(id=user1_id, is_active=True)
-                user2 = User.objects.get(id=user2_id, is_active=True)
+    def perform_create(self, serializer):
+        chat_id = self.kwargs["chat_id"]
 
-                # Check if chat already exists
-                existing_chat = (
-                    Chat.objects.filter(
-                        participants=user1, chat_type="matchmaker_intro"
-                    )
-                    .filter(participants=user2)
-                    .annotate(participant_count=models.Count("participants"))
-                    .filter(participant_count=2)
-                    .first()
-                )
+        chat = get_object_or_404(Chat, id=chat_id, participants=self.request.user)
 
-                if existing_chat:
-                    return Response(
-                        {
-                            "message": "Introduction chat already exists",
-                            "status": "error",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        serializer.save(chat=chat, sender=self.request.user, message_type="text")
 
-                # Create matchmaker introduction chat
-                chat = Chat.objects.create(
-                    chat_type="matchmaker_intro",
-                    created_by=request.user,
-                    chat_name=f"Introduction: {user1.name} & {user2.name}",
-                )
-                chat.participants.set([user1, user2, request.user])
 
-                # Create system messages
-                Message.objects.create(
-                    chat=chat,
-                    sender=None,
-                    message_type="system",
-                    content=f"{request.user.name} (moderator) made the match",
-                )
-                Message.objects.create(
-                    chat=chat,
-                    sender=None,
-                    message_type="system",
-                    content=f"{user1.name} was matched",
-                )
-                Message.objects.create(
-                    chat=chat,
-                    sender=None,
-                    message_type="system",
-                    content=f"{user2.name} was added",
-                )
+# class ChatListView(generics.ListCreateAPIView):
+#     """
+#     List all chats for the authenticated user or create a new chat.
+#     """
 
-                # Create matchmaker introduction message
-                intro_content = (
-                    intro_message
-                    or f"Hi {user1.name} & {user2.name} 👋, I've matched you because I see a good fit. Please introduce yourselves and get to know each other."
-                )
+#     permission_classes = [IsAuthenticated]
 
-                Message.objects.create(
-                    chat=chat,
-                    sender=request.user,
-                    message_type="matchmaker_intro",
-                    content=intro_content,
-                )
+#     def get_serializer_class(self):
+#         if self.request.method == "POST":
+#             return ChatCreateSerializer
+#         return ChatSerializer
 
-                return Response(
-                    {
-                        "message": "Matchmaker introduction created successfully",
-                        "status": "success",
-                        "chat": self.get_serializer(
-                            chat, context={"request": request}
-                        ).data,
-                    },
-                    status=status.HTTP_201_CREATED,
-                )
+#     def get_queryset(self):
+#         user = self.request.user
+#         return (
+#             Chat.objects.filter(participants=user, is_active=True)
+#             .annotate(last_message_at=models.Max("messages__timestamp"))
+#             .order_by("-last_message_at")
+#         )
 
-            except User.DoesNotExist:
-                return Response(
-                    {"message": "One or both users not found", "status": "error"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
+#     def perform_create(self, serializer):
+#         chat = serializer.save(created_by=self.request.user)
+#         chat.participants.add(self.request.user)
 
-        except Exception as e:
-            return Response(
-                {
-                    "message": f"An unexpected error occurred: {str(e)}",
-                    "status": "error",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+
+# class ChatDetailView(generics.RetrieveUpdateDestroyAPIView):
+#     """
+#     Retrieve, update, or soft delete a specific chat.
+#     """
+
+#     permission_classes = [IsAuthenticated]
+
+#     def get_serializer_class(self):
+#         if self.request.method in ["PUT", "PATCH"]:
+#             return ChatSettingsSerializer
+#         return ChatDetailSerializer
+
+#     def get_queryset(self):
+#         return Chat.objects.filter(participants=self.request.user, is_active=True)
+
+#     def perform_destroy(self, instance):
+#         instance.is_active = False
+#         instance.save()
+
+
+# # --------------------------
+# # Message Views
+# # --------------------------
+# class MessageListView(generics.ListCreateAPIView):
+#     """
+#     List messages for a chat or send a new message (supports media and tips).
+#     """
+
+#     permission_classes = [IsAuthenticated]
+#     parser_classes = [MultiPartParser, FormParser]
+
+#     def get_serializer_class(self):
+#         if self.request.method == "POST":
+#             return MessageCreateSerializer
+#         return MessageSerializer
+
+#     def get_queryset(self):
+#         chat = get_object_or_404(
+#             Chat,
+#             id=self.kwargs["chat_id"],
+#             participants=self.request.user,
+#             is_active=True,
+#         )
+#         # Mark unread messages as read
+#         Message.objects.filter(chat=chat, is_read=False).exclude(
+#             sender=self.request.user
+#         ).update(is_read=True, read_at=timezone.now())
+#         return Message.objects.filter(chat=chat).order_by("timestamp")
+
+#     def perform_create(self, serializer):
+#         user = self.request.user
+#         chat = get_object_or_404(
+#             Chat, id=self.kwargs["chat_id"], participants=user, is_active=True
+#         )
+
+#         # Handle uploaded files
+#         media_fields = {
+#             "voice_note_file": "voice_notes",
+#             "image_file": "chat_images",
+#             "video_file": "chat_videos",
+#             "document_file": "chat_documents",
+#         }
+
+#         media_urls = {}
+#         for field, folder in media_fields.items():
+#             file = self.request.FILES.get(field)
+#             if file:
+#                 media_urls[field.replace("_file", "_url")] = self._save_file(
+#                     file, folder
+#                 )
+#                 serializer.validated_data["message_type"] = field.replace("_file", "")
+
+#         # Handle tip messages
+#         msg_type = serializer.validated_data.get("message_type", "text")
+#         tip_amount = serializer.validated_data.get("tip_amount", 0)
+#         if msg_type == "tip" and tip_amount > 0:
+#             if user.bondcoin_balance < tip_amount:
+#                 raise serializers.ValidationError("Insufficient Bondcoins for this tip")
+#             recipient = chat.participants.exclude(id=user.id).first()
+#             if not recipient:
+#                 raise serializers.ValidationError("No recipient found for this tip")
+#             # Deduct and credit Bondcoins
+#             user.bondcoin_balance -= tip_amount
+#             recipient.bondcoin_balance += tip_amount
+#             user.save()
+#             recipient.save()
+#             WalletTransaction.objects.create(
+#                 user=user,
+#                 tx_type="debit",
+#                 amount=-tip_amount,
+#                 status="completed",
+#                 payment_method="bondcoin",
+#             )
+#             WalletTransaction.objects.create(
+#                 user=recipient,
+#                 tx_type="gift_received",
+#                 amount=tip_amount,
+#                 status="completed",
+#                 payment_method="bondcoin",
+#             )
+
+#         serializer.save(chat=chat, sender=user, **media_urls)
+
+#     def _save_file(self, file, folder):
+#         ext = os.path.splitext(file.name)[1]
+#         filename = f"{uuid.uuid4()}{ext}"
+#         path = os.path.join(folder, filename)
+#         default_storage.save(path, ContentFile(file.read()))
+#         return default_storage.url(path)
+
+
+# class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
+#     """
+#     Retrieve, update, or soft-delete a message.
+#     """
+
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = MessageSerializer
+
+#     def get_queryset(self):
+#         chat = get_object_or_404(
+#             Chat,
+#             id=self.kwargs["chat_id"],
+#             participants=self.request.user,
+#             is_active=True,
+#         )
+#         return Message.objects.filter(chat=chat)
+
+#     def perform_update(self, serializer):
+#         serializer.save(is_edited=True, edited_at=timezone.now())
+
+#     def perform_destroy(self, instance):
+#         instance.content = "[Message deleted]"
+#         instance.message_type = "system"
+#         instance.save()
+
+
+# class CallInitiateView(generics.CreateAPIView):
+#     """
+#     Initiate a voice or video call.
+#     """
+
+#     serializer_class = CallInitiateSerializer
+#     permission_classes = [IsAuthenticated]
+
+#     def perform_create(self, serializer):
+#         callee_id = serializer.validated_data["callee_id"]
+#         call_type = serializer.validated_data["call_type"]
+
+#         callee = get_object_or_404(User, id=callee_id, is_active=True)
+
+#         # Find or create chat
+#         chat = (
+#             Chat.objects.filter(participants=self.request.user, chat_type="direct")
+#             .filter(participants=callee)
+#             .annotate(participant_count=models.Count("participants"))
+#             .filter(participant_count=2)
+#             .first()
+#         )
+#         if not chat:
+#             chat = Chat.objects.create(chat_type="direct", created_by=self.request.user)
+#             chat.participants.set([self.request.user, callee])
+
+#         import uuid
+
+#         call_id = str(uuid.uuid4())
+#         room_id = f"room_{call_id}"
+
+#         call = Call.objects.create(
+#             chat=chat,
+#             caller=self.request.user,
+#             callee=callee,
+#             call_type=call_type,
+#             call_id=call_id,
+#             room_id=room_id,
+#             status="initiated",
+#         )
+
+#         # System message
+#         Message.objects.create(
+#             chat=chat,
+#             sender=None,
+#             message_type="call_start",
+#             content=f"{self.request.user.name} started a {call_type} call",
+#         )
+
+#         return call
+
+
+# class CallAnswerView(generics.UpdateAPIView):
+#     """
+#     Answer, decline, or mark a call as busy.
+#     """
+
+#     serializer_class = CallSerializer
+#     permission_classes = [IsAuthenticated]
+#     lookup_field = "call_id"
+
+#     def get_queryset(self):
+#         return Call.objects.filter(
+#             callee=self.request.user, status__in=["initiated", "ringing"]
+#         )
+
+#     def update(self, request, *args, **kwargs):
+#         call = self.get_object()
+#         action = request.data.get("action")
+
+#         if action == "answer":
+#             call.status = "active"
+#             call.answered_at = timezone.now()
+#             content = f"{request.user.name} answered the call"
+#             message_type = "call_start"
+
+#         elif action == "decline":
+#             call.status = "declined"
+#             call.ended_at = timezone.now()
+#             content = f"{request.user.name} declined the call"
+#             message_type = "call_end"
+
+#         elif action == "busy":
+#             call.status = "busy"
+#             call.ended_at = timezone.now()
+#             content = f"{request.user.name} is busy"
+#             message_type = "call_end"
+
+#         else:
+#             return Response(
+#                 {"message": "Invalid action", "status": "error"},
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+
+#         call.save()
+
+#         # System message
+#         Message.objects.create(
+#             chat=call.chat,
+#             sender=None,
+#             message_type=message_type,
+#             content=content,
+#         )
+
+#         serializer = self.get_serializer(call)
+#         return Response(
+#             {
+#                 "message": f"Call {action}ed successfully",
+#                 "status": "success",
+#                 "call": serializer.data,
+#             }
+#         )
+
+
+# class CallEndView(generics.UpdateAPIView):
+#     """
+#     End an active call.
+#     """
+
+#     serializer_class = CallSerializer
+#     permission_classes = [IsAuthenticated]
+#     lookup_field = "call_id"
+
+#     def get_queryset(self):
+#         # User must be a participant and call must be active
+#         return Call.objects.filter(status="active", participants=self.request.user)
+
+#     def update(self, request, *args, **kwargs):
+#         call = self.get_object()
+
+#         call.status = "ended"
+#         call.ended_at = timezone.now()
+#         if call.answered_at:
+#             call.duration = int((call.ended_at - call.answered_at).total_seconds())
+#         call.save()
+
+#         Message.objects.create(
+#             chat=call.chat,
+#             sender=None,
+#             message_type="call_end",
+#             content=f"Call ended. Duration: {call.get_duration_display()}",
+#         )
+
+#         serializer = self.get_serializer(call)
+#         return Response(
+#             {
+#                 "message": "Call ended successfully",
+#                 "status": "success",
+#                 "call": serializer.data,
+#             }
+#         )
+
+
+# class ChatReportView(generics.CreateAPIView):
+#     """
+#     Report a chat, message, or user
+#     """
+
+#     permission_classes = [IsAuthenticated]
+
+#     def get_serializer_class(self):
+#         from .serializers import ChatReportSerializer
+
+#         return ChatReportSerializer
+
+#     def perform_create(self, serializer):
+#         """Create report with current user as reporter"""
+#         chat_id = self.kwargs.get("chat_id")
+#         message_id = self.kwargs.get("message_id")
+
+#         if chat_id:
+#             chat = get_object_or_404(Chat, id=chat_id, participants=self.request.user)
+#             serializer.validated_data["chat"] = chat
+
+#         if message_id:
+#             message = get_object_or_404(Message, id=message_id)
+#             serializer.validated_data["message"] = message
+
+#         serializer.save(reporter=self.request.user)
+
+
+# class MatchmakerIntroView(generics.GenericAPIView):
+#     """
+#     Create a matchmaker introduction chat between two users
+#     """
+
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = ChatDetailSerializer
+
+#     @extend_schema(
+#         request=None,  # you can define an input serializer if you want docs for request body
+#         responses={
+#             201: ChatDetailSerializer,
+#             400: OpenApiResponse(description="Bad request"),
+#             403: OpenApiResponse(description="Forbidden"),
+#             404: OpenApiResponse(description="User not found"),
+#             500: OpenApiResponse(description="Server error"),
+#         },
+#     )
+#     def post(self, request, *args, **kwargs):
+#         try:
+#             if not request.user.is_matchmaker:
+#                 return Response(
+#                     {
+#                         "message": "Only matchmakers can create introductions",
+#                         "status": "error",
+#                     },
+#                     status=status.HTTP_403_FORBIDDEN,
+#                 )
+
+#             user1_id = request.data.get("user1_id")
+#             user2_id = request.data.get("user2_id")
+#             intro_message = request.data.get("intro_message", "")
+
+#             if not user1_id or not user2_id:
+#                 return Response(
+#                     {
+#                         "message": "Both user1_id and user2_id are required",
+#                         "status": "error",
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             try:
+#                 user1 = User.objects.get(id=user1_id, is_active=True)
+#                 user2 = User.objects.get(id=user2_id, is_active=True)
+
+#                 # Check if chat already exists
+#                 existing_chat = (
+#                     Chat.objects.filter(
+#                         participants=user1, chat_type="matchmaker_intro"
+#                     )
+#                     .filter(participants=user2)
+#                     .annotate(participant_count=models.Count("participants"))
+#                     .filter(participant_count=2)
+#                     .first()
+#                 )
+
+#                 if existing_chat:
+#                     return Response(
+#                         {
+#                             "message": "Introduction chat already exists",
+#                             "status": "error",
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#                 # Create matchmaker introduction chat
+#                 chat = Chat.objects.create(
+#                     chat_type="matchmaker_intro",
+#                     created_by=request.user,
+#                     chat_name=f"Introduction: {user1.name} & {user2.name}",
+#                 )
+#                 chat.participants.set([user1, user2, request.user])
+
+#                 # Create system messages
+#                 Message.objects.create(
+#                     chat=chat,
+#                     sender=None,
+#                     message_type="system",
+#                     content=f"{request.user.name} (moderator) made the match",
+#                 )
+#                 Message.objects.create(
+#                     chat=chat,
+#                     sender=None,
+#                     message_type="system",
+#                     content=f"{user1.name} was matched",
+#                 )
+#                 Message.objects.create(
+#                     chat=chat,
+#                     sender=None,
+#                     message_type="system",
+#                     content=f"{user2.name} was added",
+#                 )
+
+#                 # Create matchmaker introduction message
+#                 intro_content = (
+#                     intro_message
+#                     or f"Hi {user1.name} & {user2.name} 👋, I've matched you because I see a good fit. Please introduce yourselves and get to know each other."
+#                 )
+
+#                 Message.objects.create(
+#                     chat=chat,
+#                     sender=request.user,
+#                     message_type="matchmaker_intro",
+#                     content=intro_content,
+#                 )
+
+#                 return Response(
+#                     {
+#                         "message": "Matchmaker introduction created successfully",
+#                         "status": "success",
+#                         "chat": self.get_serializer(
+#                             chat, context={"request": request}
+#                         ).data,
+#                     },
+#                     status=status.HTTP_201_CREATED,
+#                 )
+
+#             except User.DoesNotExist:
+#                 return Response(
+#                     {"message": "One or both users not found", "status": "error"},
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#         except Exception as e:
+#             return Response(
+#                 {
+#                     "message": f"An unexpected error occurred: {str(e)}",
+#                     "status": "error",
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
 
 
 # =============================================================================
@@ -3661,152 +3724,152 @@ class MatchmakerIntroView(generics.GenericAPIView):
 # =============================================================================
 
 
-class LiveSessionListView(generics.ListCreateAPIView):
-    """
-    List active live sessions or create a new live session
-    """
+# class LiveSessionListView(generics.ListCreateAPIView):
+#     """
+#     List active live sessions or create a new live session
+#     """
 
-    permission_classes = [IsAuthenticated]
+#     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            from .serializers import LiveSessionCreateSerializer
+#     def get_serializer_class(self):
+#         if self.request.method == "POST":
+#             from .serializers import LiveSessionCreateSerializer
 
-            return LiveSessionCreateSerializer
-        from .serializers import LiveSessionSerializer
+#             return LiveSessionCreateSerializer
+#         from .serializers import LiveSessionSerializer
 
-        return LiveSessionSerializer
+#         return LiveSessionSerializer
 
-    def get_queryset(self):
-        from .models import LiveSession
-        from django.utils import timezone
+#     def get_queryset(self):
+#         from .models import LiveSession
+#         from django.utils import timezone
 
-        # Get active live sessions
-        return (
-            LiveSession.objects.filter(
-                status="active",
-                start_time__gte=timezone.now()
-                - timezone.timedelta(hours=24),  # Only recent sessions
-            )
-            .select_related("user")
-            .order_by("-start_time")
-        )
+#         # Get active live sessions
+#         return (
+#             LiveSession.objects.filter(
+#                 status="active",
+#                 start_time__gte=timezone.now()
+#                 - timezone.timedelta(hours=24),  # Only recent sessions
+#             )
+#             .select_related("user")
+#             .order_by("-start_time")
+#         )
 
-    def perform_create(self, serializer):
-        """Create live session with current user"""
-        serializer.save(user=self.request.user)
-
-
-class LiveSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or end a specific live session
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        return LiveSessionSerializer
-
-    def get_queryset(self):
-        return LiveSession.objects.filter(user=self.request.user)
-
-    def perform_destroy(self, instance):
-        """End the live session instead of deleting"""
-
-        instance.status = "ended"
-        instance.end_time = timezone.now()
-        instance.save()
+#     def perform_create(self, serializer):
+#         """Create live session with current user"""
+#         serializer.save(user=self.request.user)
 
 
-class LiveSessionJoinView(generics.CreateAPIView):
-    """
-    Join a live session as a viewer
-    """
+# class LiveSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
+#     """
+#     Retrieve, update, or end a specific live session
+#     """
 
-    permission_classes = [IsAuthenticated]
-    serializer_class = LiveParticipantSerializer
+#     permission_classes = [IsAuthenticated]
 
-    def create(self, request, session_id):
-        try:
-            session = LiveSession.objects.get(id=session_id, status="active")
+#     def get_serializer_class(self):
+#         return LiveSessionSerializer
 
-            # Check if user is already a participant
-            participant, created = LiveParticipant.objects.get_or_create(
-                session=session, user=request.user, defaults={"role": "viewer"}
-            )
+#     def get_queryset(self):
+#         return LiveSession.objects.filter(user=self.request.user)
 
-            if created:
-                # Update viewers count
-                session.viewers_count += 1
-                session.save(update_fields=["viewers_count"])
+#     def perform_destroy(self, instance):
+#         """End the live session instead of deleting"""
 
-                serializer = self.get_serializer(participant)
-                return Response(
-                    {
-                        "message": "Successfully joined live session",
-                        "status": "success",
-                        "participant_id": participant.id,
-                        "data": serializer.data,
-                    },
-                    status=status.HTTP_201_CREATED,
-                )
-            else:
-                serializer = self.get_serializer(participant)
-                return Response(
-                    {
-                        "message": "Already participating in this session",
-                        "status": "info",
-                        "data": serializer.data,
-                    },
-                    status=status.HTTP_200_OK,
-                )
-
-        except LiveSession.DoesNotExist:
-            return Response(
-                {"message": "Live session not found or not active", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+#         instance.status = "ended"
+#         instance.end_time = timezone.now()
+#         instance.save()
 
 
-class LiveSessionLeaveView(generics.GenericAPIView):
-    """
-    Leave a live session
-    """
+# class LiveSessionJoinView(generics.CreateAPIView):
+#     """
+#     Join a live session as a viewer
+#     """
 
-    permission_classes = [IsAuthenticated]
-    serializer_class = LiveParticipantSerializer  # For schema purposes
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = LiveParticipantSerializer
 
-    @extend_schema(
-        request=None,
-        responses={
-            200: OpenApiResponse(
-                response=LiveParticipantSerializer,
-                description="Successfully left the live session",
-            ),
-            404: OpenApiResponse(description="Live session or participation not found"),
-        },
-    )
-    def post(self, request, session_id, *args, **kwargs):
-        # Get the live session
-        session = get_object_or_404(LiveSession, id=session_id)
+#     def create(self, request, session_id):
+#         try:
+#             session = LiveSession.objects.get(id=session_id, status="active")
 
-        # Get the participant record
-        participant = get_object_or_404(
-            LiveParticipant, session=session, user=request.user, left_at__isnull=True
-        )
+#             # Check if user is already a participant
+#             participant, created = LiveParticipant.objects.get_or_create(
+#                 session=session, user=request.user, defaults={"role": "viewer"}
+#             )
 
-        # Mark as left
-        participant.left_at = timezone.now()
-        participant.save()
+#             if created:
+#                 # Update viewers count
+#                 session.viewers_count += 1
+#                 session.save(update_fields=["viewers_count"])
 
-        # Update viewers count safely
-        session.viewers_count = max(0, session.viewers_count - 1)
-        session.save(update_fields=["viewers_count"])
+#                 serializer = self.get_serializer(participant)
+#                 return Response(
+#                     {
+#                         "message": "Successfully joined live session",
+#                         "status": "success",
+#                         "participant_id": participant.id,
+#                         "data": serializer.data,
+#                     },
+#                     status=status.HTTP_201_CREATED,
+#                 )
+#             else:
+#                 serializer = self.get_serializer(participant)
+#                 return Response(
+#                     {
+#                         "message": "Already participating in this session",
+#                         "status": "info",
+#                         "data": serializer.data,
+#                     },
+#                     status=status.HTTP_200_OK,
+#                 )
 
-        return Response(
-            {"message": "Successfully left live session", "status": "success"},
-            status=status.HTTP_200_OK,
-        )
+#         except LiveSession.DoesNotExist:
+#             return Response(
+#                 {"message": "Live session not found or not active", "status": "error"},
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+
+
+# class LiveSessionLeaveView(generics.GenericAPIView):
+#     """
+#     Leave a live session
+#     """
+
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = LiveParticipantSerializer  # For schema purposes
+
+#     @extend_schema(
+#         request=None,
+#         responses={
+#             200: OpenApiResponse(
+#                 response=LiveParticipantSerializer,
+#                 description="Successfully left the live session",
+#             ),
+#             404: OpenApiResponse(description="Live session or participation not found"),
+#         },
+#     )
+#     def post(self, request, session_id, *args, **kwargs):
+#         # Get the live session
+#         session = get_object_or_404(LiveSession, id=session_id)
+
+#         # Get the participant record
+#         participant = get_object_or_404(
+#             LiveParticipant, session=session, user=request.user, left_at__isnull=True
+#         )
+
+#         # Mark as left
+#         participant.left_at = timezone.now()
+#         participant.save()
+
+#         # Update viewers count safely
+#         session.viewers_count = max(0, session.viewers_count - 1)
+#         session.save(update_fields=["viewers_count"])
+
+#         return Response(
+#             {"message": "Successfully left live session", "status": "success"},
+#             status=status.HTTP_200_OK,
+#         )
 
 
 # =============================================================================
@@ -3814,587 +3877,455 @@ class LiveSessionLeaveView(generics.GenericAPIView):
 # =============================================================================
 
 
-class FeedListView(generics.ListCreateAPIView):
+class PostViewSet(viewsets.ModelViewSet):
     """
-    List posts in the Bond Story feed or create a new post
-    """
-
-    permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-    queryset = (
-        Post.objects.filter(is_active=True, visibility="public")
-        .select_related("author")
-        .prefetch_related("comments__author")
-        .order_by("-created_at")
-    )
-
-    # Use static serializer to satisfy drf-spectacular
-    serializer_class = PostSerializer
-
-    @extend_schema(
-        request=PostCreateSerializer,
-        responses={
-            200: OpenApiResponse(PostSerializer),
-            201: OpenApiResponse(PostSerializer),
-        },
-    )
-    def post(self, request, *args, **kwargs):
-        """Handle post creation with file uploads"""
-        serializer = PostCreateSerializer(
-            data=request.data, context={"request": request}
-        )
-        serializer.is_valid(raise_exception=True)
-
-        image_files = request.FILES.getlist("image_files")
-        video_file = request.FILES.get("video_file")
-
-        image_urls = []
-        video_url = None
-        video_thumbnail = None
-
-        if image_files:
-            for image_file in image_files:
-                image_urls.append(self._save_uploaded_file(image_file, "post_images"))
-
-        if video_file:
-            video_url = self._save_uploaded_file(video_file, "post_videos")
-            video_thumbnail = video_url.replace(
-                ".mp4", "_thumb.jpg"
-            )  # placeholder thumbnail logic
-
-        serializer.save(
-            author=request.user,
-            image_urls=image_urls,
-            video_url=video_url,
-            video_thumbnail=video_thumbnail,
-        )
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    def _save_uploaded_file(self, file, folder):
-        """Save uploaded file and return URL"""
-
-        ext = os.path.splitext(file.name)[1]
-        filename = f"{uuid.uuid4()}{ext}"
-        filepath = os.path.join(folder, filename)
-
-        default_storage.save(filepath, ContentFile(file.read()))
-        return default_storage.url(filepath)
-
-
-class PostDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or delete a specific post
+    Handles posts:
+    - list: feed (following + public posts)
+    - retrieve: single post with comments_count
+    - create / update / partial_update: create or edit post
+    - destroy: soft delete post
+    - interact: like, share, bond (custom action)
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "pk"
 
+    # -------- Queryset --------
+    def get_queryset(self):
+        user = self.request.user
+
+        base_queryset = Post.objects.filter(is_active=True).select_related("author")
+
+        if self.action == "list":
+            # Feed view: posts from followed bondmakers or public posts
+            following_ids = BondmakerSubscription.objects.filter(
+                user=user, active=True
+            ).values_list("bondmaker_id", flat=True)
+
+            return base_queryset.filter(
+                Q(author_id__in=following_ids) | Q(visibility="public")
+            ).order_by("-created_at")
+
+        # For retrieve/update/delete actions
+        return base_queryset
+
+    # -------- Serializer selection --------
     def get_serializer_class(self):
-        if self.request.method in ["PUT", "PATCH"]:
-            from .serializers import PostCreateSerializer
-
-            return PostCreateSerializer
-        from .serializers import PostSerializer
-
+        if self.action == "retrieve":
+            return PostDetailSerializer
+        elif self.action in ["create", "update", "partial_update"]:
+            return PostSerializer
+        elif self.action == "interact":
+            return PostInteractionSerializer
         return PostSerializer
 
-    def get_queryset(self):
-        from .models import Post
-
-        return (
-            Post.objects.filter(is_active=True)
-            .select_related("author")
-            .prefetch_related("comments__author")
-        )
+    # -------- CRUD Hooks --------
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
 
     def perform_destroy(self, instance):
-        """Soft delete post by deactivating it"""
+        # Soft delete
         instance.is_active = False
-        instance.save()
+        instance.save(update_fields=["is_active"])
 
-
-class PostCommentListView(generics.ListCreateAPIView):
-    """
-    List comments for a specific post or add a new comment
-    """
-
-    permission_classes = [IsAuthenticated]
-    serializer_class = PostCommentSerializer  # Static serializer for drf-spectacular
-
-    def get_queryset(self):
-        post_id = self.kwargs["post_id"]
-
-        # Ensure the post exists and is active
-        post = get_object_or_404(Post, id=post_id, is_active=True)
-
-        return (
-            PostComment.objects.filter(
-                post=post,
-                is_active=True,
-                parent_comment__isnull=True,  # Only top-level comments
-            )
-            .select_related("author")
-            .prefetch_related("replies__author")
-            .order_by("created_at")
-        )
-
-    @extend_schema(
-        request=PostCommentSerializer,
-        responses={
-            201: OpenApiResponse(PostCommentSerializer),
-        },
-    )
-    def post(self, request, *args, **kwargs):
-        """Create a new comment for a post"""
-        post_id = self.kwargs["post_id"]
-        post = get_object_or_404(Post, id=post_id, is_active=True)
-
-        serializer = self.get_serializer(
-            data=request.data, context={"request": request}
+    # -------- Custom Actions --------
+    @action(detail=True, methods=["post"])
+    def interact(self, request, pk=None):
+        """
+        Handle like, share, bond interactions.
+        Ensures a user can only like a post once.
+        """
+        post = self.get_object()
+        serializer = PostInteractionSerializer(
+            data=request.data, context={"request": request, "post": post}
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save(post=post, author=request.user)
+        interaction_type = serializer.validated_data["interaction_type"]
 
-        # Update post comments count
-        post.comments_count = post.comments.filter(is_active=True).count()
-        post.save(update_fields=["comments_count"])
-
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-class PostInteractionView(generics.CreateAPIView):
-    """
-    Handle post interactions (like, share, bond)
-    """
-    serializer_class = PostInteractionSerializer
-    permission_classes = [IsAuthenticated]
-
-    def create(self, request, *args, **kwargs):
-        post_id = self.kwargs.get("post_id")
-        try:
-            post = Post.objects.get(id=post_id, is_active=True)
-            interaction_type = request.data.get("interaction_type")
-
-            if interaction_type not in ["like", "share", "bond", "save"]:
-                return Response(
-                    {"message": "Invalid interaction type", "status": "error"},
-                    status=status.HTTP_400_BAD_REQUEST,
+        # -------- SAFE LIKE LOGIC --------
+        if interaction_type == "like":
+            with transaction.atomic():
+                obj, created = PostInteraction.objects.get_or_create(
+                    user=request.user, post=post, interaction_type="like"
                 )
 
-            # Check if interaction already exists
-            interaction, created = PostInteraction.objects.get_or_create(
-                user=request.user, post=post, interaction_type=interaction_type
+                if not created:
+                    # User already liked → toggle OFF
+                    obj.delete()
+                    Post.objects.filter(id=post.id).update(
+                        likes_count=F("likes_count") - 1
+                    )
+                    post.refresh_from_db()
+                    return Response({"liked": False, "likes_count": post.likes_count})
+
+                # New like → increment counter
+                Post.objects.filter(id=post.id).update(likes_count=F("likes_count") + 1)
+                post.refresh_from_db()
+                return Response(
+                    {"liked": True, "likes_count": post.likes_count},
+                    status=status.HTTP_201_CREATED,
+                )
+
+        # -------- EXISTING SHARE / BOND LOGIC (UNCHANGED) --------
+        obj, created = PostInteraction.objects.get_or_create(
+            user=request.user, post=post, interaction_type=interaction_type
+        )
+
+        if not created:
+            # Toggle OFF
+            obj.delete()
+            if interaction_type == "share":
+                Post.objects.filter(id=post.id).update(
+                    shares_count=F("shares_count") - 1
+                )
+            elif interaction_type == "bond":
+                Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") - 1)
+            return Response({"message": "Interaction removed"})
+
+        # Toggle ON
+        if interaction_type == "share":
+            Post.objects.filter(id=post.id).update(shares_count=F("shares_count") + 1)
+        elif interaction_type == "bond":
+            Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") + 1)
+
+        return Response(
+            {"message": "Interaction added"}, status=status.HTTP_201_CREATED
+        )
+
+
+class PostCommentViewSet(viewsets.ModelViewSet):
+    serializer_class = PostCommentCreateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        post_id = self.kwargs["post_pk"]
+        return (
+            PostComment.objects.filter(post_id=post_id, is_active=True)
+            .select_related("author")
+            .order_by("-created_at")
+        )
+
+    # Create comment + increment Post.comments_count safely
+    def perform_create(self, serializer):
+        post = get_object_or_404(Post, pk=self.kwargs["post_pk"])
+
+        with transaction.atomic():
+            comment = serializer.save(author=self.request.user, post=post)
+
+            Post.objects.filter(id=post.id).update(
+                comments_count=F("comments_count") + 1
+            )
+
+    # Soft delete comment + decrement Post.comments_count safely
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            instance.is_active = False
+            instance.save(update_fields=["is_active"])
+
+            Post.objects.filter(id=instance.post_id).update(
+                comments_count=F("comments_count") - 1
+            )
+
+    # Safe Like Toggle (Atomic + No Double Count)
+    @action(detail=True, methods=["post"])
+    def like(self, request, post_pk=None, pk=None):
+        """
+        Like/unlike a comment.
+        Each user can only like a comment once.
+        """
+        comment = self.get_object()
+
+        with transaction.atomic():
+            # Try to create a like; ensures 1 like per user per comment
+            obj, created = CommentInteraction.objects.get_or_create(
+                user=request.user,
+                comment=comment,
             )
 
             if not created:
-                # Remove interaction (toggle)
-                interaction.delete()
-                action = "removed"
+                # User already liked → toggle OFF
+                obj.delete()
+                PostComment.objects.filter(id=comment.id).update(
+                    likes_count=F("likes_count") - 1
+                )
+                comment.refresh_from_db()
+                return Response({"liked": False, "likes_count": comment.likes_count})
 
-                # Update post counts
-                if interaction_type == "like":
-                    post.likes_count = max(0, post.likes_count - 1)
-                elif interaction_type == "share":
-                    post.shares_count = max(0, post.shares_count - 1)
-                elif interaction_type == "bond":
-                    post.bonds_count = max(0, post.bonds_count - 1)
-            else:
-                # Add interaction
-                action = "added"
-
-                # Update post counts
-                if interaction_type == "like":
-                    post.likes_count += 1
-                elif interaction_type == "share":
-                    post.shares_count += 1
-                elif interaction_type == "bond":
-                    post.bonds_count += 1
-
-            post.save(update_fields=["likes_count", "shares_count", "bonds_count"])
-
+            # New like → increment safely
+            PostComment.objects.filter(id=comment.id).update(
+                likes_count=F("likes_count") + 1
+            )
+            comment.refresh_from_db()
             return Response(
-                {
-                    "message": f"Interaction {action} successfully",
-                    "status": "success",
-                    "interaction_type": interaction_type,
-                    "action": action,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except Post.DoesNotExist:
-            return Response(
-                {"message": "Post not found", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
+                {"liked": True, "likes_count": comment.likes_count},
+                status=status.HTTP_201_CREATED,
             )
 
 
-class CommentInteractionView(generics.CreateAPIView):
-    """
-    Handle comment interactions (like)
-    """
-    serializer_class = CommentInteractionSerializer
-    permission_classes = [IsAuthenticated]
+# class PostReportView(generics.CreateAPIView):
+#     """
+#     Report a post or comment
+#     """
 
-    def create(self, request, *args, **kwargs):
-        comment_id = self.kwargs.get("comment_id")
-        try:
-            comment = PostComment.objects.get(id=comment_id, is_active=True)
-            interaction_type = request.data.get("interaction_type", "like")
+#     permission_classes = [IsAuthenticated]
 
-            # Check if interaction already exists
-            interaction, created = CommentInteraction.objects.get_or_create(
-                user=request.user, comment=comment, interaction_type=interaction_type
-            )
+#     def get_serializer_class(self):
+#         from .serializers import PostReportSerializer
 
-            if not created:
-                # Remove interaction (toggle)
-                interaction.delete()
-                action = "removed"
-                comment.likes_count = max(0, comment.likes_count - 1)
-            else:
-                # Add interaction
-                action = "added"
-                comment.likes_count += 1
+#         return PostReportSerializer
 
-            comment.save(update_fields=["likes_count"])
+#     def perform_create(self, serializer):
+#         """Create report with current user as reporter"""
+#         post_id = self.kwargs.get("post_id")
+#         comment_id = self.kwargs.get("comment_id")
 
-            return Response(
-                {
-                    "message": f"Comment interaction {action} successfully",
-                    "status": "success",
-                    "interaction_type": interaction_type,
-                    "action": action,
-                },
-                status=status.HTTP_200_OK,
-            )
+#         if post_id:
+#             from .models import Post
 
-        except PostComment.DoesNotExist:
-            return Response(
-                {"message": "Comment not found", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+#             post = get_object_or_404(Post, id=post_id, is_active=True)
+#             serializer.validated_data["post"] = post
+#             serializer.validated_data["reported_user"] = post.author
+
+#         if comment_id:
+#             from .models import PostComment
+
+#             comment = get_object_or_404(PostComment, id=comment_id, is_active=True)
+#             serializer.validated_data["comment"] = comment
+#             serializer.validated_data["reported_user"] = comment.author
+
+#         serializer.save(reporter=self.request.user)
 
 
-class PostReportView(generics.CreateAPIView):
-    """
-    Report a post or comment
-    """
+# class PostShareView(generics.CreateAPIView):
+#     """
+#     Share a post to external platforms
+#     """
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = PostShareSerializer
 
-    permission_classes = [IsAuthenticated]
+#     def perform_create(self, serializer):
+#         """Create share with current user and post"""
+#         post_id = self.kwargs["post_id"]
+#         post = get_object_or_404(Post, id=post_id, is_active=True)
+
+#         serializer.save(user=self.request.user, post=post)
+
+#         # Update post shares count
+#         post.shares_count += 1
+#         post.save(update_fields=["shares_count"])
+
+
+class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "pk"
+
+    def get_queryset(self):
+        return self.base_queryset()
 
     def get_serializer_class(self):
-        from .serializers import PostReportSerializer
-
-        return PostReportSerializer
-
-    def perform_create(self, serializer):
-        """Create report with current user as reporter"""
-        post_id = self.kwargs.get("post_id")
-        comment_id = self.kwargs.get("comment_id")
-
-        if post_id:
-            from .models import Post
-
-            post = get_object_or_404(Post, id=post_id, is_active=True)
-            serializer.validated_data["post"] = post
-            serializer.validated_data["reported_user"] = post.author
-
-        if comment_id:
-            from .models import PostComment
-
-            comment = get_object_or_404(PostComment, id=comment_id, is_active=True)
-            serializer.validated_data["comment"] = comment
-            serializer.validated_data["reported_user"] = comment.author
-
-        serializer.save(reporter=self.request.user)
-
-
-class PostShareView(generics.CreateAPIView):
-    """
-    Share a post to external platforms
-    """
-    permission_classes = [IsAuthenticated]
-    serializer_class = PostShareSerializer
-
-    def perform_create(self, serializer):
-        """Create share with current user and post"""
-        post_id = self.kwargs["post_id"]
-        post = get_object_or_404(Post, id=post_id, is_active=True)
-
-        serializer.save(user=self.request.user, post=post)
-
-        # Update post shares count
-        post.shares_count += 1
-        post.save(update_fields=["shares_count"])
-
-
-class StoryListView(generics.ListCreateAPIView):
-    """
-    List active stories or create a new story
-    """
-
-    permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
+        if self.action == "create":
             return StoryCreateSerializer
         return StorySerializer
 
-    def get_queryset(self):
-        # Get active, non-expired stories
-        return (
-            Story.objects.filter(is_active=True, expires_at__gt=timezone.now())
-            .select_related("author")
-            .order_by("-created_at")
-        )
-
     def perform_create(self, serializer):
-        """Create story with current user as author"""
-        # Handle file uploads for images and videos
-        image_file = self.request.FILES.get("image_file")
-        video_file = self.request.FILES.get("video_file")
-
-        # Save uploaded files and get URLs
-        image_url = None
-        video_url = None
-
-        if image_file:
-            image_url = self._save_uploaded_file(image_file, "story_images")
-
-        if video_file:
-            video_url = self._save_uploaded_file(video_file, "story_videos")
-
+        """Automatically set author and 24-hour expiration"""
         serializer.save(
-            author=self.request.user, image_url=image_url, video_url=video_url
+            author=self.request.user, expires_at=timezone.now() + timedelta(hours=24)
         )
 
-    def _save_uploaded_file(self, file, folder):
-        """Save uploaded file and return URL"""
-        # Generate unique filename
-        file_extension = os.path.splitext(file.name)[1]
-        unique_filename = f"{uuid.uuid4()}{file_extension}"
-        file_path = os.path.join(folder, unique_filename)
-
-        # Save file
-        default_storage.save(file_path, ContentFile(file.read()))
-        return default_storage.url(file_path)
-
-
-class StoryDetailView(generics.RetrieveAPIView):
-    """
-    Retrieve a specific story and mark as viewed
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        return StorySerializer
-
-    def get_queryset(self):
-        return Story.objects.filter(
-            is_active=True, expires_at__gt=timezone.now()
-        ).select_related("author")
-
-    def retrieve(self, request, *args, **kwargs):
-        """Mark story as viewed by current user"""
-        story = self.get_object()
-
-        # Mark as viewed if not already viewed
+    def retrieve(self, request, pk=None):
+        """Retrieve story and track a view for the current user."""
+        story = get_object_or_404(self.get_queryset(), pk=pk)
         StoryView.objects.get_or_create(story=story, viewer=request.user)
-
-        # Update views count
-        story.views_count = story.views.count()
-        story.save(update_fields=["views_count"])
-
         serializer = self.get_serializer(story)
         return Response(serializer.data)
 
-
-class StoryReactionView(generics.CreateAPIView):
-    """
-    Handle story reactions
-    """
-    serializer_class = StoryReactionSerializer
-    permission_classes = [IsAuthenticated]
-
-    def create(self, request, *args, **kwargs):
-        story_id = self.kwargs.get("story_id")
-        try:
-            story = Story.objects.get(id=story_id, is_active=True)
-            reaction_type = request.data.get("reaction_type", "like")
-
-            if reaction_type not in ["like", "love", "laugh", "wow", "sad", "angry"]:
-                return Response(
-                    {"message": "Invalid reaction type", "status": "error"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # Check if reaction already exists
-            reaction, created = StoryReaction.objects.get_or_create(
-                user=request.user, story=story, reaction_type=reaction_type
-            )
-
-            if not created:
-                # Remove reaction (toggle)
-                reaction.delete()
-                action = "removed"
-                story.reactions_count = max(0, story.reactions_count - 1)
-            else:
-                # Add reaction
-                action = "added"
-                story.reactions_count += 1
-
-            story.save(update_fields=["reactions_count"])
-
-            return Response(
-                {
-                    "message": f"Story reaction {action} successfully",
-                    "status": "success",
-                    "reaction_type": reaction_type,
-                    "action": action,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except Story.DoesNotExist:
-            return Response(
-                {"message": "Story not found", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-
-class FeedSearchView(generics.ListAPIView):
-    """
-    Search posts in the Bond Story feed
-    """
-
-    serializer_class = PostSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        query = self.request.GET.get("q", "").strip()
-        if not query:
-            return Post.objects.none()
-
-        # Search posts by content, hashtags, and author name
-        return (
-            Post.objects.filter(
-                Q(content__icontains=query)
-                | Q(hashtags__icontains=query)
-                | Q(author__name__icontains=query)
-                | Q(location__icontains=query),
-                is_active=True,
-                visibility="public",
-            )
-            .select_related("author")
-            .prefetch_related("comments__author")
-            .order_by("-created_at")
+    @action(detail=True, methods=["post"])
+    def like(self, request, pk=None):
+        """Toggle like on a story"""
+        story = self.get_object()
+        interaction, created = StoryInteraction.objects.get_or_create(
+            story=story, user=request.user, interaction_type="like"
         )
 
-    def list(self, request, *args, **kwargs):
-        try:
-            queryset = self.get_queryset()
-            query = self.request.GET.get("q", "").strip()
+        if not created:
+            # Toggle off if already liked
+            interaction.delete()
+            liked = False
+        else:
+            liked = True
 
-            # Store search query for analytics
-            FeedSearch.objects.create(
-                user=request.user, query=query, results_count=queryset.count()
-            )
+        # Update reactions_count
+        story.reactions_count = story.interactions.count()
+        story.save(update_fields=["reactions_count"])
 
-            # Use paginated response if needed, otherwise standard list
-            page = self.paginate_queryset(queryset)
-            if page is not None:
-                serializer = self.get_serializer(page, many=True)
-                return self.get_paginated_response(serializer.data)
+        return Response({"liked": liked, "reactions_count": story.reactions_count})
 
-            serializer = self.get_serializer(queryset, many=True)
+    @action(detail=True, methods=["post"])
+    def share(self, request, pk=None):
+        """Share a story once"""
+        story = self.get_object()
+        interaction, created = StoryInteraction.objects.get_or_create(
+            story=story, user=request.user, interaction_type="share"
+        )
+
+        if not created:
             return Response(
-                {
-                    "message": "Search completed successfully",
-                    "status": "success",
-                    "query": query,
-                    "results_count": queryset.count(),
-                    "posts": serializer.data,
-                },
-                status=status.HTTP_200_OK,
-            )
-        except Exception as e:
-            return Response(
-                {
-                    "message": f"An unexpected error occurred during search: {str(e)}",
-                    "status": "error",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {"shared": False, "detail": "Already shared"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Update reactions_count if desired
+        story.reactions_count = story.interactions.count()
+        story.save(update_fields=["reactions_count"])
 
-@extend_schema(responses=FeedSuggestionsResponseSerializer)
-class FeedSuggestionsView(generics.ListAPIView):
-    """
-    Get search suggestions for the Bond Story feed
-    """
+        return Response({"shared": True})
 
-    permission_classes = [IsAuthenticated]
-    serializer_class = FeedSuggestionsResponseSerializer
+
+class StoryViewersListView(generics.ListAPIView):
+    serializer_class = StoryViewerSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Required by ListAPIView but unused
-        return FeedSearch.objects.none()
+        story = get_object_or_404(Story, pk=self.kwargs["pk"])
 
-    def list(self, request, *args, **kwargs):
-        from .models import FeedSearch, Post
-        from django.db.models import Count
+        if story.author != self.request.user:
+            return StoryView.objects.none()
 
-        query = request.GET.get("q", "").strip()
+        return story.views.select_related("viewer")
 
-        if query:
-            suggestions = (
-                FeedSearch.objects.filter(query__icontains=query)
-                .values("query")
-                .annotate(count=Count("query"))
-                .order_by("-count")[:5]
-            )
 
-            hashtag_suggestions = Post.objects.filter(
-                hashtags__icontains=query, is_active=True
-            ).values_list("hashtags", flat=True)
+# class FeedSearchView(generics.ListAPIView):
+#     """
+#     Search posts in the Bond Story feed
+#     """
 
-            all_hashtags = []
-            for hashtags in hashtag_suggestions:
-                if hashtags:
-                    all_hashtags.extend(hashtags)
+#     serializer_class = PostSerializer
+#     permission_classes = [IsAuthenticated]
 
-            filtered_hashtags = [
-                tag for tag in set(all_hashtags) if query.lower() in tag.lower()
-            ]
+#     def get_queryset(self):
+#         query = self.request.GET.get("q", "").strip()
+#         if not query:
+#             return Post.objects.none()
 
-            return Response(
-                FeedSuggestionsResponseSerializer(
-                    {
-                        "message": "Suggestions retrieved successfully",
-                        "status": "success",
-                        "suggestions": [s["query"] for s in suggestions],
-                        "hashtags": filtered_hashtags[:5],
-                    }
-                ).data
-            )
-        else:
-            popular_searches = (
-                FeedSearch.objects.values("query")
-                .annotate(count=Count("query"))
-                .order_by("-count")[:10]
-            )
+#         # Search posts by content, hashtags, and author name
+#         return (
+#             Post.objects.filter(
+#                 Q(content__icontains=query)
+#                 | Q(hashtags__icontains=query)
+#                 | Q(author__name__icontains=query)
+#                 | Q(location__icontains=query),
+#                 is_active=True,
+#                 visibility="public",
+#             )
+#             .select_related("author")
+#             .prefetch_related("comments__author")
+#             .order_by("-created_at")
+#         )
 
-            return Response(
-                FeedSuggestionsResponseSerializer(
-                    {
-                        "message": "Popular searches retrieved successfully",
-                        "status": "success",
-                        "popular_searches": [s["query"] for s in popular_searches],
-                    }
-                ).data
-            )
+#     def list(self, request, *args, **kwargs):
+#         try:
+#             queryset = self.get_queryset()
+#             query = self.request.GET.get("q", "").strip()
+
+#             # Store search query for analytics
+#             FeedSearch.objects.create(
+#                 user=request.user, query=query, results_count=queryset.count()
+#             )
+
+#             # Use paginated response if needed, otherwise standard list
+#             page = self.paginate_queryset(queryset)
+#             if page is not None:
+#                 serializer = self.get_serializer(page, many=True)
+#                 return self.get_paginated_response(serializer.data)
+
+#             serializer = self.get_serializer(queryset, many=True)
+#             return Response(
+#                 {
+#                     "message": "Search completed successfully",
+#                     "status": "success",
+#                     "query": query,
+#                     "results_count": queryset.count(),
+#                     "posts": serializer.data,
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+#         except Exception as e:
+#             return Response(
+#                 {
+#                     "message": f"An unexpected error occurred during search: {str(e)}",
+#                     "status": "error",
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+# @extend_schema(responses=FeedSuggestionsResponseSerializer)
+# class FeedSuggestionsView(generics.ListAPIView):
+#     """
+#     Get search suggestions for the Bond Story feed
+#     """
+
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = FeedSuggestionsResponseSerializer
+
+#     def get_queryset(self):
+#         # Required by ListAPIView but unused
+#         return FeedSearch.objects.none()
+
+#     def list(self, request, *args, **kwargs):
+#         from .models import FeedSearch, Post
+#         from django.db.models import Count
+
+#         query = request.GET.get("q", "").strip()
+
+#         if query:
+#             suggestions = (
+#                 FeedSearch.objects.filter(query__icontains=query)
+#                 .values("query")
+#                 .annotate(count=Count("query"))
+#                 .order_by("-count")[:5]
+#             )
+
+#             hashtag_suggestions = Post.objects.filter(
+#                 hashtags__icontains=query, is_active=True
+#             ).values_list("hashtags", flat=True)
+
+#             all_hashtags = []
+#             for hashtags in hashtag_suggestions:
+#                 if hashtags:
+#                     all_hashtags.extend(hashtags)
+
+#             filtered_hashtags = [
+#                 tag for tag in set(all_hashtags) if query.lower() in tag.lower()
+#             ]
+
+#             return Response(
+#                 FeedSuggestionsResponseSerializer(
+#                     {
+#                         "message": "Suggestions retrieved successfully",
+#                         "status": "success",
+#                         "suggestions": [s["query"] for s in suggestions],
+#                         "hashtags": filtered_hashtags[:5],
+#                     }
+#                 ).data
+#             )
+#         else:
+#             popular_searches = (
+#                 FeedSearch.objects.values("query")
+#                 .annotate(count=Count("query"))
+#                 .order_by("-count")[:10]
+#             )
+
+#             return Response(
+#                 FeedSuggestionsResponseSerializer(
+#                     {
+#                         "message": "Popular searches retrieved successfully",
+#                         "status": "success",
+#                         "popular_searches": [s["query"] for s in popular_searches],
+#                     }
+#                 ).data
+#             )
 
 
 # =============================================================================
@@ -4402,39 +4333,39 @@ class FeedSuggestionsView(generics.ListAPIView):
 # =============================================================================
 
 
-class UserSocialHandleListView(generics.ListCreateAPIView):
-    """
-    List and create user social media handles
-    """
+# class UserSocialHandleListView(generics.ListCreateAPIView):
+#     """
+#     List and create user social media handles
+#     """
 
-    permission_classes = [IsAuthenticated]
+#     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
-        if self.request.method == "POST":
+#     def get_serializer_class(self):
+#         if self.request.method == "POST":
 
-            return UserSocialHandleCreateSerializer
+#             return UserSocialHandleCreateSerializer
 
-        return UserSocialHandleSerializer
+#         return UserSocialHandleSerializer
 
-    def get_queryset(self):
+#     def get_queryset(self):
 
-        return UserSocialHandle.objects.filter(user=self.request.user)
+#         return UserSocialHandle.objects.filter(user=self.request.user)
 
 
-class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or delete a specific social media handle
-    """
+# class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
+#     """
+#     Retrieve, update, or delete a specific social media handle
+#     """
 
-    permission_classes = [IsAuthenticated]
+#     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
+#     def get_serializer_class(self):
 
-        return UserSocialHandleSerializer
+#         return UserSocialHandleSerializer
 
-    def get_queryset(self):
+#     def get_queryset(self):
 
-        return UserSocialHandle.objects.filter(user=self.request.user)
+#         return UserSocialHandle.objects.filter(user=self.request.user)
 
 
 # =============================================================================
@@ -4442,39 +4373,39 @@ class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
 # =============================================================================
 
 
-class UserSecurityQuestionListView(generics.ListCreateAPIView):
-    """
-    List and create user security question responses
-    """
+# class UserSecurityQuestionListView(generics.ListCreateAPIView):
+#     """
+#     List and create user security question responses
+#     """
 
-    permission_classes = [IsAuthenticated]
+#     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
-        if self.request.method == "POST":
+#     def get_serializer_class(self):
+#         if self.request.method == "POST":
 
-            return UserSecurityQuestionCreateSerializer
+#             return UserSecurityQuestionCreateSerializer
 
-        return UserSecurityQuestionSerializer
+#         return UserSecurityQuestionSerializer
 
-    def get_queryset(self):
+#     def get_queryset(self):
 
-        return UserSecurityQuestion.objects.filter(user=self.request.user)
+#         return UserSecurityQuestion.objects.filter(user=self.request.user)
 
 
-class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or delete a specific security question response
-    """
+# class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
+#     """
+#     Retrieve, update, or delete a specific security question response
+#     """
 
-    permission_classes = [IsAuthenticated]
+#     permission_classes = [IsAuthenticated]
 
-    def get_serializer_class(self):
-        return UserSecurityQuestionSerializer
+#     def get_serializer_class(self):
+#         return UserSecurityQuestionSerializer
 
-    def get_queryset(self):
-        from .models import UserSecurityQuestion
+#     def get_queryset(self):
+#         from .models import UserSecurityQuestion
 
-        return UserSecurityQuestion.objects.filter(user=self.request.user)
+#         return UserSecurityQuestion.objects.filter(user=self.request.user)
 
 
 # =============================================================================
@@ -4519,34 +4450,34 @@ class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
         return DocumentVerification.objects.filter(user=self.request.user)
 
 
-class DocumentUploadView(GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = DocumentVerificationCreateSerializer
+# class DocumentUploadView(GenericAPIView):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = DocumentVerificationCreateSerializer
 
-    def post(self, request):
-        serializer = self.get_serializer(
-            data=request.data, context={"request": request}
-        )
-        serializer.is_valid(raise_exception=True)
+#     def post(self, request):
+#         serializer = self.get_serializer(
+#             data=request.data, context={"request": request}
+#         )
+#         serializer.is_valid(raise_exception=True)
 
-        verification, _ = DocumentVerification.objects.get_or_create(
-            user=request.user,
-            status="pending",
-        )
+#         verification, _ = DocumentVerification.objects.get_or_create(
+#             user=request.user,
+#             status="pending",
+#         )
 
-        for field, value in serializer.validated_data.items():
-            setattr(verification, field, value)
+#         for field, value in serializer.validated_data.items():
+#             setattr(verification, field, value)
 
-        verification.save()
+#         verification.save()
 
-        return Response(
-            {
-                "message": "Document uploaded. Awaiting admin review.",
-                "status": "success",
-                "verification_id": verification.id,
-            },
-            status=201,
-        )
+#         return Response(
+#             {
+#                 "message": "Document uploaded. Awaiting admin review.",
+#                 "status": "success",
+#                 "verification_id": verification.id,
+#             },
+#             status=201,
+#         )
 
 
 # =============================================================================
@@ -4781,21 +4712,6 @@ class BondcoinTransactionListView(generics.ListAPIView):
     def get_queryset(self):
 
         return WalletTransaction.objects.filter(user=self.request.user)
-
-
-# class BondcoinTransactionDetailView(generics.RetrieveAPIView):
-#     """
-#     Retrieve a specific Bondcoin transaction
-#     """
-
-#     permission_classes = [IsAuthenticated]
-
-#     def get_serializer_class(self):
-
-#         return BondcoinTransactionSerializer
-
-#     def get_queryset(self):
-#         return BondcoinTransaction.objects.filter(user=self.request.user)
 
 
 # =============================================================================
@@ -5127,13 +5043,11 @@ class ProcessPaymentView(generics.GenericAPIView):
                 subscription.save()
 
                 # Update user's Bondcoin balance
-                BondcoinTransaction.objects.create(
+                WalletTransaction.objects.create(
                     user=request.user,
-                    transaction_type="subscription",
+                    tx_type="subscription",
                     amount=-subscription.plan.price_bondcoins,
-                    subscription=subscription,
                     payment_method="external_payment",
-                    description=f"Subscription: {subscription.plan.display_name}",
                     status="completed",
                 )
                 request.user.bondcoin_balance -= subscription.plan.price_bondcoins
@@ -5142,7 +5056,7 @@ class ProcessPaymentView(generics.GenericAPIView):
         elif transaction_type == "bondcoin_purchase":
             bondcoin_transaction_id = validated_data.get("bondcoin_transaction")
             if bondcoin_transaction_id:
-                bondcoin_transaction = BondcoinTransaction.objects.get(
+                bondcoin_transaction = WalletTransaction.objects.get(
                     id=bondcoin_transaction_id, user=request.user
                 )
                 payment_transaction.bondcoin_transaction = bondcoin_transaction
@@ -6022,6 +5936,24 @@ class SubscribeBondmakerView(generics.CreateAPIView):
         )
 
 
+class SubscribeToggleView(generics.CreateAPIView):
+    serializer_class = SubscribeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        bondmaker_id = request.data.get("bondmaker")
+
+        obj, created = BondmakerSubscription.objects.get_or_create(
+            user=request.user, bondmaker_id=bondmaker_id
+        )
+
+        if not created:
+            obj.delete()
+            return Response({"status": "unfollowed"})
+
+        return Response({"status": "followed"})
+
+
 # End Bondmaker Subscription
 class EndBondmakerSubscriptionView(generics.UpdateAPIView):
     serializer_class = BondmakerSubscriptionSerializer
@@ -6048,151 +5980,17 @@ class AllSubscribedUsersListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        bondmaker = self.request.user
+        if not bondmaker.is_matchmaker:
+            if not bondmaker.is_matchmaker:
+                raise PermissionDenied("Only matchmakers can perform this operation")
+
         # Return all active subscriptions
         return (
-            BondmakerSubscription.objects.filter(active=True)
+            BondmakerSubscription.objects.filter(active=True, bondmaker=bondmaker)
             .select_related("user", "bondmaker")
             .distinct()
         )
-
-
-#           MATCH CREATE VIEW
-
-
-# class BondmakerMatchCreateView(generics.CreateAPIView):
-#     permission_classes = [IsAuthenticated]
-#     serializer_class = UserMatchSerializer
-
-#     # @extend_schema(
-#     #     request=None,
-#     #     responses=UserMatchSerializer,
-#     #     description="Bondmaker creates a valid match between two users.",
-#     # )
-#     def post(self, request):
-#         bondmaker = request.user
-
-#         # Only bondmakers allowed
-#         if not bondmaker.is_matchmaker:
-#             return Response(
-#                 {"error": "Only bondmakers can create matches"},
-#                 status=403,
-#             )
-
-#         # Validate input IDs
-#         user_a_id = request.data.get("user_a_id")
-#         user_b_id = request.data.get("user_b_id")
-
-#         if not user_a_id or not user_b_id:
-#             return Response(
-#                 {"error": "user_a_id and user_b_id are required"},
-#                 status=400,
-#             )
-
-#         if user_a_id == user_b_id:
-#             return Response(
-#                 {"error": "Cannot create match with the same user"},
-#                 status=400,
-#             )
-
-#         # Fetch users
-#         user_a = get_object_or_404(User, id=user_a_id)
-#         user_b = get_object_or_404(User, id=user_b_id)
-
-#         # -----------------------------------
-#         # Visibility check
-#         # -----------------------------------
-#         user_a_visible = is_user_visible_to(bondmaker, user_a)
-#         user_b_visible = is_user_visible_to(bondmaker, user_b)
-
-#         # At least one user must be visible to bondmaker
-#         if not (user_a_visible or user_b_visible):
-#             return Response(
-#                 {"error": "At least one user must be visible to this bondmaker"},
-#                 status=400,
-#             )
-
-#         # If only one is visible, the other must be suggested
-#         if user_a_visible ^ user_b_visible:
-#             subscriber = user_a if user_a_visible else user_b
-#             suggested = user_b if user_a_visible else user_a
-
-#             is_suggested = SuggestedMatch.objects.filter(
-#                 bondmaker=bondmaker,
-#                 user=subscriber,
-#                 suggested_user=suggested,
-#             ).exists()
-
-#             if not is_suggested:
-#                 return Response(
-#                     {
-#                         "error": "Unsubscribed user must be explicitly suggested by the bondmaker"
-#                     },
-#                     status=400,
-#                 )
-
-#         # -----------------------------------
-#         # Mutual like check
-#         # -----------------------------------
-#         mutual_like = (
-#             UserInteraction.objects.filter(
-#                 user=user_a,
-#                 target_user=user_b,
-#                 interaction_type="like",
-#             ).exists()
-#             and UserInteraction.objects.filter(
-#                 user=user_b,
-#                 target_user=user_a,
-#                 interaction_type="like",
-#             ).exists()
-#         )
-
-#         if not mutual_like:
-#             return Response(
-#                 {"error": "Users have not liked each other"},
-#                 status=400,
-#             )
-
-#         # -----------------------------------
-#         # Compatibility score For future
-#         # -----------------------------------
-#         match_score = calculate_match_score(user_a, user_b)
-
-#         # if match_score <= 50:
-#         #     return Response(
-#         #         {
-#         #             "error": "Compatibility score must be greater than 50",
-#         #             "score": match_score,
-#         #         },
-#         #         status=400,
-#         #     )
-
-#         # -----------------------------------
-#         # Distance calculation
-#         # -----------------------------------
-#         distance = user_a.get_distance_to(user_b) or 0
-
-#         # -----------------------------------
-#         # Canonical ordering for DB uniqueness
-#         # -----------------------------------
-#         user1, user2 = sorted([user_a, user_b], key=lambda u: u.id)
-
-#         # -----------------------------------
-#         # Create match (DB constraint prevents duplicates)
-#         # -----------------------------------
-#         match = UserMatch.objects.create(
-#             user1=user1,
-#             user2=user2,
-#             distance=distance,
-#             match_score=match_score,
-#             status="matched",
-#         )
-
-#         # -----------------------------------
-#         # Serialize for response / OpenAPI
-#         # -----------------------------------
-#         serializer = UserMatchSerializer(match)
-
-#         return Response(serializer.data, status=201)
 
 
 #           MATCH SUGGESTION VIEW
@@ -6206,12 +6004,12 @@ class BondmakerSuggestionView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         bondmaker = request.user
-        subscriber = serializer.validated_data["subscriber"]
+        visible_user = serializer.validated_data["visible_user"]
         suggested_user = serializer.validated_data["suggested_user"]
 
         if SuggestedMatch.objects.filter(
             bondmaker=bondmaker,
-            user=subscriber,
+            user=visible_user,
             suggested_user=suggested_user,
         ).exists():
             return Response(
@@ -6221,7 +6019,7 @@ class BondmakerSuggestionView(generics.GenericAPIView):
 
         SuggestedMatch.objects.create(
             bondmaker=bondmaker,
-            user=subscriber,
+            user=visible_user,
             suggested_user=suggested_user,
         )
 
@@ -6231,9 +6029,28 @@ class BondmakerSuggestionView(generics.GenericAPIView):
         )
 
 
+# suggested matches from bondmaker
+class SuggestedMatchView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = SuggestedMatchSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user:
+            return SuggestedMatch.objects.none()
+        return (
+            SuggestedMatch.objects.filter(user=user)
+            .select_related("suggested_user")
+            .order_by("-created_at")
+        )
+
+
 class SetVisibilityView(generics.CreateAPIView):
     serializer_class = VisibilitySerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Visibility.objects.filter(owner=self.request.user)
 
 
 class ApproveVisibilityView(generics.UpdateAPIView):
@@ -6269,6 +6086,34 @@ class PendingVisibilityListView(generics.ListAPIView):
         )
 
 
+# Visibilty Status View
+class VisibilityStatusView(generics.RetrieveAPIView):
+    serializer_class = VisibilityStatusSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        owner = self.request.user
+        # bondmaker_id = self.kwargs.get("bondmaker_id")
+
+        # try:
+        #     bondmaker = User.objects.get(id=bondmaker_id, is_matchmaker=True)
+        # except User.DoesNotExist:
+        #     return None
+
+        return Visibility.objects.filter(owner=owner).first()
+
+    def retrieve(self, request, *args, **kwargs):
+        visibility = self.get_object()
+        if not visibility:
+            return Response(
+                {"visibility_choice": None, "current_status": None},
+                status=status.HTTP_200_OK,
+            )
+
+        serializer = self.get_serializer(visibility)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 # a reusable “active visibility” filter
 ACTIVE_VISIBILITY_FILTER = Q(visibility_settings__expires_at__gt=timezone.now())
 
@@ -6279,12 +6124,16 @@ class GlobalPublicUsersListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return User.objects.filter(
-            ACTIVE_VISIBILITY_FILTER,
-            is_matchmaker=False,
-            visibility_settings__visibility="public",
-            Visibility_settings__status="approved"
-        ).distinct()
+        return (
+            User.objects.filter(
+                ACTIVE_VISIBILITY_FILTER,
+                is_matchmaker=False,
+                visibility_settings__visibility="public",
+                visibility_settings__status="approved",
+            )
+            .exclude(id=self.request.user.id)
+            .distinct()
+        )
 
 
 # private ListView for a Bondmaker
@@ -6349,148 +6198,85 @@ class MyLedgerView(generics.ListAPIView):
 
 
 class MatchRequestCreateView(generics.GenericAPIView):
-    """
-    User creates a match request (swipe/like) for a target user.
-    Coins are charged (escrow) and bondmaker is notified.
-    """
-
     serializer_class = MatchRequestSerializer
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(
-            data=request.data, context={"request": request}
-        )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user = request.user
-        bondmaker = get_object_or_404(
-            User, id=serializer.validated_data["bondmaker_id"]
-        )
-        target_user = get_object_or_404(
-            User, id=serializer.validated_data["target_user_id"]
-        )
-        coins = serializer.validated_data["coins"]
-
-        # Charge coins and create MatchRequest (escrow)
-        try:
-            match_request = charge_match_request(
-                user=user,
-                bondmaker=bondmaker,
-                target_user=target_user,
-                coins=coins,
-            )
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=400)
-        
-        # Get match Score
-        match_score = calculate_match_score(user, target_user)
-        # Create or update UserMatch record
-        distance = user.get_distance_to(target_user) or 0
-        user_match, created = UserMatch.objects.update_or_create(
-            user1=user,
-            user2=target_user,
-            defaults={
-                "distance": distance,
-                "status": "pending",
-                "match_score": match_score,
-            },
+        match_request, user_match = create_match_request(
+            requester=request.user,
+            bondmaker=get_object_or_404(
+                User, id=serializer.validated_data["bondmaker_id"]
+            ),
+            target_user=get_object_or_404(
+                User, id=serializer.validated_data["target_user_id"]
+            ),
+            coins=serializer.validated_data["coins"],
         )
 
         # Update Notification Table
         # Send push notification to bondmaker
         notify_user(
-            bondmaker,
+            match_request.bondmaker,
             title="New Match Request",
-            message=f"{user.name} liked {target_user.name}. Review the request.",
+            message=f"{request.user.name} liked {user_match.user2.name}.",
             data={"match_request_id": match_request.id},
         )
 
         return Response(
             {
-                "message": "Match request created successfully",
                 "match_request_id": match_request.id,
-                "coins_charged": match_request.coins_charged,
                 "user_match_id": user_match.id,
                 "status": user_match.status,
-                "user_balance": user.wallet.available_balance,
             },
-            status=status.HTTP_201_CREATED,
+            status=201,
         )
 
 
-# Bondmaker Accept View for swiping and match Request
-class BondmakerAcceptMatchView(generics.GenericAPIView):
+# Bondmaker Accept/Reject View for match Request
+class BondmakerMatchActionView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = BondmakerMatchActionSerializer
 
     @extend_schema(
         request=BondmakerMatchActionSerializer,
         responses=BondmakerMatchActionResponseSerializer,
-        description="Bondmaker accepts a pending match and releases escrow coins.",
+        description="Bondmaker accepts or rejects a pending match request.",
     )
-    def post(self, request, usermatch_id):
+    def post(self, request, match_request_id):
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        bondmaker = request.user
+        action = serializer.validated_data["action"]
 
-        match = get_object_or_404(
-            UserMatch,
-            id=usermatch_id,
-            user2__bondmaker=bondmaker,
+        # Fetch financial source of truth
+        match_request = get_object_or_404(
+            MatchRequest.objects.select_related("user_match"),
+            id=match_request_id,
+            bondmaker=request.user,
             status="pending",
         )
 
-        platform_usd, bondmaker_usd = accept_match_request(match.match_request)
+        if action == "accepted":
+            platform_usd, bondmaker_usd = accept_match_request(match_request.id)
 
-        match.status = "matched"
-        match.save()
-# signals sends push notification and update notification table
-
-        return Response(
-            {
-                "message": "Match accepted",
+            response_data = {
+                "message": "Match accepted successfully",
                 "platform_share_usd": float(platform_usd),
                 "bondmaker_share_usd": float(bondmaker_usd),
-            },
-            status=status.HTTP_200_OK,
-        )
+            }
 
+        elif action == "rejected":
+            reject_match_request(match_request.id)
 
-class BondmakerRejectMatchView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = BondmakerMatchActionSerializer
+            response_data = {
+                "message": "Match rejected successfully",
+            }
 
-    @extend_schema(
-        request=BondmakerMatchActionSerializer,
-        responses=BondmakerMatchActionResponseSerializer,
-        description="Bondmaker rejects a pending match and refunds coins.",
-    )
-    def post(self, request, usermatch_id):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        bondmaker = request.user
-
-        match = get_object_or_404(
-            UserMatch,
-            id=usermatch_id,
-            user2__bondmaker=bondmaker,
-            status="pending",
-        )
-
-        reject_match_request(match.match_request)
-
-        match.status = "disliked"
-        match.save()
-
-        return Response(
-            {
-                "message": "Match rejected and coins refunded",
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 # Purchase Coins
@@ -6631,28 +6417,18 @@ class UserInteractionView(generics.CreateAPIView):
                 )
 
             try:
-                match_request = charge_match_request(
-                    user=user,
+                result = create_match_request(
+                    requester=user,
                     bondmaker=bondmaker,
+                    target_user=target_user,
                     coins=self.SWIPE_COST,
-                )
+                    )
+
+                match_request = result["match_request"]
+                user_match = result["user_match"]
+
             except ValidationError as e:
                 raise ValidationError({"detail": str(e)})
-
-            # Create or update UserMatch as pending
-            distance = user.get_distance_to(target_user) or 0
-
-            UserMatch.objects.update_or_create(
-                user1=user,
-                user2=target_user,
-                defaults={
-                    "distance": distance,
-                    "status": "pending",
-                },
-            )
-
-            # Track notification in DB
-            # Push notification to bondmaker
 
             notify_user(
                 bondmaker,
@@ -6660,10 +6436,10 @@ class UserInteractionView(generics.CreateAPIView):
                 message=f"{user.name} liked {target_user.name}. Review request.",
                 data={
                     "match_request_id": str(match_request.id),
+                    "user_match_id": str(user_match.id),
                     "type": "match_request",
-                },
-    )
-
+                    },
+                )
         # ---------------------------------------------------------
         # BLOCK / REPORT  → RELATIONSHIP STATE (UserMatch)
         # ---------------------------------------------------------
@@ -6722,12 +6498,15 @@ class UserSwipeDeckView(generics.ListAPIView):
         max_distance = self.request.query_params.get("max_distance", None)
 
         # 1. Only public visible users
-        visible_users = User.objects.filter(
-            visibility_settings__visibility="public",
-            visibility_settings__status="approved",
-            visibility_settings__is_active=True,
-            visibility_settings__expires_at__gt=timezone.now(),
-        ).exclude(id=user.id)
+        visible_users = (
+            User.objects.filter(
+                visibility_settings__visibility="public",
+                visibility_settings__status="approved",
+                visibility_settings__expires_at__gt=timezone.now(),
+            )
+            .exclude(id=user.id)
+            .distinct()
+        )
 
         # 2. Exclude already swiped users
         swiped_ids = UserInteraction.objects.filter(user=user).values_list(
@@ -6749,10 +6528,11 @@ class UserSwipeDeckView(generics.ListAPIView):
                     + Sin(Radians(F("latitude"))) * Sin(lat_rad)
                 )
             )
-            visible_users = visible_users.filter(distance_km__lte=float(max_distance))
+            visible_users = visible_users.filter(
+                distance_km__lte=float(max_distance))
             visible_users = visible_users.order_by("distance_km")
         else:
-            visible_users = visible_users.order_by("?")  # random order
+            visible_users = visible_users.order_by("country")  # random order
 
         return visible_users
 
@@ -6780,7 +6560,7 @@ class BondmakerPendingMatchListView(generics.ListAPIView):
 
         return (
             UserMatch.objects.filter(
-                user2__bondmaker=bondmaker,
+                match_request__bondmaker=bondmaker,
                 status="pending",
             )
             .select_related("user1", "user2", "match_request")
@@ -6788,21 +6568,17 @@ class BondmakerPendingMatchListView(generics.ListAPIView):
         )
 
 
-class SetBondmakerSpecialisationView(generics.UpdateAPIView):
+class BondmakerSpecialisationView(generics.RetrieveUpdateAPIView):
     serializer_class = BondmakerSpecialisationSerializer
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        return self.request.user
+        user = self.request.user
 
-    def update(self, request, *args, **kwargs):
-        response = super().update(request, *args, **kwargs)
-        return Response(
-            {
-                "message": "Specialisations updated successfully",
-                "data": response.data,
-            }
-        )
+        if not user.is_matchmaker:
+            raise PermissionDenied("Only bondmakers can manage specialisations.")
+
+        return user
 
 
 class BondmakerSearchView(generics.ListAPIView):
@@ -6886,157 +6662,14 @@ class BondmakerDashboardView(generics.GenericAPIView):
         if not user.is_matchmaker:
             return Response({"detail": "Not allowed."}, status=403)
 
-        now = timezone.now()
+        service = BondmakerDashboardService(user)
+        dashboard_data = service.get_dashboard_data()
 
-        # ------------------------------
-        # 1 Level & Matches
-        # ------------------------------
-        total_accepted_matches = MatchRequest.objects.filter(
-            bondmaker=user, status="accepted"
-        ).count()
-        matches_per_level = 50
-        level = total_accepted_matches // matches_per_level + 1
-        matches_to_next_level = matches_per_level - (
-            total_accepted_matches % matches_per_level
-        )
-        if matches_to_next_level == matches_per_level:
-            matches_to_next_level = 0
-
-        # Matches already earned in this level
-        matches_in_current_level = total_accepted_matches % matches_per_level
-
-        # Percentage progress to next level
-        if matches_to_next_level == 0:
-            progress_percentage = 100
-        else:
-            progress_percentage = int((matches_in_current_level / matches_per_level) * 100)
-        # ------------------------------
-        # 2 Pending Match Requests
-        # # ------------------------------
-        # pending_requests = MatchRequest.objects.filter(
-        #     bondmaker=user, status="pending"
-        # ).count()
-
-        # ------------------------------
-        # 3 Live Profiles & Net Subscribers
-        # ------------------------------
-        active_subscriptions = BondmakerSubscription.objects.filter(
-            bondmaker=user, end_date__gt=now, active=True
-        )
-        live_profiles = Visibility.objects.filter(
-            bondmaker=user,
-            expires_at__gt=now,
-            status="approved",
-        ).count()
-        net_subscribers = active_subscriptions.count()
-
-        # ------------------------------
-        # 4 Profile Views
-        # ------------------------------
-        client_ids = active_subscriptions.values_list("user_id", flat=True)
-        profile_views = UserProfileView.objects.filter(
-            viewed_user_id__in=client_ids
-        ).count()
-
-        # ------------------------------
-        # 5 Wallet
-        # ------------------------------
-        # wallet = getattr(user, "wallet", None)
-        # wallet_balance = {
-        #     "available": wallet.available_balance if wallet else 0,
-        #     "locked": wallet.locked_balance if wallet else 0,
-        # }
-
-        # ------------------------------
-        # 6 Recent Activity Feed (last 5 events)
-        # ------------------------------
-        recent_activity = []
-
-        # a) Recent profile views
-        recent_views = (
-            UserProfileView.objects.filter(viewed_user_id__in=client_ids)
-            .select_related("viewer", "viewed_user")
-            .order_by("-viewed_at")[:5]
-        )
-
-        for view in recent_views:
-            recent_activity.append(
-                {
-                    "type": "profile_view",
-                    "viewer_name": view.viewer.name or view.viewer.username,
-                    "viewer_country": view.viewer.country,
-                    "viewed_client_name": view.viewed_user.name
-                    or view.viewed_user.username,
-                    "source": view.source,
-                    "time": view.viewed_at,
-                }
-            )
-
-        # b) Recent matches accepted
-        recent_matches = (
-            MatchRequest.objects.filter(bondmaker=user, status="accepted")
-            .select_related("requester")
-            .order_by("-created_at")[:5]
-        )
-
-        for match in recent_matches:
-            recent_activity.append(
-                {
-                    "type": "match_accepted",
-                    "requester_name": match.requester.name or match.requester.username,
-                    "coins_charged": match.coins_charged,
-                    "time": match.created_at,
-                }
-            )
-
-        # Sort combined activity by time descending & keep top 5
-        recent_activity.sort(key=lambda x: x["time"], reverse=True)
-        recent_activity = recent_activity[:5]
-
-        # ------------------------------
-        # 7 Daily Tasks & Streaks (example)
-        # ------------------------------
-        # daily_tasks = [
-        #     {"task": "Review 5 New Profiles", "done": 3, "goal": 5},
-        #     {"task": "Send 5 Match Suggestions", "done": 2, "goal": 5},
-        #     {"task": "Follow Up on Past Match", "done": 1, "goal": 1},
-        #     {"task": "Post on Bond Story", "done": 0, "goal": 1},
-        #     {"task": "Invite a New User", "done": 0, "goal": 1},
-        # ]
-        # streak_days = 5  # example placeholder
-
-        # ------------------------------
-        # 8 Badges
-        # ------------------------------
-        # badges = [
-        #     {
-        #         "name": "Emerging Bondmaker",
-        #         "level_required": 10,
-        #         "achieved": level >= 10,
-        #     },
-        #     {"name": "Connector", "level_required": 11, "achieved": level >= 11},
-        # ]
-
-        # ------------------------------
-        # 9 Serialize & Return
-        # ------------------------------
         data = {
             "bondmaker_id": user.id,
             "bondmaker_name": user.name,
             "bondmaker_profile_picture": user.profile_picture,
-            "level": level,
-            "total_matches": total_accepted_matches,
-            "matches_to_next_level": matches_to_next_level,
-            "progress_to_next_level": progress_percentage,
-            # "pending_match_requests": pending_requests,
-            "live_profiles": live_profiles,
-            "net_subscribers": net_subscribers,
-            "profile_views": profile_views,
-            # "wallet_balance": wallet_balance,
-            "recent_activity": recent_activity,
-            # "daily_tasks": daily_tasks,
-            # "streak_days": streak_days,
-            # "badges": badges,
+            **dashboard_data,
         }
 
         serializer = self.get_serializer(data)
@@ -7088,3 +6721,159 @@ class BondmakerAnalyticsView(generics.GenericAPIView):
 
         serializer = self.get_serializer(data)
         return Response(serializer.data)
+
+
+class UserMatchedListView(generics.ListAPIView):
+    serializer_class = MatchedUserSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = BondmakerPagination
+
+    def get_queryset(self):
+        user = self.request.user
+
+        return (
+            UserMatch.objects.filter(Q(user1=user) | Q(user2=user),
+                                     status="matched")
+            .select_related("user1", "user2")
+            .order_by("-updated_at")
+        )
+
+
+class BondmakerAcceptedMatchesView(generics.ListAPIView):
+    serializer_class = MatchedUserSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = BondmakerPagination
+
+    def get_queryset(self):
+        bondmaker = self.request.user
+
+        if not bondmaker.is_matchmaker:
+            return UserMatch.objects.none()
+
+        return (
+            UserMatch.objects.filter(
+                match_request__bondmaker=bondmaker,
+                match_request__status="accepted",
+                status="matched",
+            )
+            .select_related(
+                "user1",
+                "user2",
+                "match_request",
+            )
+            .order_by("-updated_at")
+        )
+
+
+class IncomingPendingMatchListView(generics.ListAPIView):
+    serializer_class = IncomingPendingMatchSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = BondmakerPagination
+
+    def get_queryset(self):
+        return (
+            UserMatch.objects
+            .select_related("user1")
+            .filter(
+                user2=self.request.user,
+                status="pending"
+            )
+            .order_by("-created_at")
+        )
+
+
+class AddBondCircleMembersView(GenericAPIView):
+    serializer_class = AddCircleMembersSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save()
+
+        return Response(
+            {
+                "message": f"{result['count']} members added successfully",
+                "added_members": result["added_members"],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class BondCircleCreateView(generics.CreateAPIView):
+    serializer_class = BondCircleSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class BondCircleFeedView(generics.ListAPIView):
+    serializer_class = BondCirclePostSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = BondCirclePostPagination
+
+    def get_queryset(self):
+        circle = get_object_or_404(
+            BondCircle.objects.select_related("bondmaker"), id=self.kwargs["circle_id"]
+        )
+
+        user = self.request.user
+
+        # Permission check
+        is_member = BondCircleMember.objects.filter(circle=circle, user=user).exists()
+
+        if not (user == circle.bondmaker or is_member):
+            raise PermissionDenied("You are not part of this circle.")
+
+        # Subquery to check if current user liked each post
+        user_like_subquery = BondCirclePostLike.objects.filter(
+            post=OuterRef("pk"), user=user
+        )
+
+        return (
+            BondCirclePost.objects.filter(circle=circle)
+            .select_related("author")
+            .annotate(
+                likes_count=Count("likes", distinct=True),
+                comments_count=Count("comments", distinct=True),
+                is_liked=Exists(user_like_subquery),
+            )
+            .order_by("-created_at")
+        )
+
+
+class BondCirclePostCreateView(generics.CreateAPIView):
+    serializer_class = BondCirclePostSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        circle = get_object_or_404(BondCircle, id=self.kwargs["circle_id"])
+
+        if not (
+            self.request.user == circle.bondmaker
+            or BondCircleMember.objects.filter(
+                circle=circle, user=self.request.user
+            ).exists()
+        ):
+            raise PermissionDenied("Not allowed.")
+
+        serializer.save(author=self.request.user, circle=circle)
+
+
+class CreateCommentView(generics.CreateAPIView):
+    serializer_class = BondCircleCommentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        post = get_object_or_404(BondCirclePost, id=self.kwargs["post_id"])
+        serializer.save(user=self.request.user, post=post)
+
+
+class TogglePostLikeView(GenericAPIView):
+    serializer_class = TogglePostLikeSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save()
+
+        return Response(result, status=status.HTTP_200_OK)

@@ -17,4 +17,3 @@ def notify_user(user, title, message, data=None):
     )
 
     return notification
-

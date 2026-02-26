@@ -18,14 +18,12 @@ def get_cached_static_profile(user_id):
     return data
 
 
-def get_cached_my_profile(user):
+def get_cached_my_profile(user, request=None):
     key = f"my_profile:{user.id}"
     data = cache.get(key)
 
     if data is None:
-        serializer = UserProfileDetailSerializer(
-            user, context={"request": None}
-        )
+        serializer = UserProfileDetailSerializer(user, context={"request": request})
         data = serializer.data
         cache.set(key, data, timeout=60 * 60)
 

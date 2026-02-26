@@ -16,6 +16,7 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction
 from datetime import date
 from rest_framework.validators import UniqueValidator
+from django.db.models import Q
 from .constants import QUESTION_UI_CONFIG
 from .models import (
     User,
@@ -55,7 +56,7 @@ from .models import (
     PostReport,
     Story,
     StoryView,
-    StoryReaction,
+    StoryInteraction,
     PostShare,
     FeedSearch,
     LiveSession,
@@ -83,11 +84,19 @@ from .models import (
     Notification,
     PasswordResetOTP,
     Specialisation,
+    BondCirclePost,
+    BondCirclePostComment,
+    BondCirclePostLike,
+    BondCircle,
+    BondCircleMember,
 )
 from drf_spectacular.utils import extend_schema_field
 from typing import List, Dict, Any, Optional
 from .location_utils import calculate_distance, calculate_match_score
 from django.core.exceptions import ValidationError
+from django.db import transaction as db_transaction
+from .services.visibility_services import VisibilityService
+from .notification import notify_user
 from .models.username import (
     UsernameValidation,
     clean_and_validate_username,
@@ -1523,12 +1532,13 @@ class LocationHistorySerializer(serializers.ModelSerializer):
 
 
 class UserMatchSerializer(serializers.ModelSerializer):
-    user1_name = serializers.CharField(source="user1.name", read_only=True)
-    user1_age = serializers.IntegerField(source="user1.age", read_only=True)
-    user1_city = serializers.CharField(source="user1.city", read_only=True)
-    user2_name = serializers.CharField(source="user2.name", read_only=True)
-    user2_age = serializers.IntegerField(source="user2.age", read_only=True)
-    user2_city = serializers.CharField(source="user2.city", read_only=True)
+    user1_name = serializers.SerializerMethodField()
+    user1_age = serializers.SerializerMethodField()
+    user1_city = serializers.SerializerMethodField()
+
+    user2_name = serializers.SerializerMethodField()
+    user2_age = serializers.SerializerMethodField()
+    user2_city = serializers.SerializerMethodField()
 
     class Meta:
         model = UserMatch
@@ -1549,6 +1559,24 @@ class UserMatchSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_user1_name(self, obj) -> str:
+        return getattr(obj.user1, "name", None)
+
+    def get_user1_age(self, obj) -> int:
+        return getattr(obj.user1, "age", None)
+
+    def get_user1_city(self, obj) -> str:
+        return getattr(obj.user1, "city", None)
+
+    def get_user2_name(self, obj) -> str:
+        return getattr(obj.user2, "name", None)
+
+    def get_user2_age(self, obj) -> int:
+        return getattr(obj.user2, "age", None)
+
+    def get_user2_city(self, obj) -> str:
+        return getattr(obj.user2, "city", None)
 
 
 class UserProfileWithLocationSerializer(serializers.ModelSerializer):
@@ -2036,6 +2064,8 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
     interests = serializers.ListField(child=serializers.CharField())
     traits = serializers.ListField(child=serializers.CharField())
     profile_gallery = serializers.ListField(child=serializers.URLField())
+    # visibility_status = serializers.SerializerMethodField()
+    # visibility_choice = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -2089,6 +2119,8 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "location",
             "age",
             "date_of_birth",
+            # "visibility_status",
+            # "visibility_choice",
         ]
         read_only_fields = [
             "id",
@@ -2099,6 +2131,8 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "profile_completion_percentage",
             "location",
             "age",
+            # "visibility_status",
+            # "visibility_choice",
         ]
 
     @extend_schema_field(serializers.IntegerField())
@@ -2118,6 +2152,26 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
         if request and request.user.has_location and obj.has_location:
             return request.user.get_distance_to(obj)
         return None
+
+    # @extend_schema_field(serializers.CharField(allow_null=True))
+    # def _get_visibility(self, obj):
+    #     request = self.context.get("request")
+    #     # A user viewing their own profile has no bondmaker context
+    #     # if request.user == obj:
+    #     #     return None
+
+    #     return Visibility.objects.filter(
+    #         owner=obj,
+    #         bondmaker=request.user
+    #     ).first()
+
+    # def get_visibility_status(self, obj) -> str:
+    #     visibility = self._get_visibility(obj)
+    #     return visibility.status if visibility else None
+
+    # def get_visibility_choice(self, obj) -> str:
+    #     visibility = self._get_visibility(obj)
+    #     return visibility.visibility if visibility else None
 
     @extend_schema_field(serializers.IntegerField())
     def get_compatibility_score(self, obj):
@@ -2242,46 +2296,46 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
         return role_selection.selected_role if role_selection else None
 
 
-class UserSearchSerializer(serializers.ModelSerializer):
-    """Serializer for user search results"""
+# class UserSearchSerializer(serializers.ModelSerializer):
+#     """Serializer for user search results"""
 
-    distance = serializers.SerializerMethodField()
-    match_score = serializers.SerializerMethodField()
+#     distance = serializers.SerializerMethodField()
+#     match_score = serializers.SerializerMethodField()
 
-    class Meta:
-        model = User
-        fields = [
-            "id",
-            "name",
-            "age",
-            "gender",
-            "bio",
-            "profile_picture",
-            "city",
-            "state",
-            "country",
-            "education_level",
-            "height",
-            "zodiac_sign",
-            "relationship_status",
-            "dating_type",
-            "distance",
-            "match_score",
-        ]
+#     class Meta:
+#         model = User
+#         fields = [
+#             "id",
+#             "name",
+#             "age",
+#             "gender",
+#             "bio",
+#             "profile_picture",
+#             "city",
+#             "state",
+#             "country",
+#             "education_level",
+#             "height",
+#             "zodiac_sign",
+#             "relationship_status",
+#             "dating_type",
+#             "distance",
+#             "match_score",
+#         ]
 
-    def get_distance(self, obj) -> float | None:
-        request = self.context.get("request")
-        if request and request.user.has_location and obj.has_location:
-            return request.user.get_distance_to(obj)
-        return None
+#     def get_distance(self, obj) -> float | None:
+#         request = self.context.get("request")
+#         if request and request.user.has_location and obj.has_location:
+#             return request.user.get_distance_to(obj)
+#         return None
 
-    def get_match_score(self, obj) -> float | None:
-        request = self.context.get("request")
-        if request and request.user != obj:
-            from .location_utils import calculate_match_score
+#     def get_match_score(self, obj) -> float | None:
+#         request = self.context.get("request")
+#         if request and request.user != obj:
+#             from .location_utils import calculate_match_score
 
-            return calculate_match_score(request.user, obj)
-        return None
+#             return calculate_match_score(request.user, obj)
+#         return None
 
 
 class UserInterestSerializer(serializers.ModelSerializer):
@@ -2295,9 +2349,7 @@ class UserInteractionSerializer(serializers.ModelSerializer):
     target_user_photo = serializers.URLField(
         source="target_user.profile_picture", read_only=True
     )
-    bondmaker_name = serializers.CharField(
-        source="target_user.bondmaker.name", read_only=True
-    )
+    bondmaker_name = serializers.SerializerMethodField()  # compute dynamically
 
     class Meta:
         model = UserInteraction
@@ -2318,6 +2370,19 @@ class UserInteractionSerializer(serializers.ModelSerializer):
             "bondmaker_name",
         ]
 
+    def get_bondmaker_name(self, obj) -> str:
+        # Get the active visibility for this target user
+        visibility = (
+            Visibility.objects.filter(
+                owner=obj.target_user, status="approved", expires_at__gt=timezone.now()
+            )
+            .select_related("bondmaker")
+            .first()
+        )
+        if visibility and visibility.bondmaker:
+            return visibility.bondmaker.name
+        return None
+
 
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -2333,13 +2398,13 @@ class SearchQuerySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at"]
 
 
-class RecommendationSerializer(serializers.ModelSerializer):
-    recommended_user = UserSearchSerializer(read_only=True)
+# class RecommendationSerializer(serializers.ModelSerializer):
+#     recommended_user = UserSearchSerializer(read_only=True)
 
-    class Meta:
-        model = RecommendationEngine
-        fields = ["id", "recommended_user", "score", "algorithm", "created_at"]
-        read_only_fields = ["id", "created_at"]
+#     class Meta:
+#         model = RecommendationEngine
+#         fields = ["id", "recommended_user", "score", "algorithm", "created_at"]
+#         read_only_fields = ["id", "created_at"]
 
 
 # =============================================================================
@@ -2404,229 +2469,67 @@ class CategoryFilterSerializer(serializers.Serializer):
 # =============================================================================
 
 
-class ChatParticipantSerializer(serializers.ModelSerializer):
-    """Serializer for chat participants (simplified user info)"""
+# class ChatParticipantSerializer(serializers.ModelSerializer):
+#     """Serializer for chat participants (simplified user info)"""
 
-    user_id = serializers.IntegerField(source="user.id", read_only=True)
-    name = serializers.CharField(source="user.name", read_only=True)
-    profile_picture = serializers.URLField(
-        source="user.profile_picture", read_only=True
-    )
-    is_online = serializers.SerializerMethodField()
-    is_muted = serializers.SerializerMethodField()
+#     user_id = serializers.IntegerField(source="user.id", read_only=True)
+#     name = serializers.CharField(source="user.name", read_only=True)
+#     profile_picture = serializers.URLField(
+#         source="user.profile_picture", read_only=True
+#     )
+#     is_online = serializers.SerializerMethodField()
+#     is_muted = serializers.SerializerMethodField()
 
-    class Meta:
-        model = ChatParticipant
-        fields = [
-            "user_id",
-            "name",
-            "profile_picture",
-            "is_online",
-            "joined_at",
-            "last_seen_at",
-            "is_active",
-            "custom_nickname",
-            "notifications_enabled",
-            "is_muted",
-        ]
-        read_only_fields = [
-            "user_id",
-            "name",
-            "profile_picture",
-            "is_online",
-            "joined_at",
-            "last_seen_at",
-        ]
+#     class Meta:
+#         model = ChatParticipant
+#         fields = [
+#             "user_id",
+#             "name",
+#             "profile_picture",
+#             "is_online",
+#             "joined_at",
+#             "last_seen_at",
+#             "is_active",
+#             "custom_nickname",
+#             "notifications_enabled",
+#             "is_muted",
+#         ]
+#         read_only_fields = [
+#             "user_id",
+#             "name",
+#             "profile_picture",
+#             "is_online",
+#             "joined_at",
+#             "last_seen_at",
+#         ]
 
-    def get_is_online(self, obj) -> bool:
-        """Check if user is online (placeholder - implement with real-time status)"""
-        return False
+#     def get_is_online(self, obj) -> bool:
+#         """Check if user is online (placeholder - implement with real-time status)"""
+#         return False
 
-    @extend_schema_field({"type": "boolean"})
-    def get_is_muted(self, obj) -> bool:
-        """Check if chat is muted for this participant"""
-        return obj.is_muted
+#     @extend_schema_field({"type": "boolean"})
+#     def get_is_muted(self, obj) -> bool:
+#         """Check if chat is muted for this participant"""
+#         return obj.is_muted
 
 
 class MessageSerializer(serializers.ModelSerializer):
-    """Serializer for individual messages"""
-
-    sender_id = serializers.IntegerField(source="sender.id", read_only=True)
     sender_name = serializers.CharField(source="sender.name", read_only=True)
-    sender_profile_picture = serializers.URLField(
-        source="sender.profile_picture", read_only=True
-    )
-    is_from_current_user = serializers.SerializerMethodField()
-    reply_to_message = serializers.SerializerMethodField()
-    formatted_timestamp = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = [
             "id",
-            "chat",
-            "sender_id",
             "sender_name",
-            "sender_profile_picture",
             "message_type",
             "content",
-            "voice_note_url",
-            "voice_note_duration",
-            "image_url",
-            "video_url",
-            "document_url",
-            "document_name",
-            "tip_amount",
-            "tip_gift",
             "timestamp",
-            "formatted_timestamp",
-            "is_read",
-            "read_at",
-            "is_edited",
-            "edited_at",
-            "reply_to",
-            "reply_to_message",
-            "reactions",
-            "is_from_current_user",
         ]
-        read_only_fields = [
-            "id",
-            "chat",
-            "sender_id",
-            "sender_name",
-            "sender_profile_picture",
-            "timestamp",
-            "formatted_timestamp",
-            "is_read",
-            "read_at",
-            "is_edited",
-            "edited_at",
-            "reactions",
-            "is_from_current_user",
-        ]
-
-    def get_is_from_current_user(self, obj) -> bool:
-        """Check if message is from the current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.sender == request.user
-        return False
-
-    def get_reply_to_message(self, obj) -> str:
-        """Get the message being replied to"""
-        if obj.reply_to:
-            return {
-                "id": obj.reply_to.id,
-                "content": (
-                    obj.reply_to.content[:100] + "..."
-                    if len(obj.reply_to.content or "") > 100
-                    else obj.reply_to.content
-                ),
-                "sender_name": (
-                    obj.reply_to.sender.name if obj.reply_to.sender else "System"
-                ),
-                "message_type": obj.reply_to.message_type,
-                "timestamp": obj.reply_to.timestamp,
-            }
-        return None
-
-    def get_formatted_timestamp(self, obj) -> str:
-        """Get formatted timestamp for display"""
-        from django.utils import timezone
-
-        now = timezone.now()
-        diff = now - obj.timestamp
-
-        if diff.days == 0:
-            return obj.timestamp.strftime("%H:%M")
-        elif diff.days == 1:
-            return "Yesterday"
-        elif diff.days < 7:
-            return obj.timestamp.strftime("%A")
-        else:
-            return obj.timestamp.strftime("%m/%d/%Y")
-
-
-class ChatSerializer(serializers.ModelSerializer):
-    """Serializer for chat list view"""
-
-    participants = ChatParticipantSerializer(many=True, read_only=True)
-    last_message = serializers.SerializerMethodField()
-    unread_count = serializers.SerializerMethodField()
-    other_participant = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Chat
-        fields = [
-            "id",
-            "chat_type",
-            "participants",
-            "other_participant",
-            "created_at",
-            "updated_at",
-            "last_message_at",
-            "last_message",
-            "unread_count",
-            "is_active",
-            "chat_name",
-            "chat_theme",
-        ]
-        read_only_fields = [
-            "id",
-            "created_at",
-            "updated_at",
-            "last_message_at",
-            "last_message",
-            "unread_count",
-            "other_participant",
-        ]
-
-    def get_last_message(self, obj) -> str:
-        """Get the last message in the chat"""
-        last_msg = obj.messages.order_by("-timestamp").first()
-        if last_msg:
-            return {
-                "id": last_msg.id,
-                "content": (
-                    last_msg.content[:100] + "..."
-                    if len(last_msg.content or "") > 100
-                    else last_msg.content
-                ),
-                "message_type": last_msg.message_type,
-                "sender_name": last_msg.sender.name if last_msg.sender else "System",
-                "timestamp": last_msg.timestamp,
-                "is_read": last_msg.is_read,
-            }
-        return None
-
-    def get_unread_count(self, obj) -> str:
-        """Get unread message count for current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.get_unread_count(request.user)
-        return 0
-
-    def get_other_participant(self, obj) -> str:
-        """Get the other participant in direct message chats"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated and obj.chat_type == "direct":
-            other_user = obj.get_other_participant(request.user)
-            if other_user:
-                return {
-                    "id": other_user.id,
-                    "name": other_user.name,
-                    "profile_picture": other_user.profile_picture,
-                    "is_online": False,  # Placeholder
-                }
-        return None
 
 
 class ChatDetailSerializer(serializers.ModelSerializer):
-    """Serializer for a single chat with all its messages"""
-
-    participants = ChatParticipantSerializer(many=True, read_only=True)
     messages = MessageSerializer(many=True, read_only=True)
-    other_participant = serializers.SerializerMethodField()
+    participants = serializers.SerializerMethodField()
 
     class Meta:
         model = Chat
@@ -2634,415 +2537,352 @@ class ChatDetailSerializer(serializers.ModelSerializer):
             "id",
             "chat_type",
             "participants",
-            "other_participant",
             "created_at",
-            "updated_at",
-            "last_message_at",
-            "messages",
-            "is_active",
-            "chat_name",
-            "chat_theme",
-        ]
-        read_only_fields = [
-            "id",
-            "participants",
-            "other_participant",
-            "created_at",
-            "updated_at",
             "last_message_at",
             "messages",
         ]
 
-    def get_other_participant(self, obj) -> str:
-        """Get the other participant in direct message chats"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated and obj.chat_type == "direct":
-            other_user = obj.get_other_participant(request.user)
-            if other_user:
-                return {
-                    "id": other_user.id,
-                    "name": other_user.name,
-                    "profile_picture": other_user.profile_picture,
-                    "is_online": False,  # Placeholder
-                }
-        return None
+    def get_participants(self, obj) -> dict:
+        return [
+            {
+                "id": user.id,
+                "name": user.name,
+                "profile_picture": user.profile_picture,
+            }
+            for user in obj.participants.all()
+        ]
 
 
-class ChatCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating new chats"""
-
-    participant_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        write_only=True,
-        help_text="List of user IDs to include in the chat",
-    )
+class ChatListSerializer(serializers.ModelSerializer):
+    other_user = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Chat
-        fields = ["chat_type", "participant_ids", "chat_name"]
-
-    def validate_participant_ids(self, value):
-        """Validate participant IDs"""
-        if len(value) < 1:
-            raise serializers.ValidationError("At least one participant is required")
-
-        # Ensure users exist
-        existing_users = User.objects.filter(id__in=value).values_list("id", flat=True)
-        missing_ids = set(value) - set(existing_users)
-        if missing_ids:
-            raise serializers.ValidationError(f"Users not found: {list(missing_ids)}")
-
-        return value
-
-    def create(self, validated_data):
-        """Create chat with participants"""
-        participant_ids = validated_data.pop("participant_ids")
-        chat = Chat.objects.create(**validated_data)
-        chat.participants.set(participant_ids)
-        return chat
-
-
-class MessageCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating new messages"""
-
-    class Meta:
-        model = Message
-        fields = [
-            "message_type",
-            "content",
-            "voice_note_url",
-            "voice_note_duration",
-            "image_url",
-            "video_url",
-            "document_url",
-            "document_name",
-            "reply_to",
-            "tip_amount",
-            "tip_gift",
-        ]
-
-    def validate_content(self, value):
-        """Sanitize message content for XSS prevention"""
-        if value:
-            return self._sanitize_text_input(value)
-        return value
-
-    def validate_document_name(self, value):
-        """Sanitize document name for XSS prevention"""
-        if value:
-            return self._sanitize_text_input(value)
-        return value
-
-    def _sanitize_text_input(self, text):
-        """Sanitize text input to prevent XSS attacks"""
-        import re
-        import html
-
-        if not text:
-            return text
-
-        # Escape HTML entities
-        text = html.escape(text, quote=True)
-
-        # Remove or escape potentially dangerous patterns
-        dangerous_patterns = [
-            r"<script[^>]*>.*?</script>",  # Script tags
-            r"javascript:",  # JavaScript URLs
-            r"vbscript:",  # VBScript URLs
-            r"data:",  # Data URLs
-            r"on\w+\s*=",  # Event handlers
-        ]
-
-        for pattern in dangerous_patterns:
-            text = re.sub(pattern, "", text, flags=re.IGNORECASE | re.DOTALL)
-
-        return text
-
-    def validate(self, attrs):
-        """Validate message content"""
-        message_type = attrs.get("message_type", "text")
-        content = attrs.get("content")
-
-        # For text messages, content is required
-        if message_type == "text" and not content:
-            raise serializers.ValidationError("Content is required for text messages")
-
-        # For media messages, at least one media URL is required
-        if message_type in ["voice_note", "image", "video", "document"]:
-            media_fields = ["voice_note_url", "image_url", "video_url", "document_url"]
-            if not any(attrs.get(field) for field in media_fields):
-                raise serializers.ValidationError(
-                    f"Media URL is required for {message_type} messages"
-                )
-
-        # For tip messages, tip_amount is required
-        if message_type == "tip":
-            tip_amount = attrs.get("tip_amount")
-            if not tip_amount or tip_amount <= 0:
-                raise serializers.ValidationError(
-                    "Tip amount is required and must be greater than 0"
-                )
-
-        return attrs
-
-
-class VoiceNoteSerializer(serializers.ModelSerializer):
-    """Serializer for voice notes"""
-
-    message_id = serializers.IntegerField(source="message.id", read_only=True)
-
-    class Meta:
-        model = VoiceNote
         fields = [
             "id",
-            "message_id",
-            "audio_url",
-            "duration",
-            "file_size",
-            "transcription",
-            "transcription_confidence",
-            "created_at",
-        ]
-        read_only_fields = ["id", "message_id", "created_at"]
-
-
-class CallSerializer(serializers.ModelSerializer):
-    """Serializer for voice/video calls"""
-
-    caller_name = serializers.CharField(source="caller.name", read_only=True)
-    caller_profile_picture = serializers.URLField(
-        source="caller.profile_picture", read_only=True
-    )
-    callee_name = serializers.CharField(source="callee.name", read_only=True)
-    callee_profile_picture = serializers.URLField(
-        source="callee.profile_picture", read_only=True
-    )
-    duration_display = serializers.CharField(
-        source="get_duration_display", read_only=True
-    )
-
-    class Meta:
-        model = Call
-        fields = [
-            "id",
-            "chat",
-            "caller",
-            "caller_name",
-            "caller_profile_picture",
-            "callee",
-            "callee_name",
-            "callee_profile_picture",
-            "call_type",
-            "status",
-            "started_at",
-            "answered_at",
-            "ended_at",
-            "duration",
-            "duration_display",
-            "call_id",
-            "room_id",
-            "quality_score",
-            "is_recorded",
-            "recording_url",
-        ]
-        read_only_fields = [
-            "id",
-            "chat",
-            "caller",
-            "caller_name",
-            "caller_profile_picture",
-            "callee",
-            "callee_name",
-            "callee_profile_picture",
-            "started_at",
-            "answered_at",
-            "ended_at",
-            "duration",
-            "duration_display",
-            "quality_score",
+            "chat_type",
+            "other_user",
+            "last_message_at",
+            "unread_count",
         ]
 
+    def get_other_user(self, obj) -> dict:
+        request = self.context["request"]
+        other = obj.get_other_participant(request.user)
 
-class CallInitiateSerializer(serializers.Serializer):
-    """Serializer for initiating calls"""
+        if not other:
+            return None
 
-    callee_id = serializers.IntegerField()
-    call_type = serializers.ChoiceField(
-        choices=[("voice", "Voice Call"), ("video", "Video Call")]
-    )
+        return {
+            "id": other.id,
+            "name": other.name,
+            "profile_picture": other.profile_picture,
+        }
 
-    def validate_callee_id(self, value):
-        """Validate callee exists"""
-        if not User.objects.filter(id=value, is_active=True).exists():
-            raise serializers.ValidationError("User not found or inactive")
-        return value
+    def get_unread_count(self, obj) -> int:
+        request = self.context["request"]
+        return obj.get_unread_count(request.user)
 
+    # def get_is_from_current_user(self, obj) -> bool:
+    #     """Check if message is from the current user"""
+    #     request = self.context.get("request")
+    #     if request and request.user.is_authenticated:
+    #         return obj.sender == request.user
+    #     return False
 
-class ChatReportSerializer(serializers.ModelSerializer):
-    """Serializer for chat reports"""
+    # def get_reply_to_message(self, obj) -> str:
+    #     """Get the message being replied to"""
+    #     if obj.reply_to:
+    #         return {
+    #             "id": obj.reply_to.id,
+    #             "content": (
+    #                 obj.reply_to.content[:100] + "..."
+    #                 if len(obj.reply_to.content or "") > 100
+    #                 else obj.reply_to.content
+    #             ),
+    #             "sender_name": (
+    #                 obj.reply_to.sender.name if obj.reply_to.sender else "System"
+    #             ),
+    #             "message_type": obj.reply_to.message_type,
+    #             "timestamp": obj.reply_to.timestamp,
+    #         }
+    #     return None
 
-    reporter_name = serializers.CharField(source="reporter.name", read_only=True)
-    reported_user_name = serializers.CharField(
-        source="reported_user.name", read_only=True
-    )
+    # def get_formatted_timestamp(self, obj) -> str:
+    #     """Get formatted timestamp for display"""
+    #     from django.utils import timezone
 
-    class Meta:
-        model = ChatReport
-        fields = [
-            "id",
-            "reporter",
-            "reporter_name",
-            "reported_user",
-            "reported_user_name",
-            "chat",
-            "message",
-            "report_type",
-            "description",
-            "status",
-            "moderator_notes",
-            "action_taken",
-            "resolved_by",
-            "resolved_at",
-            "created_at",
-        ]
-        read_only_fields = [
-            "id",
-            "reporter",
-            "reporter_name",
-            "reported_user_name",
-            "status",
-            "moderator_notes",
-            "action_taken",
-            "resolved_by",
-            "resolved_at",
-            "created_at",
-        ]
+    #     now = timezone.now()
+    #     diff = now - obj.timestamp
 
-    def create(self, validated_data):
-        """Create report with current user as reporter"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["reporter"] = request.user
-        return super().create(validated_data)
+    #     if diff.days == 0:
+    #         return obj.timestamp.strftime("%H:%M")
+    #     elif diff.days == 1:
+    #         return "Yesterday"
+    #     elif diff.days < 7:
+    #         return obj.timestamp.strftime("%A")
+    #     else:
+    #         return obj.timestamp.strftime("%m/%d/%Y")
 
 
-class ChatSettingsSerializer(serializers.ModelSerializer):
-    """Serializer for chat settings"""
+# class VoiceNoteSerializer(serializers.ModelSerializer):
+#     """Serializer for voice notes"""
 
-    class Meta:
-        model = Chat
-        fields = ["chat_name", "chat_theme"]
+#     message_id = serializers.IntegerField(source="message.id", read_only=True)
 
-    def update(self, instance, validated_data):
-        """Update chat settings"""
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        return instance
+#     class Meta:
+#         model = VoiceNote
+#         fields = [
+#             "id",
+#             "message_id",
+#             "audio_url",
+#             "duration",
+#             "file_size",
+#             "transcription",
+#             "transcription_confidence",
+#             "created_at",
+#         ]
+#         read_only_fields = ["id", "message_id", "created_at"]
 
 
-# =============================================================================
-# SOCIAL FEED AND STORY SERIALIZERS (NEW)
-# =============================================================================
+# class CallSerializer(serializers.ModelSerializer):
+#     """Serializer for voice/video calls"""
 
+#     caller_name = serializers.CharField(source="caller.name", read_only=True)
+#     caller_profile_picture = serializers.URLField(
+#         source="caller.profile_picture", read_only=True
+#     )
+#     callee_name = serializers.CharField(source="callee.name", read_only=True)
+#     callee_profile_picture = serializers.URLField(
+#         source="callee.profile_picture", read_only=True
+#     )
+#     duration_display = serializers.CharField(
+#         source="get_duration_display", read_only=True
+#     )
+
+#     class Meta:
+#         model = Call
+#         fields = [
+#             "id",
+#             "chat",
+#             "caller",
+#             "caller_name",
+#             "caller_profile_picture",
+#             "callee",
+#             "callee_name",
+#             "callee_profile_picture",
+#             "call_type",
+#             "status",
+#             "started_at",
+#             "answered_at",
+#             "ended_at",
+#             "duration",
+#             "duration_display",
+#             "call_id",
+#             "room_id",
+#             "quality_score",
+#             "is_recorded",
+#             "recording_url",
+#         ]
+#         read_only_fields = [
+#             "id",
+#             "chat",
+#             "caller",
+#             "caller_name",
+#             "caller_profile_picture",
+#             "callee",
+#             "callee_name",
+#             "callee_profile_picture",
+#             "started_at",
+#             "answered_at",
+#             "ended_at",
+#             "duration",
+#             "duration_display",
+#             "quality_score",
+#         ]
+
+
+# class CallInitiateSerializer(serializers.Serializer):
+#     """Serializer for initiating calls"""
+
+#     callee_id = serializers.IntegerField()
+#     call_type = serializers.ChoiceField(
+#         choices=[("voice", "Voice Call"), ("video", "Video Call")]
+#     )
+
+#     def validate_callee_id(self, value):
+#         """Validate callee exists"""
+#         if not User.objects.filter(id=value, is_active=True).exists():
+#             raise serializers.ValidationError("User not found or inactive")
+#         return value
+
+
+# class ChatReportSerializer(serializers.ModelSerializer):
+#     """Serializer for chat reports"""
+
+#     reporter_name = serializers.CharField(source="reporter.name", read_only=True)
+#     reported_user_name = serializers.CharField(
+#         source="reported_user.name", read_only=True
+#     )
+
+#     class Meta:
+#         model = ChatReport
+#         fields = [
+#             "id",
+#             "reporter",
+#             "reporter_name",
+#             "reported_user",
+#             "reported_user_name",
+#             "chat",
+#             "message",
+#             "report_type",
+#             "description",
+#             "status",
+#             "moderator_notes",
+#             "action_taken",
+#             "resolved_by",
+#             "resolved_at",
+#             "created_at",
+#         ]
+#         read_only_fields = [
+#             "id",
+#             "reporter",
+#             "reporter_name",
+#             "reported_user_name",
+#             "status",
+#             "moderator_notes",
+#             "action_taken",
+#             "resolved_by",
+#             "resolved_at",
+#             "created_at",
+#         ]
+
+#     def create(self, validated_data):
+#         """Create report with current user as reporter"""
+#         request = self.context.get("request")
+#         if request and request.user.is_authenticated:
+#             validated_data["reporter"] = request.user
+#         return super().create(validated_data)
+
+# class ChatSettingsSerializer(serializers.ModelSerializer):
+#     """Serializer for chat settings"""
+
+#     class Meta:
+#         model = Chat
+#         fields = ["chat_name", "chat_theme"]
+
+#     def update(self, instance, validated_data):
+#         """Update chat settings"""
+#         for attr, value in validated_data.items():
+#             setattr(instance, attr, value)
+#         instance.save()
+#         return instance
+
+# # =============================================================================
+# # SOCIAL FEED AND STORY SERIALIZERS (NEW)
+# # =============================================================================
 
 class PostCommentSerializer(serializers.ModelSerializer):
-    """Serializer for post comments"""
-
-    author_id = serializers.IntegerField(source="author.id", read_only=True)
     author_name = serializers.CharField(source="author.name", read_only=True)
-    author_profile_picture = serializers.URLField(
-        source="author.profile_picture", read_only=True
-    )
-    author_location = serializers.CharField(source="author.location", read_only=True)
-    is_from_current_user = serializers.SerializerMethodField()
-    formatted_timestamp = serializers.SerializerMethodField()
+    is_liked = serializers.SerializerMethodField()
+    likes_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = PostComment
         fields = [
             "id",
-            "post",
-            "author_id",
+            "author",
             "author_name",
-            "author_profile_picture",
-            "author_location",
             "content",
             "parent_comment",
             "likes_count",
-            "replies_count",
-            "is_active",
-            "is_edited",
+            "is_liked",
             "created_at",
-            "updated_at",
-            "formatted_timestamp",
-            "is_from_current_user",
         ]
-        read_only_fields = [
+
+    def get_is_liked(self, obj):
+        user = self.context.get("request").user
+        if not user.is_authenticated:
+            return False
+        return obj.interactions.filter(user=user).exists()
+
+
+class PostCommentNestedSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.name", read_only=True)
+    replies_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = PostComment
+        fields = [
             "id",
-            "author_id",
+            "author",
             "author_name",
-            "author_profile_picture",
-            "author_location",
-            "likes_count",
+            "content",
+            "parent_comment",
             "replies_count",
-            "is_active",
-            "is_edited",
             "created_at",
-            "updated_at",
-            "formatted_timestamp",
-            "is_from_current_user",
         ]
 
-    def get_is_from_current_user(self, obj) -> bool:
-        """Check if comment is from the current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.author == request.user
-        return False
 
-    def get_formatted_timestamp(self, obj) -> str:
-        """Get formatted timestamp for display"""
-        from django.utils import timezone
+class PostDetailSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.name", read_only=True)
+    comments = PostCommentNestedSerializer(many=True, read_only=True)
+    has_liked = serializers.SerializerMethodField()
+    has_bonded = serializers.SerializerMethodField()
 
-        now = timezone.now()
-        diff = now - obj.created_at
+    class Meta:
+        model = Post
+        fields = "__all__"
 
-        if diff.days == 0:
-            return obj.created_at.strftime("%H:%M")
-        elif diff.days == 1:
-            return "Yesterday"
-        elif diff.days < 7:
-            return obj.created_at.strftime("%A")
-        else:
-            return obj.created_at.strftime("%m/%d/%Y")
+    def get_has_liked(self, obj):
+        user = self.context["request"].user
+        return obj.interactions.filter(user=user, interaction_type="like").exists()
+
+    def get_has_bonded(self, obj):
+        user = self.context["request"].user
+        return obj.interactions.filter(user=user, interaction_type="bond").exists()
+
+
+class PostCommentCreateSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.name", read_only=True)
+    likes_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = PostComment
+        fields = [
+            "id",
+            "author",
+            "author_name",
+            "content",
+            "likes_count",
+            "created_at",
+        ]
+        read_only_fields = ["author", "likes_count", "created_at"]
 
 
 class PostSerializer(serializers.ModelSerializer):
-    """Serializer for posts in the Bond Story feed"""
-
-    author_id = serializers.IntegerField(source="author.id", read_only=True)
     author_name = serializers.CharField(source="author.name", read_only=True)
-    author_profile_picture = serializers.URLField(
-        source="author.profile_picture", read_only=True
+    image_urls = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_empty=True
     )
-    author_location = serializers.CharField(source="author.location", read_only=True)
-    is_from_current_user = serializers.SerializerMethodField()
-    formatted_timestamp = serializers.SerializerMethodField()
-    engagement_score = serializers.IntegerField(
-        source="get_engagement_score", read_only=True
+    hashtags = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_empty=True
     )
-    comments = PostCommentSerializer(many=True, read_only=True)
-    user_interactions = serializers.SerializerMethodField()
+    mentions = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_empty=True
+    )
+    has_liked = serializers.SerializerMethodField()
+    has_bonded = serializers.SerializerMethodField()
+    is_featured = serializers.BooleanField(default=False)
+    is_reported = serializers.BooleanField(default=False)
 
     class Meta:
         model = Post
         fields = [
             "id",
-            "author_id",
+            "author",
             "author_name",
-            "author_profile_picture",
-            "author_location",
             "post_type",
             "content",
             "image_urls",
@@ -3056,148 +2896,91 @@ class PostSerializer(serializers.ModelSerializer):
             "comments_count",
             "shares_count",
             "bonds_count",
-            "engagement_score",
-            "is_active",
-            "is_featured",
+            "has_liked",
+            "has_bonded",
             "created_at",
             "updated_at",
-            "formatted_timestamp",
-            "is_from_current_user",
-            "comments",
-            "user_interactions",
+            "is_reported",
+            "is_featured",
         ]
         read_only_fields = [
-            "id",
-            "author_id",
-            "author_name",
-            "author_profile_picture",
-            "author_location",
             "likes_count",
             "comments_count",
             "shares_count",
             "bonds_count",
-            "engagement_score",
-            "is_active",
-            "is_featured",
-            "created_at",
-            "updated_at",
-            "formatted_timestamp",
-            "is_from_current_user",
-            "comments",
-            "user_interactions",
+            "author",
         ]
 
-    def get_is_from_current_user(self, obj) -> bool:
+    def get_has_liked(self, obj):
+        user = self.context["request"].user
+        return obj.interactions.filter(user=user, interaction_type="like").exists()
 
-        """Check if post is from the current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.author == request.user
-        return False
-
-    def get_formatted_timestamp(self, obj) -> str:
-
-        """Get formatted timestamp for display"""
-        from django.utils import timezone
-
-        now = timezone.now()
-        diff = now - obj.created_at
-
-        if diff.days == 0:
-            if diff.seconds < 3600:  # Less than 1 hour
-                minutes = diff.seconds // 60
-                return f"{minutes}m" if minutes > 0 else "now"
-            else:
-                return obj.created_at.strftime("%H:%M")
-        elif diff.days == 1:
-            return "Yesterday"
-        elif diff.days < 7:
-            return obj.created_at.strftime("%A")
-        else:
-            return obj.created_at.strftime("%m/%d/%Y")
-
-    def get_user_interactions(self, obj) -> Dict[str, Any]:
-        """Return user interactions for the post (likes, comments, etc.)"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            # Example: check if user liked the post
-            return {
-                "liked": obj.likes.filter(id=request.user.id).exists(),
-                "comments_count": obj.comments.count(),
-            }
-        return {
-            "liked": False,
-            "comments_count": obj.comments.count(),
-        }
+    def get_has_bonded(self, obj):
+        user = self.context["request"].user
+        return obj.interactions.filter(user=user, interaction_type="bond").exists()
 
 
-class PostCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating new posts"""
+# class PostCreateSerializer(serializers.ModelSerializer):
+#     """Serializer for creating new posts"""
 
-    class Meta:
-        model = Post
-        fields = [
-            "post_type",
-            "content",
-            "image_urls",
-            "video_url",
-            "video_thumbnail",
-            "visibility",
-            "location",
-            "hashtags",
-            "mentions",
-        ]
+#     class Meta:
+#         model = Post
+#         fields = [
+#             "post_type",
+#             "content",
+#             "image_urls",
+#             "video_url",
+#             "video_thumbnail",
+#             "visibility",
+#             "location",
+#             "hashtags",
+#             "mentions",
+#         ]
 
-    def validate_content(self, value):
-        """Validate and sanitize post content"""
-        if not value or len(value.strip()) == 0:
-            raise serializers.ValidationError("Post content cannot be empty")
-        if len(value) > 2000:
-            raise serializers.ValidationError(
-                "Post content cannot exceed 2000 characters"
-            )
-        # Sanitize for XSS prevention
-        return self._sanitize_text_input(value)
+#     def validate_content(self, value):
+#         """Validate and sanitize post content"""
+#         if not value or len(value.strip()) == 0:
+#             raise serializers.ValidationError("Post content cannot be empty")
+#         if len(value) > 2000:
+#             raise serializers.ValidationError(
+#                 "Post content cannot exceed 2000 characters"
+#             )
+#         # Sanitize for XSS prevention
+#         return self._sanitize_text_input(value)
 
-    def validate_location(self, value):
-        """Sanitize location text"""
-        if value:
-            return self._sanitize_text_input(value)
-        return value
+#     def validate_location(self, value):
+#         """Sanitize location text"""
+#         if value:
+#             return self._sanitize_text_input(value)
+#         return value
 
-    def validate_image_urls(self, value):
-        """Validate image URLs"""
-        if value and len(value) > 10:
-            raise serializers.ValidationError("Cannot attach more than 10 images")
-        return value
+#     def validate_image_urls(self, value):
+#         """Validate image URLs"""
+#         if value and len(value) > 10:
+#             raise serializers.ValidationError("Cannot attach more than 10 images")
+#         return value
 
-    def create(self, validated_data):
-        """Create post with current user as author"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["author"] = request.user
-        return super().create(validated_data)
+#     def create(self, validated_data):
+#         """Create post with current user as author"""
+#         request = self.context.get("request")
+#         if request and request.user.is_authenticated:
+#             validated_data["author"] = request.user
+#         return super().create(validated_data)
 
 
 class StorySerializer(serializers.ModelSerializer):
-    """Serializer for user stories"""
-
-    author_id = serializers.IntegerField(source="author.id", read_only=True)
     author_name = serializers.CharField(source="author.name", read_only=True)
-    author_profile_picture = serializers.URLField(
-        source="author.profile_picture", read_only=True
-    )
-    is_expired = serializers.BooleanField(read_only=True)
-    user_has_viewed = serializers.SerializerMethodField()
-    user_reaction = serializers.SerializerMethodField()
+    has_liked = serializers.BooleanField(read_only=True)
+    has_viewed = serializers.BooleanField(read_only=True)
+    reactions_count = serializers.IntegerField(read_only=True)
+    views_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Story
         fields = [
             "id",
-            "author_id",
+            "author",
             "author_name",
-            "author_profile_picture",
             "story_type",
             "content",
             "image_url",
@@ -3208,49 +2991,14 @@ class StorySerializer(serializers.ModelSerializer):
             "font_size",
             "views_count",
             "reactions_count",
-            "is_active",
-            "expires_at",
+            "has_viewed",
+            "has_liked",
             "created_at",
-            "is_expired",
-            "user_has_viewed",
-            "user_reaction",
-        ]
-        read_only_fields = [
-            "id",
-            "author_id",
-            "author_name",
-            "author_profile_picture",
-            "views_count",
-            "reactions_count",
-            "is_active",
             "expires_at",
-            "created_at",
-            "is_expired",
-            "user_has_viewed",
-            "user_reaction",
         ]
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_user_has_viewed(self, obj):
-        """Check if current user has viewed this story"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.views.filter(viewer=request.user).exists()
-        return False
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_user_reaction(self, obj):
-        """Get current user's reaction to this story"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            reaction = obj.reactions.filter(user=request.user).first()
-            return reaction.reaction_type if reaction else None
-        return None
 
 
 class StoryCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating new stories"""
-
     class Meta:
         model = Story
         fields = [
@@ -3264,180 +3012,240 @@ class StoryCreateSerializer(serializers.ModelSerializer):
             "font_size",
         ]
 
-    def validate(self, attrs):
-        """Validate story content"""
-        story_type = attrs.get("story_type")
-        content = attrs.get("content")
-        image_url = attrs.get("image_url")
-        video_url = attrs.get("video_url")
-
-        # For text stories, content is required
-        if story_type == "text" and not content:
-            raise serializers.ValidationError("Content is required for text stories")
-
-        # For image stories, image_url is required
-        if story_type == "image" and not image_url:
-            raise serializers.ValidationError("Image URL is required for image stories")
-
-        # For video stories, video_url is required
-        if story_type == "video" and not video_url:
-            raise serializers.ValidationError("Video URL is required for video stories")
-
-        return attrs
-
     def create(self, validated_data):
-        """Create story with current user as author and set expiration"""
-
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["author"] = request.user
-
-        # Set expiration to 24 hours from now
+        user = self.context["request"].user
+        validated_data["author"] = user
         validated_data["expires_at"] = timezone.now() + timedelta(hours=24)
-
         return super().create(validated_data)
+
+
+class StoryListSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.name", read_only=True)
+    author_avatar = serializers.CharField(
+        source="author.profile_picture", read_only=True
+    )
+
+    views_count = serializers.IntegerField(read_only=True)
+    reactions_count = serializers.IntegerField(read_only=True)
+    has_viewed = serializers.BooleanField(read_only=True)
+    is_liked = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Story
+        fields = [
+            "id",
+            "author",
+            "author_name",
+            "author_avatar",
+            "story_type",
+            "views_count",
+            "reactions_count",
+            "has_viewed",
+            "is_liked",
+            "created_at",
+        ]
+
+
+class StoryDetailSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.name", read_only=True)
+    author_avatar = serializers.CharField(
+        source="author.profile_picture", read_only=True
+    )
+    is_liked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Story
+        fields = "__all__"
+
+    def get_is_liked(self, obj):
+        user = self.context["request"].user
+        return StoryInteraction.objects.filter(
+            story=obj, user=user, interaction_type="like"
+        ).exists()
+
+
+class StoryViewerSerializer(serializers.ModelSerializer):
+    viewer_name = serializers.CharField(source="viewer.name", read_only=True)
+    viewer_avatar = serializers.CharField(
+        source="viewer.profile_picture", read_only=True
+    )
+
+    class Meta:
+        model = StoryView
+        fields = ["viewer", "viewer_name", "viewer_avatar", "viewed_at"]
 
 
 class PostInteractionSerializer(serializers.ModelSerializer):
-    """Serializer for post interactions"""
-
     class Meta:
         model = PostInteraction
-        fields = ["post", "interaction_type"]
+        fields = ["interaction_type"]
+
+    def validate_interaction_type(self, value):
+        allowed = ["like", "share", "bond", "save"]
+        if value not in allowed:
+            raise serializers.ValidationError("Invalid interaction type")
+        return value
 
     def create(self, validated_data):
-        """Create interaction with current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["user"] = request.user
-        return super().create(validated_data)
+        user = self.context["request"].user
+        post = self.context["post"]
+        interaction_type = validated_data["interaction_type"]
+
+        interaction, created = PostInteraction.objects.get_or_create(
+            user=user,
+            post=post,
+            interaction_type=interaction_type,
+        )
+
+        # LIKE (Toggle)
+        if interaction_type == "like":
+            if created:
+                Post.objects.filter(id=post.id).update(likes_count=F("likes_count") + 1)
+            else:
+                interaction.delete()
+                Post.objects.filter(id=post.id).update(likes_count=F("likes_count") - 1)
+
+        # BOND (Toggle)
+        elif interaction_type == "bond":
+            if created:
+                Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") + 1)
+            else:
+                interaction.delete()
+                Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") - 1)
+
+        # SHARE (Not Toggle)
+        elif interaction_type == "share":
+            if created:
+                Post.objects.filter(id=post.id).update(
+                    shares_count=F("shares_count") + 1
+                )
+            # if not created → do nothing (already shared)
+
+        # SAVE (Toggle without counter)
+        elif interaction_type == "save":
+            if not created:
+                interaction.delete()
+
+        return interaction
 
 
-class CommentInteractionSerializer(serializers.ModelSerializer):
-    """Serializer for comment interactions"""
+class StoryInteractionSerializer(serializers.Serializer):
 
-    class Meta:
-        model = CommentInteraction
-        fields = ["comment", "interaction_type"]
-
-    def create(self, validated_data):
-        """Create interaction with current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["user"] = request.user
-        return super().create(validated_data)
-
-
-class StoryReactionSerializer(serializers.ModelSerializer):
-    """Serializer for story reactions"""
-
-    class Meta:
-        model = StoryReaction
-        fields = ["story", "reaction_type"]
-
-    def create(self, validated_data):
-        """Create reaction with current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["user"] = request.user
-        return super().create(validated_data)
-
-
-class PostReportSerializer(serializers.ModelSerializer):
-    """Serializer for post/comment reports"""
-
-    reporter_name = serializers.CharField(source="reporter.name", read_only=True)
-    reported_user_name = serializers.CharField(
-        source="reported_user.name", read_only=True
+    story_id = serializers.IntegerField()
+    interaction_type = serializers.ChoiceField(
+        choices=StoryInteraction.INTERACTION_TYPES
     )
 
-    class Meta:
-        model = PostReport
-        fields = [
-            "id",
-            "reporter",
-            "reporter_name",
-            "reported_user",
-            "reported_user_name",
-            "post",
-            "comment",
-            "report_type",
-            "description",
-            "status",
-            "moderator_notes",
-            "action_taken",
-            "resolved_by",
-            "resolved_at",
-            "created_at",
-        ]
-        read_only_fields = [
-            "id",
-            "reporter",
-            "reporter_name",
-            "reported_user_name",
-            "status",
-            "moderator_notes",
-            "action_taken",
-            "resolved_by",
-            "resolved_at",
-            "created_at",
-        ]
-
     def create(self, validated_data):
-        """Create report with current user as reporter"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["reporter"] = request.user
-        return super().create(validated_data)
+        user = self.context["request"].user
+        story = Story.objects.get(id=validated_data["story_id"])
+
+        obj, created = StoryInteraction.objects.get_or_create(
+            user=user, story=story, interaction_type=validated_data["interaction_type"]
+        )
+
+        if not created:
+            obj.delete()
+            return {"status": "removed"}
+
+        return {"status": "added"}
 
 
-class PostShareSerializer(serializers.ModelSerializer):
-    """Serializer for post shares"""
+# class PostReportSerializer(serializers.ModelSerializer):
+#     """Serializer for post/comment reports"""
 
-    class Meta:
-        model = PostShare
-        fields = ["platform"]
+#     reporter_name = serializers.CharField(source="reporter.name", read_only=True)
+#     reported_user_name = serializers.CharField(
+#         source="reported_user.name", read_only=True
+#     )
 
-    def create(self, validated_data):
-        """Create share with current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["user"] = request.user
-        return super().create(validated_data)
+#     class Meta:
+#         model = PostReport
+#         fields = [
+#             "id",
+#             "reporter",
+#             "reporter_name",
+#             "reported_user",
+#             "reported_user_name",
+#             "post",
+#             "comment",
+#             "report_type",
+#             "description",
+#             "status",
+#             "moderator_notes",
+#             "action_taken",
+#             "resolved_by",
+#             "resolved_at",
+#             "created_at",
+#         ]
+#         read_only_fields = [
+#             "id",
+#             "reporter",
+#             "reporter_name",
+#             "reported_user_name",
+#             "status",
+#             "moderator_notes",
+#             "action_taken",
+#             "resolved_by",
+#             "resolved_at",
+#             "created_at",
+#         ]
+
+#     def create(self, validated_data):
+#         """Create report with current user as reporter"""
+#         request = self.context.get("request")
+#         if request and request.user.is_authenticated:
+#             validated_data["reporter"] = request.user
+#         return super().create(validated_data)
 
 
-class FeedSearchSerializer(serializers.ModelSerializer):
-    """Serializer for feed search queries"""
+# class PostShareSerializer(serializers.ModelSerializer):
+#     """Serializer for post shares"""
 
-    class Meta:
-        model = FeedSearch
-        fields = ["query", "filters_applied"]
+#     class Meta:
+#         model = PostShare
+#         fields = ["platform"]
 
-    def create(self, validated_data):
-        """Create search with current user"""
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["user"] = request.user
-        return super().create(validated_data)
-
-
-class FeedSuggestionSerializer(serializers.Serializer):
-    query = serializers.CharField()
-    count = serializers.IntegerField(required=False)
+#     def create(self, validated_data):
+#         """Create share with current user"""
+#         request = self.context.get("request")
+#         if request and request.user.is_authenticated:
+#             validated_data["user"] = request.user
+#         return super().create(validated_data)
 
 
-class FeedSuggestionsResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-    status = serializers.CharField()
-    suggestions = serializers.ListField(
-        child=serializers.CharField(), required=False
-    )
-    hashtags = serializers.ListField(
-        child=serializers.CharField(), required=False
-    )
-    popular_searches = serializers.ListField(
-        child=serializers.CharField(), required=False
-    )
+# class FeedSearchSerializer(serializers.ModelSerializer):
+#     """Serializer for feed search queries"""
+
+#     class Meta:
+#         model = FeedSearch
+#         fields = ["query", "filters_applied"]
+
+#     def create(self, validated_data):
+#         """Create search with current user"""
+#         request = self.context.get("request")
+#         if request and request.user.is_authenticated:
+#             validated_data["user"] = request.user
+#         return super().create(validated_data)
+
+
+# class FeedSuggestionSerializer(serializers.Serializer):
+#     query = serializers.CharField()
+#     count = serializers.IntegerField(required=False)
+
+
+# class FeedSuggestionsResponseSerializer(serializers.Serializer):
+#     message = serializers.CharField()
+#     status = serializers.CharField()
+#     suggestions = serializers.ListField(
+#         child=serializers.CharField(), required=False
+#     )
+#     hashtags = serializers.ListField(
+#         child=serializers.CharField(), required=False
+#     )
+#     popular_searches = serializers.ListField(
+#         child=serializers.CharField(), required=False
+#    )
 
 
 # =============================================================================
@@ -3567,28 +3375,6 @@ class WalletTransactionSerializer(serializers.ModelSerializer):
             "reference_id",
             "created_at",
         ]
-
-
-# class BondcoinTransactionCreateSerializer(serializers.ModelSerializer):
-#     """Serializer for creating Bondcoin transactions"""
-
-#     class Meta:
-#         model = WalletTransaction
-#         fields = [
-#             "tx_type",
-#             "amount",
-#             "gift",
-#             "payment_method",
-#             "payment_reference",
-#             "description",
-#         ]
-
-# def create(self, validated_data):
-#     """Create transaction with current user"""
-#     request = self.context.get("request")
-#     if request and request.user.is_authenticated:
-#         validated_data["user"] = request.user
-#     return super().create(validated_data)
 
 
 # =============================================================================
@@ -4216,6 +4002,18 @@ class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
         return instance
 
 
+class SubscribeSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = BondmakerSubscription
+        fields = ["id", "user", "bondmaker"]
+        read_only_fields = ["user"]
+
+    def create(self, validated_data):
+        validated_data["follower"] = self.context["request"].user
+        return super().create(validated_data)
+
+
 class BondmakerSubscriptionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source="user.name", read_only=True)
     bondmaker_name = serializers.CharField(source="bondmaker.name", read_only=True)
@@ -4239,7 +4037,7 @@ class SubscribeBondmakerSerializer(serializers.Serializer):
 
 
 class BondmakerSuggestionSerializer(serializers.Serializer):
-    subscriber_id = serializers.IntegerField()
+    visible_user_id = serializers.IntegerField()
     suggested_user_id = serializers.IntegerField()
 
     def validate(self, attrs):
@@ -4251,9 +4049,9 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
 
         # Fetch users
         try:
-            subscriber = User.objects.get(id=attrs["subscriber_id"])
+            visible_user = User.objects.get(id=attrs["visible_user_id"])
         except User.DoesNotExist:
-            raise serializers.ValidationError({"subscriber_id": "User not found"})
+            raise serializers.ValidationError({"visible_user_id": "User not found"})
 
         try:
             suggested_user = User.objects.get(id=attrs["suggested_user_id"])
@@ -4262,7 +4060,7 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
 
         # CRITICAL RULE: subscriber must be visible to this bondmaker
         is_visible = Visibility.objects.filter(
-            owner=subscriber,
+            owner=visible_user,
             bondmaker=bondmaker,
             is_active=True,
             expires_at__gt=timezone.now(),
@@ -4274,38 +4072,62 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
             )
 
         # Prevent suggesting the same user to themselves
-        if subscriber == suggested_user:
+        if visible_user == suggested_user:
             raise serializers.ValidationError(
                 "You cannot suggest a user to themselves."
             )
 
         # Attach for view reuse
-        attrs["subscriber"] = subscriber
+        attrs["subscriber"] = visible_user
         attrs["suggested_user"] = suggested_user
 
         return attrs
 
 
+class SimpleUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "name",
+            "age",
+            "profile_picture",
+        ]
+
+
+class SuggestedMatchSerializer(serializers.ModelSerializer):
+    suggested_user = SimpleUserSerializer(read_only=True)
+
+    class Meta:
+        model = SuggestedMatch
+        fields = [
+            "id",
+            "suggested_user",
+            "created_at"
+        ]
+
+
 class VisibilitySerializer(serializers.ModelSerializer):
     bondmaker_id = serializers.IntegerField(write_only=True)
+    owner_id = serializers.IntegerField(source="owner.id", read_only=True)
 
     class Meta:
         model = Visibility
-        fields = ["bondmaker_id", "visibility"]
+        fields = ["id", "owner_id", "bondmaker_id", "visibility", "status"]
+        read_only_fields = ["owner_id", "status"]
 
     def validate(self, attrs):
         owner = self.context["request"].user
         bondmaker_id = attrs["bondmaker_id"]
-        visibility = attrs["visibility"]
+        visibility_type = attrs["visibility"]
 
-        # Ensure target is a bondmaker
         try:
             bondmaker = User.objects.get(id=bondmaker_id, is_matchmaker=True)
         except User.DoesNotExist:
             raise serializers.ValidationError("Invalid bondmaker.")
 
-        # If making PUBLIC → ensure no other PUBLIC active
-        if visibility == "public":
+        # Prevent multiple active public visibility
+        if visibility_type == "public":
             already_public = (
                 Visibility.objects.filter(
                     owner=owner,
@@ -4322,30 +4144,58 @@ class VisibilitySerializer(serializers.ModelSerializer):
                     "You are already publicly visible under another bondmaker."
                 )
 
+            existing = Visibility.objects.filter(
+                owner=owner, bondmaker=bondmaker, status="pending"
+            ).exists()
+
+            if existing:
+                raise serializers.ValidationError(
+                    "You have already sent a visibility request to this bondmaker."
+                )
+
         attrs["bondmaker"] = bondmaker
         return attrs
 
     def create(self, validated_data):
         owner = self.context["request"].user
         bondmaker = validated_data.pop("bondmaker")
+        visibility_type = validated_data["visibility"]
 
-        visibility_obj, _ = Visibility.objects.update_or_create(
+        visibility, _ = Visibility.objects.update_or_create(
             owner=owner,
             bondmaker=bondmaker,
             defaults={
-                "visibility": validated_data["visibility"],
+                "visibility": visibility_type,
                 "status": "pending",
                 "expires_at": None,
             },
         )
 
-        return visibility_obj
+        # Notify Bondmaker
+        notify_user(
+            user=visibility.bondmaker,
+            title="New Public Visibility Request",
+            message=f"{visibility.owner.email} requested public visibility.",
+            data={
+                "type": "public_visibility_request",
+                "visibility_id": visibility.id,
+                "visibility_type": visibility_type,
+            },
+        )
+
+        # Delegate to service layer
+        if visibility_type == "private":
+            VisibilityService.request_private_visibility(visibility)
+
+        return visibility
 
 
 class ApproveVisibilitySerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Visibility
-        fields = ["status"]
+        fields = ["id", "owner_id", "status"]
+        read_only_fields = ["id", "owner_id"]
 
     def validate_status(self, value):
         if value not in ["approved", "rejected"]:
@@ -4356,11 +4206,9 @@ class ApproveVisibilitySerializer(serializers.ModelSerializer):
         status = validated_data["status"]
 
         if status == "approved":
-            instance.activate(duration_days=7)
+            VisibilityService.approve(instance)
         else:
-            instance.status = "rejected"
-            instance.expires_at = None
-            instance.save()
+            VisibilityService.reject(instance)
 
         return instance
 
@@ -4379,14 +4227,22 @@ class MatchRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Selected user is not a bondmaker")
         return value
 
-    def validate_target_user_id(self, value):
-        try:
-            user = User.objects.get(id=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("Target user not found")
-        if not hasattr(user, "bondmaker") or user.bondmaker is None:
-            raise serializers.ValidationError("Target user does not have a bondmaker")
-        return value
+    def validate_taget_user(self, attrs):
+        target_user = User.objects.get(id=attrs["target_user_id"])
+
+        visibility = Visibility.objects.filter(
+            owner=target_user,
+            visibility__in=["public", "private"],
+            expires_at__gt=timezone.now(),
+        ).select_related("bondmaker").first()
+
+        if not visibility:
+            raise serializers.ValidationError(
+                {"target_user_id": "Target user is not under any active bondmaker."}
+            )
+
+        attrs["bondmaker"] = visibility.bondmaker
+        return attrs
 
     def validate(self, attrs):
         user = self.context["request"].user
@@ -4397,6 +4253,17 @@ class MatchRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class VisibilityStatusSerializer(serializers.ModelSerializer):
+    owner_id = serializers.IntegerField(source="owner.id", read_only=True)
+    bondmaker_id = serializers.IntegerField(source="bondmaker.id", read_only=True)
+    visibility_choice = serializers.CharField(source="visibility", read_only=True)
+    current_status = serializers.CharField(source="status", read_only=True)
+
+    class Meta:
+        model = Visibility
+        fields = ["id", "owner_id", "bondmaker_id", "visibility_choice", "current_status"]
+
+
 class BondmakerMatchActionResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
     platform_share_usd = serializers.FloatField(required=False)
@@ -4404,7 +4271,7 @@ class BondmakerMatchActionResponseSerializer(serializers.Serializer):
 
 
 class BondmakerMatchActionSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=["accept", "reject"])
+    action = serializers.ChoiceField(choices=["accepted", "rejected"])
 
 
 class UserSwipeCardSerializer(serializers.ModelSerializer):
@@ -4425,16 +4292,22 @@ class UserSwipeCardSerializer(serializers.ModelSerializer):
             "bondmaker",
         ]
 
-    def get_bondmaker(self, obj) -> Dict[str, Any]:
-        # If user has an associated bondmaker
-        bondmaker_user = getattr(obj, "bondmaker", None)
-        if bondmaker_user:
+    def get_bondmaker(self, obj) -> List:
+        visibility = obj.visibility_settings.filter(
+            visibility="public",
+            status="approved",
+            expires_at__gt=timezone.now(),
+        ).select_related("bondmaker").first()
+
+        if visibility and visibility.bondmaker:
+            bondmaker_user = visibility.bondmaker
             return {
                 "id": bondmaker_user.id,
                 "name": bondmaker_user.name,
                 "avatar": bondmaker_user.profile_picture,
                 "verified": bondmaker_user.is_matchmaker,
             }
+
         return None
 
     def get_distance_km(self, obj):
@@ -4461,11 +4334,13 @@ class PendingMatchUserSerializer(serializers.ModelSerializer):
     distance = serializers.SerializerMethodField()
     match_score = serializers.SerializerMethodField()
     status = serializers.CharField()
+    match_request_id = serializers.IntegerField(source="match_request.id")
 
     class Meta:
         model = UserMatch
         fields = [
             "id",
+            "match_request_id",
             "requester_id",
             "requester_name",
             "requester_profile_picture",
@@ -4475,6 +4350,7 @@ class PendingMatchUserSerializer(serializers.ModelSerializer):
             "distance",
             "match_score",
             "status",
+            "created_at"
         ]
 
     def get_distance(self, obj) -> Optional[float]:
@@ -4491,9 +4367,11 @@ class PendingMatchUserSerializer(serializers.ModelSerializer):
 
 
 class BondmakerSpecialisationSerializer(serializers.ModelSerializer):
-    categories = serializers.ListField(
-        child=serializers.ChoiceField(choices=Specialisation.Category.choices),
-        write_only=True,
+    categories = serializers.SlugRelatedField(
+        slug_field="category",
+        queryset=Specialisation.objects.all(),
+        many=True,
+        source="specialisations",
     )
 
     class Meta:
@@ -4513,17 +4391,17 @@ class BondmakerSpecialisationSerializer(serializers.ModelSerializer):
 
         return value
 
-    def update(self, instance, validated_data):
-        categories = validated_data.get("categories")
+    # def update(self, instance, validated_data):
+    #     categories = validated_data.get("categories")
 
-        specialisations = []
-        for category in categories:
-            spec, _ = Specialisation.objects.get_or_create(category=category)
-            specialisations.append(spec)
+    #     specialisations = []
+    #     for category in categories:
+    #         spec, _ = Specialisation.objects.get_or_create(category=category)
+    #         specialisations.append(spec)
 
-        instance.specialisations.set(specialisations)
+    #     instance.specialisations.set(specialisations)
 
-        return instance
+    #     return instance
 
 
 # Bondmaker List Serializer (For Search)
@@ -4578,8 +4456,233 @@ class BondmakerAnalyticsSerializer(serializers.Serializer):
 
     earnings = serializers.FloatField()
 
+    badge_earned = serializers.IntegerField()
     badge_progress_levels_remaining = serializers.IntegerField()
 
     chart_data = serializers.ListField()
     completed_tasks = serializers.IntegerField()
     completed_tasks_growth_percentage = serializers.FloatField()
+
+
+class MatchUserMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "name",
+            "age",
+            "profile_picture",
+        ]
+
+
+class MatchedUserSerializer(serializers.ModelSerializer):
+    user1_id = serializers.IntegerField(source="user1.id", read_only=True)
+    user2_id = serializers.IntegerField(source="user2.id", read_only=True)
+
+    other_user = serializers.SerializerMethodField()
+    other_user_profile_picture = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserMatch
+        fields = [
+            "id",
+            "user1_id",
+            "user2_id",
+            "other_user",
+            "other_user_profile_picture",
+            "match_score",
+            "distance",
+            "status",
+            "updated_at",
+        ]
+
+    @extend_schema_field(MatchUserMiniSerializer)
+    def get_other_user(self, obj) -> dict:
+        request_user = self.context["request"].user
+        other = obj.user2 if obj.user1 == request_user else obj.user1
+        return MatchUserMiniSerializer(other).data
+
+    @extend_schema_field(serializers.URLField)
+    def get_other_user_profile_picture(self, obj) -> str:
+        request_user = self.context["request"].user
+        other = obj.user2 if obj.user1 == request_user else obj.user1
+        return other.profile_picture
+
+
+class IncomingPendingMatchSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="user1.name", read_only=True)
+    age = serializers.IntegerField(source="user1.age", read_only=True)
+    profile_picture = serializers.URLField(
+        source="user1.profile_picture", read_only=True
+    )
+
+    class Meta:
+        model = UserMatch
+        fields = [
+            "id",
+            "name",
+            "age",
+            "profile_picture",
+            "match_score",
+            "distance",
+            "created_at",
+        ]
+
+
+# Bond Circle Create View
+class AddCircleMembersSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(), allow_empty=False
+    )
+
+    def validate(self, attrs):
+        bondmaker = self.context["request"].user
+
+        if not bondmaker.is_matchmaker:
+            raise serializers.ValidationError("Only bondmakers can add members.")
+
+        if not hasattr(bondmaker, "bond_circle"):
+            raise serializers.ValidationError("You must create a bond circle first.")
+
+        user_ids = set(attrs["user_ids"])
+
+        matched_user_ids = set(
+            UserMatch.objects.filter(
+                match_request__bondmaker=bondmaker,
+                status="matched"
+            ).filter(
+                Q(user1_id__in=user_ids) | Q(user2_id__in=user_ids)
+            ).values_list("user1_id", "user2_id")
+        )
+
+        # Flatten the tuples into a single set
+        flattened_ids = set()
+        for u1, u2 in matched_user_ids:
+            if u1 in user_ids:
+                flattened_ids.add(u1)
+            if u2 in user_ids:
+                flattened_ids.add(u2)
+
+        invalid_ids = user_ids - flattened_ids
+
+        if invalid_ids:
+            raise serializers.ValidationError(
+                f"Some users are not matched under you: {list(invalid_ids)}"
+            )
+
+        attrs["validated_user_ids"] = user_ids
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        bondmaker = self.context["request"].user
+        circle = bondmaker.bond_circle
+        user_ids = validated_data["validated_user_ids"]
+
+        created_members = []
+
+        for user_id in user_ids:
+            member, created = BondCircleMember.objects.get_or_create(
+                circle=circle, user_id=user_id, defaults={"added_by": bondmaker}
+            )
+            if created:
+                created_members.append(user_id)
+
+        return {"added_members": created_members, "count": len(created_members)}
+
+
+class BondCirclePostSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.name", read_only=True)
+    likes_count = serializers.IntegerField(read_only=True)
+    comments_count = serializers.IntegerField(read_only=True)
+    is_liked = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = BondCirclePost
+        fields = [
+            "id",
+            "content",
+            "author_name",
+            "created_at",
+            "likes_count",
+            "comments_count",
+            "is_liked",
+        ]
+
+
+class BondCircleCommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.name", read_only=True)
+
+    class Meta:
+        model = BondCirclePostComment
+        fields = ["id", "post", "user", "user_name", "content", "created_at"]
+        read_only_fields = ["user"]
+
+    def create(self, validated_data):
+        validated_data["user"] = self.context["request"].user
+        return super().create(validated_data)
+
+
+class BondCircleSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = BondCircle
+        fields = ["id", "name", "description", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+
+        if not user.is_matchmaker:
+            raise serializers.ValidationError(
+                "Only bondmakers can create a bond circle."
+            )
+
+        if hasattr(user, "bond_circle"):
+            raise serializers.ValidationError("You already have a bond circle.")
+
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        user = self.context["request"].user
+
+        return BondCircle.objects.create(bondmaker=user, **validated_data)
+
+
+class TogglePostLikeSerializer(serializers.Serializer):
+    post_id = serializers.IntegerField(write_only=True)
+    liked = serializers.BooleanField(read_only=True)
+
+    def validate_post_id(self, value):
+        try:
+            post = BondCirclePost.objects.select_related("circle").get(id=value)
+        except BondCirclePost.DoesNotExist:
+            raise serializers.ValidationError("Post does not exist.")
+
+        user = self.context["request"].user
+        circle = post.circle
+
+        # Permission check
+        is_member = BondCircleMember.objects.filter(circle=circle, user=user).exists()
+
+        if not (user == circle.bondmaker or is_member):
+            raise serializers.ValidationError(
+                "You are not allowed to interact with this post."
+            )
+
+        self.context["post"] = post
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data):
+        user = self.context["request"].user
+        post = self.context["post"]
+
+        like, created = BondCirclePostLike.objects.get_or_create(post=post, user=user)
+
+        if not created:
+            like.delete()
+            return {"liked": False}
+
+        return {"liked": True}

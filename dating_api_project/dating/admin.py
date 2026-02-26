@@ -41,7 +41,7 @@ from .models import (
     PostReport,
     Story,
     StoryView,
-    StoryReaction,
+    StoryInteraction,
     PostShare,
     FeedSearch,
     # Live Session Models (NEW)
@@ -798,15 +798,13 @@ class StoryAdmin(admin.ModelAdmin):
         "author",
         "story_type",
         "content_preview",
-        "views_count",
-        "reactions_count",
         "is_active",
         "expires_at",
     )
     list_filter = ("story_type", "is_active", "created_at", "expires_at")
     search_fields = ("content", "author__email")
     ordering = ("-created_at",)
-    readonly_fields = ("created_at", "views_count", "reactions_count", "expires_at")
+    readonly_fields = ("created_at", "expires_at")
 
     def content_preview(self, obj):
         return (
@@ -848,10 +846,10 @@ class StoryViewAdmin(admin.ModelAdmin):
     readonly_fields = ("viewed_at",)
 
 
-@admin.register(StoryReaction)
-class StoryReactionAdmin(admin.ModelAdmin):
-    list_display = ("id", "story", "user", "reaction_type", "created_at")
-    list_filter = ("reaction_type", "created_at")
+@admin.register(StoryInteraction)
+class StoryInteractionAdmin(admin.ModelAdmin):
+    list_display = ("id", "story", "user", "interaction_type", "created_at")
+    list_filter = ("interaction_type", "created_at")
     search_fields = ("story__author__email", "user__email")
     ordering = ("-created_at",)
     readonly_fields = ("created_at",)

@@ -98,14 +98,42 @@ class BondmakerWallet(models.Model):
     locked_usd = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
 
-class MatchRevenueSplit(models.Model):
-    match = models.ForeignKey("UserMatch", on_delete=models.CASCADE)
+class ProductRevenueRecord(models.Model):
+    PRODUCT_TYPES = [
+        ("match_request", "Match Request"),
+        ("private_visibility", "Private Visibility"),
+    ]
+
+    product_type = models.CharField(max_length=50, choices=PRODUCT_TYPES)
+
     bondmaker = models.ForeignKey(User, on_delete=models.CASCADE)
 
-    coins_used = models.IntegerField(default=5)
+    coins_used = models.IntegerField()
 
     real_revenue_usd = models.DecimalField(max_digits=10, decimal_places=2)
     platform_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
     bondmaker_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
 
+    paid = models.BooleanField(default=False)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["bondmaker", "paid"]),
+            models.Index(fields=["product_type"]),
+        ]
+
+
+# class MatchRevenueSplit(models.Model):
+#     match = models.ForeignKey("UserMatch", on_delete=models.CASCADE)
+#     bondmaker = models.ForeignKey(User, on_delete=models.CASCADE)
+
+#     coins_used = models.IntegerField(default=5)
+
+#     real_revenue_usd = models.DecimalField(max_digits=10, decimal_places=2)
+#     platform_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
+#     bondmaker_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
+
+#     created_at = models.DateTimeField(auto_now_add=True)

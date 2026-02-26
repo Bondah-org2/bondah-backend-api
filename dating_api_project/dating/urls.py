@@ -1,5 +1,7 @@
-from django.urls import path
+from django.urls import path, include
 from . import liveness_views
+from rest_framework.routers import DefaultRouter
+from rest_framework_nested.routers import NestedDefaultRouter
 from .views import (
     NewsletterSignupView,
     GetPuzzleView,
@@ -66,48 +68,43 @@ from .views import (
     RegisterRequestOTPView,
     UserRoleSelectionView,
     # Advanced Search and Discovery Views
-    UserSearchView,
+    # UserSearchView,
     UserProfileDetailView,
     UserInteractionView,
-    UserRecommendationsView,
-    CategoryFilterView,
+    # UserRecommendationsView,
+    # CategoryFilterView,
     UserInterestsView,
     # Chat and Messaging Views (NEW)
     ChatListView,
     ChatDetailView,
-    MessageListView,
-    MessageDetailView,
-    CallInitiateView,
-    CallAnswerView,
-    CallEndView,
-    ChatReportView,
-    MatchmakerIntroView,
+    SendMessageView,
+    # MessageListView,
+    # MessageDetailView,
+    # CallInitiateView,
+    # CallAnswerView,
+    # CallEndView,
+    # ChatReportView,
+    # MatchmakerIntroView,
     # Social Feed and Story Views (NEW)
-    FeedListView,
-    PostDetailView,
-    PostCommentListView,
-    PostInteractionView,
-    CommentInteractionView,
-    PostReportView,
-    PostShareView,
-    StoryListView,
-    StoryDetailView,
-    StoryReactionView,
-    FeedSearchView,
-    FeedSuggestionsView,
+    # PostCommentListView,
+    # PostReportView,
+    # PostShareView,
+    StoryViewSet,
+    # FeedSearchView,
+    # FeedSuggestionsView,
     # Live Session Views (NEW)
-    LiveSessionListView,
-    LiveSessionDetailView,
-    LiveSessionJoinView,
-    LiveSessionLeaveView,
+    # LiveSessionListView,
+    # LiveSessionDetailView,
+    # LiveSessionJoinView,
+    # LiveSessionLeaveView,
     # New Figma Features
-    UserSocialHandleListView,
-    UserSocialHandleDetailView,
-    UserSecurityQuestionListView,
-    UserSecurityQuestionDetailView,
+    # UserSocialHandleListView,
+    # UserSocialHandleDetailView,
+    # UserSecurityQuestionListView,
+    # UserSecurityQuestionDetailView,
     DocumentVerificationListView,
     DocumentVerificationDetailView,
-    DocumentUploadView,
+    # DocumentUploadView,
     CreateUsernameView,
     UsernameUpdateView,
     # Subscription Plans Views (NEW FROM FIGMA)
@@ -163,8 +160,7 @@ from .views import (
     PrivateUsersForBondmakerListView,
     MatchRequestCreateView,
     PurchaseCoinView,
-    BondmakerAcceptMatchView,
-    BondmakerRejectMatchView,
+    BondmakerMatchActionView,
     PasswordResendOTPView,
     PasswordResetVerifyOTPView,
     PasswordResetConfirmView,
@@ -176,11 +172,33 @@ from .views import (
     ApproveVisibilityView,
     PendingVisibilityListView,
     BondmakerSearchView,
-    SetBondmakerSpecialisationView,
+    BondmakerSpecialisationView,
     SpecialisationCategoryListView,
     BondmakerDashboardView,
     BondmakerAnalyticsView,
+    VisibilityStatusView,
+    UserMatchedListView,
+    IncomingPendingMatchListView,
+    SuggestedMatchView,
+    BondCircleCreateView,
+    AddBondCircleMembersView,
+    BondCirclePostCreateView,
+    BondCircleFeedView,
+    TogglePostLikeView,
+    BondmakerAcceptedMatchesView,
+    CreateCommentView,
+    PostViewSet,
+    PostCommentViewSet,
 )
+
+router = DefaultRouter()
+router.register(r"posts", PostViewSet, basename="posts")
+router.register(r"stories", StoryViewSet, basename="stories")
+# Nested router for comments under posts
+posts_router = NestedDefaultRouter(router, r"posts", lookup="post")
+posts_router.register(r"comments", PostCommentViewSet, basename="post-comments")
+urlpatterns = router.urls + posts_router.urls
+
 
 urlpatterns = [
     # Public API endpoints
@@ -376,19 +394,19 @@ urlpatterns = [
         name="user-role-selection",
     ),
     # Advanced Search and Discovery Endpoints
-    path("search/users/", UserSearchView.as_view(), name="user-search"),
+    # path("search/users/", UserSearchView.as_view(), name="user-search"),
     path(
         "users/<int:user_id>/profile/",
         UserProfileDetailView.as_view(),
         name="user-profile-detail",
     ),
     path("users/interact/", UserInteractionView.as_view(), name="user-interaction"),
-    path(
-        "users/recommendations/",
-        UserRecommendationsView.as_view(),
-        name="user-recommendations",
-    ),
-    path("users/category/", CategoryFilterView.as_view(), name="category-filter"),
+    # path(
+    #     "users/recommendations/",
+    #     UserRecommendationsView.as_view(),
+    #     name="user-recommendations",
+    # ),
+    # path("users/category/", CategoryFilterView.as_view(), name="category-filter"),
     path("users/interests/", UserInterestsView.as_view(), name="user-interests"),
     # Location Management Endpoints
     path("location/update/", LocationUpdateView.as_view(), name="location-update"),
@@ -421,118 +439,93 @@ urlpatterns = [
         name="location-statistics",
     ),
     # Chat and Messaging Endpoints (NEW)
-    path("chat/", ChatListView.as_view(), name="chat-list"),
-    path("chat/<int:pk>/", ChatDetailView.as_view(), name="chat-detail"),
-    path(
-        "chat/<int:chat_id>/messages/", MessageListView.as_view(), name="message-list"
-    ),
-    path(
-        "chat/<int:chat_id>/messages/<int:pk>/",
-        MessageDetailView.as_view(),
-        name="message-detail",
-    ),
-    path("chat/<int:chat_id>/report/", ChatReportView.as_view(), name="chat-report"),
-    path(
-        "chat/<int:chat_id>/messages/<int:message_id>/report/",
-        ChatReportView.as_view(),
-        name="message-report",
-    ),
-    path(
-        "chat/matchmaker-intro/", MatchmakerIntroView.as_view(), name="matchmaker-intro"
-    ),
-    # Voice/Video Call Endpoints (NEW)
-    path("calls/initiate/", CallInitiateView.as_view(), name="call-initiate"),
-    path("calls/<str:call_id>/answer/", CallAnswerView.as_view(), name="call-answer"),
-    path("calls/<str:call_id>/end/", CallEndView.as_view(), name="call-end"),
+    # path("chat/", ChatListView.as_view(), name="chat-list"),
+    # path("chat/<int:pk>/", ChatDetailView.as_view(), name="chat-detail"),
+    # path(
+    #     "chat/<int:chat_id>/messages/", MessageListView.as_view(), name="message-list"
+    # ),
+    # path(
+    #     "chat/<int:chat_id>/messages/<int:pk>/",
+    #     MessageDetailView.as_view(),
+    #     name="message-detail",
+    # ),
+    # path("chat/<int:chat_id>/report/", ChatReportView.as_view(), name="chat-report"),
+    # path(
+    #     "chat/<int:chat_id>/messages/<int:message_id>/report/",
+    #     ChatReportView.as_view(),
+    #     name="message-report",
+    # ),
+    # path(
+    #     "chat/matchmaker-intro/", MatchmakerIntroView.as_view(), name="matchmaker-intro"
+    # ),
+    # # Voice/Video Call Endpoints (NEW)
+    # path("calls/initiate/", CallInitiateView.as_view(), name="call-initiate"),
+    # path("calls/<str:call_id>/answer/", CallAnswerView.as_view(), name="call-answer"),
+    # path("calls/<str:call_id>/end/", CallEndView.as_view(), name="call-end"),
     # Social Feed and Story Endpoints (NEW)
-    path("feed/", FeedListView.as_view(), name="feed-list"),
-    path("feed/posts/<int:pk>/", PostDetailView.as_view(), name="post-detail"),
-    path(
-        "feed/posts/<int:post_id>/comments/",
-        PostCommentListView.as_view(),
-        name="post-comments",
-    ),
-    path(
-        "feed/posts/<int:post_id>/interact/",
-        PostInteractionView.as_view(),
-        name="post-interaction",
-    ),
-    path(
-        "feed/comments/<int:comment_id>/interact/",
-        CommentInteractionView.as_view(),
-        name="comment-interaction",
-    ),
-    path(
-        "feed/posts/<int:post_id>/report/", PostReportView.as_view(), name="post-report"
-    ),
-    path(
-        "feed/comments/<int:comment_id>/report/",
-        PostReportView.as_view(),
-        name="comment-report",
-    ),
-    path("feed/posts/<int:post_id>/share/", PostShareView.as_view(), name="post-share"),
-    path("feed/stories/", StoryListView.as_view(), name="story-list"),
-    path("feed/stories/<int:pk>/", StoryDetailView.as_view(), name="story-detail"),
-    path(
-        "feed/stories/<int:story_id>/react/",
-        StoryReactionView.as_view(),
-        name="story-reaction",
-    ),
-    path("feed/search/", FeedSearchView.as_view(), name="feed-search"),
-    path("feed/suggestions/", FeedSuggestionsView.as_view(), name="feed-suggestions"),
-    # Live Session Endpoints (NEW)
-    path("live-sessions/", LiveSessionListView.as_view(), name="live-session-list"),
-    path(
-        "live-sessions/<int:pk>/",
-        LiveSessionDetailView.as_view(),
-        name="live-session-detail",
-    ),
-    path(
-        "live-sessions/<int:session_id>/join/",
-        LiveSessionJoinView.as_view(),
-        name="live-session-join",
-    ),
-    path(
-        "live-sessions/<int:session_id>/leave/",
-        LiveSessionLeaveView.as_view(),
-        name="live-session-leave",
-    ),
+    # path(
+    #     "feed/posts/<int:post_id>/report/", PostReportView.as_view(), name="post-report"
+    # ),
+    # path(
+    #     "feed/comments/<int:comment_id>/report/",
+    #     PostReportView.as_view(),
+    #     name="comment-report",
+    # ),
+    # path("feed/search/", FeedSearchView.as_view(), name="feed-search"),
+    # path("feed/suggestions/", FeedSuggestionsView.as_view(), name="feed-suggestions"),
+    # # Live Session Endpoints (NEW)
+    # path("live-sessions/", LiveSessionListView.as_view(), name="live-session-list"),
+    # path(
+    #     "live-sessions/<int:pk>/",
+    #     LiveSessionDetailView.as_view(),
+    #     name="live-session-detail",
+    # ),
+    # path(
+    #     "live-sessions/<int:session_id>/join/",
+    #     LiveSessionJoinView.as_view(),
+    #     name="live-session-join",
+    # ),
+    # path(
+    #     "live-sessions/<int:session_id>/leave/",
+    #     LiveSessionLeaveView.as_view(),
+    #     name="live-session-leave",
+    # ),
     # Social Media Handles Endpoints (NEW FROM FIGMA)
-    path(
-        "social-handles/", UserSocialHandleListView.as_view(), name="social-handle-list"
-    ),
-    path(
-        "social-handles/<int:pk>/",
-        UserSocialHandleDetailView.as_view(),
-        name="social-handle-detail",
-    ),
-    # Security Questions Endpoints (NEW FROM FIGMA)
-    path(
-        "security-questions/",
-        UserSecurityQuestionListView.as_view(),
-        name="security-question-list",
-    ),
-    path(
-        "security-questions/<int:pk>/",
-        UserSecurityQuestionDetailView.as_view(),
-        name="security-question-detail",
-    ),
+    # path(
+    #     "social-handles/", UserSocialHandleListView.as_view(), name="social-handle-list"
+    # ),
+    # path(
+    #     "social-handles/<int:pk>/",
+    #     UserSocialHandleDetailView.as_view(),
+    #     name="social-handle-detail",
+    # ),
+    # # Security Questions Endpoints (NEW FROM FIGMA)
+    # path(
+    #     "security-questions/",
+    #     UserSecurityQuestionListView.as_view(),
+    #     name="security-question-list",
+    # ),
+    # path(
+    #     "security-questions/<int:pk>/",
+    #     UserSecurityQuestionDetailView.as_view(),
+    #     name="security-question-detail",
+    # ),
     # Document Verification Endpoints (NEW FROM FIGMA)
     path(
         "document-verification/",
         DocumentVerificationListView.as_view(),
         name="document-verification-list",
     ),
-    path(
-        "document-verification/<int:pk>/",
-        DocumentVerificationDetailView.as_view(),
-        name="document-verification-detail",
-    ),
-    path(
-        "document-verification/upload/",
-        DocumentUploadView.as_view(),
-        name="document-upload",
-    ),
+    # path(
+    #     "document-verification/<int:pk>/",
+    #     DocumentVerificationDetailView.as_view(),
+    #     name="document-verification-detail",
+    # ),
+    # path(
+    #     "document-verification/upload/",
+    #     DocumentUploadView.as_view(),
+    #     name="document-upload",
+    # ),
     # Username Validation Endpoints (NEW FROM FIGMA)
     path("username/create/", CreateUsernameView.as_view(), name="username-validate"),
     path("username/update/", UsernameUpdateView.as_view(), name="username-update"),
@@ -560,12 +553,13 @@ urlpatterns = [
         UserFeatureAccessView.as_view(),
         name="feature-access",
     ),
-    # Bondcoin Wallet Endpoints (NEW FROM FIGMA)
+    # Bondcoin package List View
     path(
         "bondcoin/packages/",
         BondcoinPackageListView.as_view(),
         name="bondcoin-packages",
     ),
+    # Bondcoin Transaction List View
     path(
         "bondcoin/transactions/",
         BondcoinTransactionListView.as_view(),
@@ -688,7 +682,7 @@ urlpatterns = [
         EndBondmakerSubscriptionView.as_view(),
         name="end-subscription",
     ),
-    # List all users subscribed to any bondmaker (for swiping/liking)
+    # List all users subscribed to all bondmaker
     path(
         "users/subscribed/",
         AllSubscribedUsersListView.as_view(),
@@ -700,12 +694,6 @@ urlpatterns = [
         SubscribedUsersForBondmakerView.as_view(),
         name="bondmaker-subscribed-users",
     ),
-    # Bondmaker creates a suggested match between subscribed or nearby user
-    # path(
-    #     "bondmaker/create-match/",
-    #     BondmakerMatchCreateView.as_view(),
-    #     name="bondmaker-create-suggested-match",
-    # ),
     # BONDMAKER MATCH SUGGESTION VIEW
     path(
         "bondmaker/suggest-match/",
@@ -720,7 +708,7 @@ urlpatterns = [
     ),
     #  Bondmaker approves/rejects
     path(
-        "visibility/<int:pk>/approve/",
+        "visibility/<int:pk>/approve/reject",
         ApproveVisibilityView.as_view(),
         name="approve-visibility",
     ),
@@ -735,6 +723,12 @@ urlpatterns = [
         "visibility/pending/",
         PendingVisibilityListView.as_view(),
         name="pending-visibility-list",
+    ),
+    # Visibility Stautus View
+    path(
+        "visibility/status/",
+        VisibilityStatusView.as_view(),
+        name="visibility_status",
     ),
     # Public users (visible to everyone)
     path(
@@ -758,14 +752,9 @@ urlpatterns = [
         name="create-match-request",
     ),
     path(
-        "bondmaker/matches/<int:usermatch_id>/accept/",
-        BondmakerAcceptMatchView.as_view(),
-        name="bondmaker-accept-match",
-    ),
-    path(
-        "bondmaker/matches/<int:usermatch_id>/reject/",
-        BondmakerRejectMatchView.as_view(),
-        name="bondmaker-reject-match",
+        "match-requests/<int:match_request_id>/action/",
+        BondmakerMatchActionView.as_view(),
+        name="bondmaker-match-action",
     ),
     # Purchase coins
     path("wallet/purchase_coins/", PurchaseCoinView.as_view(), name="purchase-coins"),
@@ -786,8 +775,8 @@ urlpatterns = [
     ),
     # Set bondmaker specialisations
     path(
-        "bondmaker/set-specialisation/",
-        SetBondmakerSpecialisationView.as_view(),
+        "bondmaker/specialisation/",
+        BondmakerSpecialisationView.as_view(),
         name="set-bondmaker-specialisation",
     ),
     path(
@@ -801,10 +790,74 @@ urlpatterns = [
         BondmakerDashboardView.as_view(),
         name="bondmaker-dashboard",
     ),
-
     path(
         "bondmaker/analytics/",
         BondmakerAnalyticsView.as_view(),
         name="bondmaker-dashboard",
     ),
+    # List View For Matched_User for Users
+    path(
+        "matches/for-users/",
+        UserMatchedListView.as_view(),
+        name="user-matched-list",
+    ),
+    # Bondmaker: list accepted matches under them
+    path(
+        "bondmaker/matches/",
+        BondmakerAcceptedMatchesView.as_view(),
+        name="bondmaker-accepted-matches",
+    ),
+    # Pending Match Request list for user
+    path(
+        "user-match/pending-requests/",
+        IncomingPendingMatchListView.as_view(),
+        name="incoming-pending-matches",
+    ),
+    # suggested matches View from bondmaker
+    path("suggest/match-list/", SuggestedMatchView.as_view(), name="suggested-match"),
+    # ---------------------------
+    # BondCircle Management
+    # ---------------------------
+    path(
+        "bondcircle/create/", BondCircleCreateView.as_view(), name="bondcircle-create"
+    ),
+    path(
+        "bondcircle/<int:circle_id>/add-members/",
+        AddBondCircleMembersView.as_view(),
+        name="bondcircle-add-members",
+    ),
+    # ---------------------------
+    # Circle Posts
+    # ---------------------------
+    path(
+        "bondcircle/<int:circle_id>/posts/",
+        BondCirclePostCreateView.as_view(),
+        name="bondcircle-post-create",
+    ),
+    path(
+        "bondcircle/<int:circle_id>/feed/",
+        BondCircleFeedView.as_view(),
+        name="bondcircle-feed",
+    ),
+    # ---------------------------
+    # Post Interactions
+    # ---------------------------
+    path(
+        "bondcircle/posts/toggle-like/",
+        TogglePostLikeView.as_view(),
+        name="bondcircle-post-toggle-like",
+    ),
+    path(
+        "bond-circle/posts/<int:post_id>/comments/",
+        CreateCommentView.as_view(),
+        name="create-bond-circle-comment",
+    ),
+    # Matched Chats
+    path("chats/", ChatListView.as_view()),
+    path("chats/<int:pk>/", ChatDetailView.as_view()),
+    path("chats/<int:chat_id>/send/", SendMessageView.as_view()),
+
+    # ViewSet for Post, Story for BondStory
+    path("", include(router.urls)),
+    path("", include(posts_router.urls)),
 ]

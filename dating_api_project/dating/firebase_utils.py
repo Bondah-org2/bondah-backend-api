@@ -101,7 +101,7 @@ def get_user_profile_from_firestore(uid):
     try:
         db = get_firestore_client()
         doc_ref = db.collection("users").document(uid)
-        doc = doc_ref.get(timeout=3)  # ⬅️ IMPORTANT: prevent hanging
+        doc = doc_ref.get(timeout=3)
 
         if doc.exists:
             return doc.to_dict()

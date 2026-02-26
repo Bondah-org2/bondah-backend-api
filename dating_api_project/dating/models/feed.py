@@ -118,33 +118,30 @@ class PostComment(models.Model):
 
 
 class PostInteraction(models.Model):
-    """Track user interactions with posts (likes, shares, bonds)"""
 
     INTERACTION_TYPES = [
         ("like", "Like"),
+        ("bond", "Bond"),
         ("share", "Share"),
-        ("bond", "Bond/Handshake"),
         ("save", "Save"),
     ]
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="post_interactions"
     )
+
     post = models.ForeignKey(
         Post, on_delete=models.CASCADE, related_name="interactions"
     )
-    interaction_type = models.CharField(max_length=20, choices=INTERACTION_TYPES)
-    created_at = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
-        return f"{self.user.name} {self.interaction_type} {self.post.id}"
+    interaction_type = models.CharField(max_length=20, choices=INTERACTION_TYPES)
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ["user", "post", "interaction_type"]
-        ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["post", "interaction_type"]),
-            models.Index(fields=["user", "interaction_type"]),
         ]
 
 
@@ -271,10 +268,6 @@ class Story(models.Model):
         default=16, help_text="Font size for text stories"
     )
 
-    # Engagement
-    views_count = models.PositiveIntegerField(default=0)
-    reactions_count = models.PositiveIntegerField(default=0)
-
     # Status and timing
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(
@@ -317,33 +310,27 @@ class StoryView(models.Model):
         ordering = ["-viewed_at"]
 
 
-class StoryReaction(models.Model):
-    """Track story reactions"""
+class StoryInteraction(models.Model):
 
-    REACTION_TYPES = [
+    INTERACTION_TYPES = [
         ("like", "Like"),
-        ("love", "Love"),
-        ("laugh", "Laugh"),
-        ("wow", "Wow"),
-        ("sad", "Sad"),
-        ("angry", "Angry"),
+        ("share", "Share"),
     ]
 
-    story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name="reactions")
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="story_reactions"
+        User, on_delete=models.CASCADE, related_name="story_interactions"
     )
-    reaction_type = models.CharField(
-        max_length=20, choices=REACTION_TYPES, default="like"
+
+    story = models.ForeignKey(
+        Story, on_delete=models.CASCADE, related_name="interactions"
     )
+
+    interaction_type = models.CharField(max_length=20, choices=INTERACTION_TYPES)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
-        return f"{self.user.name} {self.reaction_type} {self.story.author.name}'s story"
-
     class Meta:
-        unique_together = ["story", "user"]
-        ordering = ["-created_at"]
+        unique_together = ["user", "story", "interaction_type"]
 
 
 class PostShare(models.Model):

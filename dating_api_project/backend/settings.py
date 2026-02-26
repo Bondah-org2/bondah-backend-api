@@ -14,6 +14,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 from clean_enums import cleanup_openapi_schema
+from celery.schedules import crontab
 
 # Firebase Configuration
 import firebase_admin
@@ -75,6 +76,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "django_ratelimit",
+    "django_redis",
     # "dating",
     "corsheaders",
     "dating.apps.DatingConfig",
@@ -502,7 +504,26 @@ GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": "redis://127.0.0.1:6379/1",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+        "TIMEOUT": 600,  # 10 minutes default
     }
+}
+
+CELERY_BROKER_URL = "redis://localhost:6379/0"  # Redis broker
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+
+
+CELERY_BEAT_SCHEDULE = {
+    "expire-visibilities-every-hour": {
+        "task": "dating.tasks.expire_visibilities",
+        "schedule": crontab(minute=0, hour=0),  # every midnight
+    },
 }

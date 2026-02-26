@@ -6,23 +6,28 @@ from django.utils import timezone
 from django.core.cache import cache
 from django.db.models.functions import TruncMonth
 
-from .constants import (
-    CACHE_TIMEOUT_SECONDS,
-    MATCH_STATUS_ACCEPTED,
-    VISIBILITY_PUBLIC,
-    VISIBILITY_APPROVED,
-    INTERACTION_LIKE,
-    MATCHES_PER_LEVEL,
+from ..models import (
+    MatchRequest,
+    Visibility,
+    BondmakerSubscription,
+    PostInteraction,
+    PostComment,
+    BondmakerTaskCompletion,
 )
-from ..models import MatchRequest
-from ..models import Visibility
-from ..models import BondmakerSubscription
-from ..models import PostInteraction, PostComment, BondmakerTaskCompletion
+
+# Constants
+CACHE_TIMEOUT_SECONDS = 600  # 10 min cache
+MATCHES_PER_LEVEL = 50
+MATCH_STATUS_ACCEPTED = "accepted"
+VISIBILITY_PUBLIC = "public"
+VISIBILITY_APPROVED = "approved"
+INTERACTION_LIKE = "like"
 
 
 class BondmakerAnalyticsService:
+    """Service to compute and cache bondmaker analytics."""
 
-    def __init__(self, user, days):
+    def __init__(self, user, days=30):
         self.user = user
         self.days = days
         self.now = timezone.now()
@@ -33,6 +38,7 @@ class BondmakerAnalyticsService:
     # PUBLIC ENTRY POINT
     # ==========================
     def get_analytics(self):
+        """Return analytics from cache or compute fresh data."""
         cache_key = self._generate_cache_key()
         cached = cache.get(cache_key)
         if cached:
@@ -57,18 +63,13 @@ class BondmakerAnalyticsService:
     # ==========================
     def _get_match_metrics(self):
         stats = MatchRequest.objects.filter(
-            bondmaker=self.user,
-            status=MATCH_STATUS_ACCEPTED,
+            bondmaker=self.user, status=MATCH_STATUS_ACCEPTED
         ).aggregate(
             current=Count("id", filter=Q(created_at__gte=self.start_date)),
             previous=Count(
-                "id",
-                filter=Q(created_at__range=(self.previous_start, self.start_date)),
+                "id", filter=Q(created_at__range=(self.previous_start, self.start_date))
             ),
-            earnings=Sum(
-                "coins_charged",
-                filter=Q(created_at__gte=self.start_date),
-            ),
+            earnings=Sum("coins_charged", filter=Q(created_at__gte=self.start_date)),
         )
 
         current = stats["current"] or 0
@@ -136,99 +137,97 @@ class BondmakerAnalyticsService:
     # ==========================
     def _get_engagement_metrics(self):
         like_stats = PostInteraction.objects.filter(
-            post__author=self.user,
-            interaction_type=INTERACTION_LIKE,
+            post__author=self.user, interaction_type=INTERACTION_LIKE
         ).aggregate(
             current=Count("id", filter=Q(created_at__gte=self.start_date)),
             previous=Count(
-                "id",
-                filter=Q(created_at__range=(self.previous_start, self.start_date)),
+                "id", filter=Q(created_at__range=(self.previous_start, self.start_date))
             ),
         )
 
         comment_stats = PostComment.objects.filter(
-            post__author=self.user,
-            is_active=True,
+            post__author=self.user, is_active=True
         ).aggregate(
             current=Count("id", filter=Q(created_at__gte=self.start_date)),
             previous=Count(
-                "id",
-                filter=Q(created_at__range=(self.previous_start, self.start_date)),
+                "id", filter=Q(created_at__range=(self.previous_start, self.start_date))
             ),
         )
 
         return {
             "likes": like_stats["current"] or 0,
             "likes_growth_percentage": self._calculate_growth(
-                like_stats["current"] or 0,
-                like_stats["previous"] or 0,
+                like_stats["current"] or 0, like_stats["previous"] or 0
             ),
             "comments": comment_stats["current"] or 0,
             "comments_growth_percentage": self._calculate_growth(
-                comment_stats["current"] or 0,
-                comment_stats["previous"] or 0,
+                comment_stats["current"] or 0, comment_stats["previous"] or 0
             ),
         }
 
     # ==========================
-    # BADGE
+    # BADGE METRICS
     # ==========================
     def _get_badge_metrics(self):
         total_matches = MatchRequest.objects.filter(
-            bondmaker=self.user,
-            status=MATCH_STATUS_ACCEPTED,
+            bondmaker=self.user, status=MATCH_STATUS_ACCEPTED
         ).count()
-
         current_level = total_matches // MATCHES_PER_LEVEL + 1
         next_badge_level = 10
-
         levels_remaining = max(next_badge_level - current_level, 0)
+        return {"badge_progress_levels_remaining": levels_remaining,
+                "badge_earned": current_level
+                }
 
-        return {
-            "badge_progress_levels_remaining": levels_remaining
-        }
-
-    def _get_chart_data(self):
-        monthly_matches = (
-            MatchRequest.objects.filter(bondmaker=self.user, status=MATCH_STATUS_ACCEPTED)
-            .annotate(month=TruncMonth("created_at"))
-            .values("month")
-            .annotate(total=Count("id"))
-            .order_by("month")
-        )
-
-        return [
-            {"month": entry["month"].strftime("%b"), "matches": entry["total"]}
-            for entry in monthly_matches
-        ]
-
+    # ==========================
+    # TASK METRICS
+    # ==========================
     def _get_task_metrics(self):
-        stats = BondmakerTaskCompletion.objects.filter(
-            bondmaker=self.user
-        ).aggregate(
+        stats = BondmakerTaskCompletion.objects.filter(bondmaker=self.user).aggregate(
             current=Count("id", filter=Q(completed_at__gte=self.start_date)),
             previous=Count(
                 "id",
                 filter=Q(completed_at__range=(self.previous_start, self.start_date)),
             ),
         )
-
         current = stats["current"] or 0
         previous = stats["previous"] or 0
-
         return {
             "completed_tasks": current,
-            "completed_tasks_growth_percentage": self._calculate_growth(current, previous),
+            "completed_tasks_growth_percentage": self._calculate_growth(
+                current, previous
+            ),
         }
 
+    # ==========================
+    # CHART DATA
+    # ==========================
+    def _get_chart_data(self):
+        monthly_matches = (
+            MatchRequest.objects.filter(
+                bondmaker=self.user, status=MATCH_STATUS_ACCEPTED
+            )
+            .annotate(month=TruncMonth("created_at"))
+            .values("month")
+            .annotate(total=Count("id"))
+            .order_by("month")
+        )
+        return [
+            {"month": entry["month"].strftime("%b"), "matches": entry["total"]}
+            for entry in monthly_matches
+        ]
 
     # ==========================
     # UTILITIES
     # ==========================
-    def _generate_cache_key(self):
-        return f"bondmaker_analytics_{self.user.id}_{self.days}"
-
     def _calculate_growth(self, current, previous):
         if previous == 0:
             return 100 if current > 0 else 0
         return round(((current - previous) / previous) * 100, 2)
+
+    def _generate_cache_key(self):
+        return f"bondmaker_analytics_{self.user.id}_{self.days}"
+
+    def clear_cache(self):
+        """Clear cached analytics (useful for signals)."""
+        cache.delete(self._generate_cache_key())

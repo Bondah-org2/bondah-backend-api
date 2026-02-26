@@ -4,7 +4,7 @@ from .bondcoin import (
     Wallet,
     RevenueRecord,
     BondmakerWallet,
-    MatchRevenueSplit,
+    ProductRevenueRecord,
 )
 from .chat import (
     Chat,
@@ -17,6 +17,11 @@ from .chat import (
     UserVerificationStatus,
     EmailVerification,
     PhoneVerification,
+    BondCircleMember,
+    BondCircle,
+    BondCirclePost,
+    BondCirclePostComment,
+    BondCirclePostLike,
 )
 from .feed import (
     Post,
@@ -26,7 +31,7 @@ from .feed import (
     PostReport,
     Story,
     StoryView,
-    StoryReaction,
+    StoryInteraction,
     PostShare,
     FeedSearch,
     UserSocialHandle,
@@ -84,7 +89,7 @@ __all__ = [
     "Wallet",
     "RevenueRecord",
     "BondmakerWallet",
-    "MatchRevenueSplit",
+    "ProductRevenueRecord",
     # Chat
     "Chat",
     "Message",
@@ -96,6 +101,11 @@ __all__ = [
     "UserVerificationStatus",
     "EmailVerification",
     "PhoneVerification",
+    "BondCircleMember",
+    "BondCircle",
+    "BondCirclePost",
+    "BondCirclePostComment",
+    "BondCirclePostLike",
     # Feed
     "Post",
     "PostComment",
@@ -104,7 +114,7 @@ __all__ = [
     "PostReport",
     "Story",
     "StoryView",
-    "StoryReaction",
+    "StoryInteraction",
     "PostShare",
     "FeedSearch",
     "UserSocialHandle",

@@ -14,6 +14,7 @@ import firebase_admin
 from firebase_admin import credentials
 import json
 from decouple import config
+from celery.schedules import crontab
 
 
 # Load environment variables
@@ -74,7 +75,8 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "rest_framework",
     "rest_framework.authtoken",
-    'django_ratelimit',
+    "django_ratelimit",
+    "django_redis",
     # "dating",
     "corsheaders",
     "dating.apps.DatingConfig",
@@ -627,5 +629,21 @@ CACHES = {
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
+        "TIMEOUT": 600,  # 10 minutes default
     }
+}
+
+CELERY_BROKER_URL = REDIS_URL  # Redis broker
+CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+
+
+CELERY_BEAT_SCHEDULE = {
+    "expire-visibilities-every-midnight": {
+        "task": "dating.tasks.expire_visibilities",
+        "schedule": crontab(minute=0, hour=0),  # every midnight (00:00)
+    },
 }

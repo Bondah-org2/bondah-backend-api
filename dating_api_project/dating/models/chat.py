@@ -18,6 +18,13 @@ class Chat(models.Model):
     ]
 
     chat_type = models.CharField(max_length=20, choices=CHAT_TYPES, default="direct")
+    user_match = models.OneToOneField(
+        "UserMatch",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chat",
+    )
     participants = models.ManyToManyField(User, related_name="chats")
     created_by = models.ForeignKey(
         User,
@@ -698,3 +705,92 @@ class PhoneVerification(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class BondCircle(models.Model):
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True)
+
+    bondmaker = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="bond_circle"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class BondCircleMember(models.Model):
+    circle = models.ForeignKey(
+        BondCircle, on_delete=models.CASCADE, related_name="members"
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="circle_memberships"
+    )
+
+    added_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="added_members"
+    )
+
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["circle", "user"], name="unique_user_per_circle"
+            )
+        ]
+
+
+class BondCirclePost(models.Model):
+    circle = models.ForeignKey(
+        BondCircle, on_delete=models.CASCADE, related_name="posts"
+    )
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="circle_posts"
+    )
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["circle", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Post by {self.author.email} in {self.circle.name}"
+
+
+class BondCirclePostComment(models.Model):
+    post = models.ForeignKey(
+        BondCirclePost, on_delete=models.CASCADE, related_name="comments"
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="circle_comments"
+    )
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["post", "created_at"]),
+        ]
+
+
+class BondCirclePostLike(models.Model):
+    post = models.ForeignKey(
+        BondCirclePost, on_delete=models.CASCADE, related_name="likes"
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="circle_likes"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("post", "user")
+        indexes = [
+            models.Index(fields=["post", "user"]),
+        ]

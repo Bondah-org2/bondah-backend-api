@@ -1,6 +1,7 @@
 from django.db import transaction as db_transaction
 from django.core.exceptions import ValidationError
 from ..models import Wallet, WalletTransaction, User
+from django.db import transaction
 
 
 def credit_wallet(user, amount, source="unknown", reference_id=None):
@@ -76,3 +77,54 @@ def create_wallet_transaction(
         description=description,
     )
     return transaction
+
+
+class WalletService:
+
+    @staticmethod
+    def lock_funds(user, amount, source, reference_id):
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=user)
+
+            if wallet.available_balance < amount:
+                raise ValidationError("Insufficient balance")
+
+            wallet.available_balance -= amount
+            wallet.locked_balance += amount
+            wallet.save()
+
+            WalletTransaction.objects.create(
+                user=user,
+                tx_type="debit",
+                amount=amount,
+                payment_method=source,
+                reference_id=reference_id,
+                status="pending",
+            )
+
+    @staticmethod
+    def release_locked_funds(user, amount):
+        wallet = Wallet.objects.select_for_update().get(user=user)
+
+        if wallet.locked_balance < amount:
+            raise ValidationError("Insufficient locked balance")
+
+        wallet.locked_balance -= amount
+        wallet.save()
+
+    @staticmethod
+    def refund_locked_funds(user, amount, source, reference_id):
+        wallet = Wallet.objects.select_for_update().get(user=user)
+
+        wallet.locked_balance -= amount
+        wallet.available_balance += amount
+        wallet.save()
+
+        WalletTransaction.objects.create(
+            user=user,
+            tx_type="credit",
+            amount=amount,
+            payment_method=source,
+            reference_id=reference_id,
+            status="completed",
+        )

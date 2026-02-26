@@ -12,6 +12,7 @@ import uuid
 from dating.location_utils import reverse_geocode, get_approximate_location_from_ip
 from datetime import date
 from .user_manager import UserManager
+from django.db.models import Q
 
 
 class Specialisation(models.Model):
@@ -1072,27 +1073,24 @@ class BondmakerSubscription(models.Model):
     """A user subscribed to a bondmaker"""
 
     bondmaker = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="subscribed_users"
+        User, on_delete=models.CASCADE, related_name="subscribers"
     )
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="bondmaker_subscription"
+        User, on_delete=models.CASCADE, related_name="subscribes"
     )
-    start_date = models.DateTimeField(auto_now=True)
+
+    start_date = models.DateTimeField(auto_now_add=True)
     end_date = models.DateTimeField()
     active = models.BooleanField(default=True)
 
     class Meta:
-        unique_together = (
-            "bondmaker",
-            "user",
-        )  # One active subscription per user per bondmaker
+        unique_together = ("bondmaker", "user")
+        indexes = [
+            models.Index(fields=["bondmaker", "active"]),
+            models.Index(fields=["user", "active"]),
+        ]
 
-    def save(self, *args, **kwargs):
-        if not self.end_date:
-            self.end_date = self.start_date + timedelta(days=30)  # 1 month default
-        super().save(*args, **kwargs)
-
-    def is_active(self):
+    def check_active(self):
         if timezone.now() > self.end_date:
             self.active = False
             self.save(update_fields=["active"])
@@ -1110,6 +1108,7 @@ class Visibility(models.Model):
         ("pending", "Pending"),
         ("approved", "Approved"),
         ("rejected", "Rejected"),
+        ("expired", "Expired")
     )
 
     owner = models.ForeignKey(
@@ -1223,6 +1222,11 @@ class MatchRequest(models.Model):
             models.Index(fields=["bondmaker", "status"]),  # helpful
             models.Index(fields=["status"]),  # fast filtering by status
         ]
+        models.UniqueConstraint(
+            fields=["requester", "target_user"],
+            condition=Q(status="pending"),
+            name="unique_pending_match_request",
+        )
 
 
 class UserMatch(models.Model):
