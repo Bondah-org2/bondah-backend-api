@@ -154,9 +154,8 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # }
 
 DATABASES = {
-    "default": dj_database_url.parse(
-        DATABASE_URL,
-        conn_max_age=0,
+    "default": dj_database_url.config(
+        conn_max_age=600,
         ssl_require=True
     )
 }
