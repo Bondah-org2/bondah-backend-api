@@ -1826,6 +1826,7 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
         verification = EmailVerification.create_verification(email=email)
         verification.save()
 
+        print(verification.otp_code)
         send_mail(
             subject="Your Verification OTP",
             message=f"Your OTP is {verification.otp_code}",

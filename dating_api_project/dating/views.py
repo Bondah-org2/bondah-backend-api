@@ -1248,6 +1248,12 @@ class RegisterRequestOTPView(generics.CreateAPIView):
     serializer_class = RegisterRequestOTPSerializer
     permission_classes = [AllowAny]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save()  # calls your serializer's create()
+        return Response(result, status=status.HTTP_201_CREATED)
+
 
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
