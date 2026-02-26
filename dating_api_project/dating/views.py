@@ -289,7 +289,7 @@ from .location_utils import (
     is_user_visible_to,
     calculate_distance,
 )
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse, OpenApiParameter
 
 from .schema import (
     authentication_required_schema,
@@ -3877,6 +3877,28 @@ class SendMessageView(generics.CreateAPIView):
 # =============================================================================
 
 
+@extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    update=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    partial_update=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    destroy=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+)
 class PostViewSet(viewsets.ModelViewSet):
     """
     Handles posts:
@@ -3929,6 +3951,11 @@ class PostViewSet(viewsets.ModelViewSet):
         instance.save(update_fields=["is_active"])
 
     # -------- Custom Actions --------
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    )
     @action(detail=True, methods=["post"])
     def interact(self, request, pk=None):
         """
@@ -3993,6 +4020,42 @@ class PostViewSet(viewsets.ModelViewSet):
         )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    create=extend_schema(
+        parameters=[
+            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    update=extend_schema(
+        parameters=[
+            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    partial_update=extend_schema(
+        parameters=[
+            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    destroy=extend_schema(
+        parameters=[
+            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+)
 class PostCommentViewSet(viewsets.ModelViewSet):
     serializer_class = PostCommentCreateSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -4027,8 +4090,14 @@ class PostCommentViewSet(viewsets.ModelViewSet):
             )
 
     # Safe Like Toggle (Atomic + No Double Count)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    )
     @action(detail=True, methods=["post"])
-    def like(self, request, post_pk=None, pk=None):
+    def like(self, request, post_pk=None, id=None):
         """
         Like/unlike a comment.
         Each user can only like a comment once.
@@ -4115,6 +4184,44 @@ class PostCommentViewSet(viewsets.ModelViewSet):
 #         post.save(update_fields=["shares_count"])
 
 
+@extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    update=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    partial_update=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    destroy=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    like=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+    share=extend_schema(
+        parameters=[
+            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+        ]
+    ),
+)
 class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "pk"
@@ -4139,6 +4246,7 @@ class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
         StoryView.objects.get_or_create(story=story, viewer=request.user)
         serializer = self.get_serializer(story)
         return Response(serializer.data)
+    
 
     @action(detail=True, methods=["post"])
     def like(self, request, pk=None):
