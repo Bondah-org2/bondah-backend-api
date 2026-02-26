@@ -20,6 +20,7 @@ from celery.schedules import crontab
 
 # Load environment variables
 load_dotenv()
+print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
 
 # Firebase Configuration
 # For Railway deployment - JSON content from environment variable
