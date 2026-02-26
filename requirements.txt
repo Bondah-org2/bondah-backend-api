@@ -1,6 +1,7 @@
 amqp==5.3.1
 asgiref==3.11.0
 async-timeout==5.0.1
+setuptools>=68.0.0
 attrs==25.4.0
 beautifulsoup4==4.14.3
 billiard==4.2.4
@@ -96,4 +97,3 @@ urllib3==2.6.3
 vine==5.1.0
 wcwidth==0.6.0
 whitenoise==6.6.0
-setuptools>=68.0.0
