@@ -20,7 +20,6 @@ from celery.schedules import crontab
 
 # Load environment variables
 load_dotenv()
-print("DATABASE_URL:", os.environ.get("DATABASE_URL"))
 
 # Firebase Configuration
 # For Railway deployment - JSON content from environment variable
@@ -154,14 +153,14 @@ WSGI_APPLICATION = "backend.wsgi.application"
 #     )
 # }
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-print("DATABASE_URL:", DATABASE_URL)  # <-- this should show the Railway URL in logs
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL env variable not set!")
-
 DATABASES = {
-    "default": dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+    "default": dj_database_url.parse(
+        DATABASE_URL,
+        conn_max_age=0,
+        ssl_require=True
+    )
 }
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
