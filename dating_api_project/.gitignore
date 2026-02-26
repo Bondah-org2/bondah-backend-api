@@ -154,3 +154,5 @@ apple.md
 
 __pycache__/
 *.pyc"
+lvenv/
+uvenv/
