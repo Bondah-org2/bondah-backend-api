@@ -6,8 +6,8 @@ from .views import (
     NewsletterSignupView,
     GetPuzzleView,
     SubmitPuzzleAnswerView,
-    EarnCoinsView,
-    SpendCoinsView,
+    # EarnCoinsView,
+    # SpendCoinsView,
     JoinWaitlistView,
     SendNewsletterWelcomeEmailView,
     SendWaitlistConfirmationEmailView,
@@ -189,6 +189,16 @@ from .views import (
     CreateCommentView,
     PostViewSet,
     PostCommentViewSet,
+    AdminOverviewView,
+    CloudinarySignatureView,
+)
+from .liveness_views import (
+    StartLivenessCheckView,
+    SubmitLivenessImagesView,
+    SubmitLivenessVideoView,
+    LivenessCheckStatusView,
+    RetryLivenessCheckView,
+    UserVerificationStatusView
 )
 
 router = DefaultRouter()
@@ -213,8 +223,8 @@ urlpatterns = [
     ),
     path("puzzle/", GetPuzzleView.as_view(), name="get-puzzle"),
     path("puzzle/verify/", SubmitPuzzleAnswerView.as_view(), name="verify-puzzle"),
-    path("coins/earn/", EarnCoinsView.as_view(), name="earn-coins"),
-    path("coins/spend/", SpendCoinsView.as_view(), name="spend-coins"),
+    # path("coins/earn/", EarnCoinsView.as_view(), name="earn-coins"),
+    # path("coins/spend/", SpendCoinsView.as_view(), name="spend-coins"),
     path("waitlist/", JoinWaitlistView.as_view(), name="join-waitlist"),
     path(
         "email/send-newsletter-welcome/",
@@ -289,6 +299,10 @@ urlpatterns = [
         AdminNewsletterListView.as_view(),
         name="admin-newsletter-list",
     ),
+
+    # Admin OverView
+    path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
+
     # Mobile App Authentication Endpoints
     path(
         "auth/register/request-otp//",
@@ -327,7 +341,7 @@ urlpatterns = [
     path("auth/password/reset/resend-otp/", PasswordResendOTPView.as_view()),
     path("auth/profile/", UserProfileViews.as_view(), name="user-profile"),
     path(
-        "auth/deactivate/", AccountDeactivationView.as_view(), name="account-deactivate"
+        "auth/deactivate/account", AccountDeactivationView.as_view(), name="account-deactivate"
     ),
     path(
         "auth/notifications/",
@@ -360,34 +374,36 @@ urlpatterns = [
     # Liveness Check / Facial Verification Endpoints
     path(
         "liveness/start/",
-        liveness_views.StartLivenessCheckView.as_view(),
+        StartLivenessCheckView.as_view(),
         name="liveness-start",
     ),
     path(
         "liveness/submit/video/",
-        liveness_views.SubmitLivenessVideoView.as_view(),
+        SubmitLivenessVideoView.as_view(),
         name="liveness-submit-video",
     ),
     path(
         "liveness/submit/images/",
-        liveness_views.SubmitLivenessImagesView.as_view(),
+        SubmitLivenessImagesView.as_view(),
         name="liveness-submit-images",
     ),
     path(
         "liveness/status/<str:session_id>/",
-        liveness_views.LivenessCheckStatusView.as_view(),
+        LivenessCheckStatusView.as_view(),
         name="liveness-status",
     ),
     path(
         "liveness/retry/",
-        liveness_views.RetryLivenessCheckView.as_view(),
+        RetryLivenessCheckView.as_view(),
         name="liveness-retry",
     ),
     path(
-        "verification/status/",
-        liveness_views.UserVerificationStatusView.as_view(),
+        "liveness/verification/status/",
+        UserVerificationStatusView.as_view(),
         name="verification-status",
     ),
+
+    # Users Role selection EndPoint
     path(
         "roleselection/role/",
         UserRoleSelectionView.as_view(),
@@ -396,7 +412,7 @@ urlpatterns = [
     # Advanced Search and Discovery Endpoints
     # path("search/users/", UserSearchView.as_view(), name="user-search"),
     path(
-        "users/<int:user_id>/profile/",
+        "auth/<int:user_id>/profile-detail/",
         UserProfileDetailView.as_view(),
         name="user-profile-detail",
     ),
@@ -516,16 +532,12 @@ urlpatterns = [
         DocumentVerificationListView.as_view(),
         name="document-verification-list",
     ),
-    # path(
-    #     "document-verification/<int:pk>/",
-    #     DocumentVerificationDetailView.as_view(),
-    #     name="document-verification-detail",
-    # ),
-    # path(
-    #     "document-verification/upload/",
-    #     DocumentUploadView.as_view(),
-    #     name="document-upload",
-    # ),
+    path(
+        "document-verification/<int:pk>/",
+        DocumentVerificationDetailView.as_view(),
+        name="document-verification-detail",
+    ),
+
     # Username Validation Endpoints (NEW FROM FIGMA)
     path("username/create/", CreateUsernameView.as_view(), name="username-validate"),
     path("username/update/", UsernameUpdateView.as_view(), name="username-update"),
@@ -860,4 +872,7 @@ urlpatterns = [
     # ViewSet for Post, Story for BondStory
     path("", include(router.urls)),
     path("", include(posts_router.urls)),
+
+    # Cloudinary Signature request view
+    path("cloudinary-signature/", CloudinarySignatureView.as_view(), name="cloudinary"),
 ]

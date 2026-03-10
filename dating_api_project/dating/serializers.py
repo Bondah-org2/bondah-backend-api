@@ -147,11 +147,11 @@ class UserSerializer(serializers.ModelSerializer):
             "push_notifications_enabled",
             "email_notifications_enabled",
             "preferred_language",
-            "bondcoin_balance",
+            # "bondcoin_balance",
         ]
         read_only_fields = [
             "id",
-            "bondcoin_balance",  # Financial data should be read-only
+            # "bondcoin_balance",  # Financial data should be read-only
             "is_matchmaker",  # Admin privilege should be read-only
         ]
 
@@ -766,9 +766,9 @@ class GenericEmailSerializer(serializers.Serializer):
 
 
 class UserLoginRequestSerializer(serializers.Serializer):
-    firebase_token = serializers.CharField(required=False)
-    email = serializers.EmailField(required=False)
-    password = serializers.CharField(required=False)
+    # firebase_token = serializers.CharField(required=False)
+    email = serializers.EmailField()
+    password = serializers.CharField()
 
 
 class UserLogoutRequestSerializer(serializers.Serializer):
@@ -1945,9 +1945,10 @@ class ResendEmailOTPSerializer(serializers.Serializer):
         # Generate new OTP
         from random import randint
 
-        verification.otp_code = f"{randint(1000, 9999)}"
-        verification.expires_at = timezone.now() + timezone.timedelta(minutes=5)
+        verification.otp_code = f"{randint(100000, 999999)}"
+        verification.expires_at = timezone.now() + timezone.timedelta(minutes=10)
         verification.save()
+        print(verification.otp_code)
 
         # Send OTP email
         send_mail(
@@ -2877,6 +2878,8 @@ class PostSerializer(serializers.ModelSerializer):
     has_bonded = serializers.SerializerMethodField()
     is_featured = serializers.BooleanField(default=False)
     is_reported = serializers.BooleanField(default=False)
+    video_thumbnail = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
+    video_url = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
 
     class Meta:
         model = Post
@@ -3393,7 +3396,7 @@ class ConvertGiftSerializer(serializers.Serializer):
 
 
 class PurchaseSerializer(serializers.Serializer):
-    product_id = serializers.IntegerField()
+    package_id = serializers.IntegerField()
     platform = serializers.ChoiceField(choices=["apple", "google"])
     receipt_data = serializers.CharField(required=False, allow_blank=True)
     purchase_token = serializers.CharField(required=False, allow_blank=True)
@@ -4063,7 +4066,7 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
         is_visible = Visibility.objects.filter(
             owner=visible_user,
             bondmaker=bondmaker,
-            is_active=True,
+            status="approved",
             expires_at__gt=timezone.now(),
         ).exists()
 
@@ -4079,7 +4082,7 @@ class BondmakerSuggestionSerializer(serializers.Serializer):
             )
 
         # Attach for view reuse
-        attrs["subscriber"] = visible_user
+        attrs["visible_user"] = visible_user
         attrs["suggested_user"] = suggested_user
 
         return attrs
@@ -4687,3 +4690,19 @@ class TogglePostLikeSerializer(serializers.Serializer):
             return {"liked": False}
 
         return {"liked": True}
+
+
+class AdminOverviewSerializer(serializers.Serializer):
+    period_days = serializers.IntegerField()
+
+    users_stats = serializers.DictField()
+    financial_summary = serializers.DictField()
+    applications_stats = serializers.DictField()
+    reports_stats = serializers.DictField()
+
+
+class CloudinarySignatureSerializer(serializers.Serializer):
+    timestamp = serializers.IntegerField()
+    signature = serializers.CharField()
+    api_key = serializers.CharField()
+    cloud_name = serializers.CharField()

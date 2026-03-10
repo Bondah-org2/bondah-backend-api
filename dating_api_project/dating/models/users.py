@@ -414,9 +414,9 @@ class User(AbstractUser):
     )
 
     # Bondcoin Wallet (From Figma Design)
-    bondcoin_balance = models.PositiveIntegerField(
-        default=0, help_text="User's Bondcoin balance"
-    )
+    # bondcoin_balance = models.PositiveIntegerField(
+    #     default=0, help_text="User's Bondcoin balance"
+    # )
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []

@@ -16,6 +16,7 @@ import json
 from decouple import config
 from celery.schedules import crontab
 from celery.schedules import crontab
+import cloudinary
 
 
 # Load environment variables
@@ -652,3 +653,10 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute=0, hour=0),  # every midnight (00:00)
     },
 }
+
+cloudinary.config(
+    cloud_name="drisz93x9",
+    api_key="154685282736747",
+    api_secret=os.environ.get("cloudinary_api_secret"),
+    secure=True
+)

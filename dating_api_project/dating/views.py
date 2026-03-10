@@ -13,7 +13,6 @@ from django.contrib.auth.hashers import make_password, check_password
 import json
 from django.core.files.storage import default_storage
 from django.conf import settings
-import os
 from django.shortcuts import get_object_or_404
 import uuid
 from django.core.files.base import ContentFile
@@ -270,16 +269,18 @@ from .serializers import (
     ChatListSerializer,
     SubscribeSerializer,
     PostCommentNestedSerializer,
+    AdminOverviewSerializer,
+    CloudinarySignatureSerializer
 )
-from .firebase_utils import (
-    verify_firebase_token,
-    get_or_create_user_from_firebase,
-    get_user_profile_from_firestore,
-    update_user_profile_in_firestore,
-    create_match_in_firestore,
-    send_push_notification,
-    get_matches_for_user,
-)
+# from .firebase_utils import (
+#     verify_firebase_token,
+#     get_or_create_user_from_firebase,
+#     get_user_profile_from_firestore,
+#     update_user_profile_in_firestore,
+#     create_match_in_firestore,
+#     send_push_notification,
+#     get_matches_for_user,
+# )
 from rest_framework import permissions
 from django.db.models import Count, Avg
 from .location_utils import (
@@ -352,12 +353,14 @@ from rest_framework.generics import GenericAPIView
 from .analytics.constants import (
     DEFAULT_PERIOD_DAYS,
 )
-from .services.analytics import BondmakerAnalyticsService
+from .services.analytics import BondmakerAnalyticsService, OverviewAnalyticsService
 from .services.dashboard import BondmakerDashboardService
 from rest_framework.exceptions import PermissionDenied
 from django.db.models import Count, Exists, OuterRef
 from .story_query import StoryQueryMixin
 from rest_framework.decorators import action
+import cloudinary
+import cloudinary.utils
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -604,89 +607,89 @@ class SubmitPuzzleAnswerView(APIView):
 # ------------------------------
 # EarnCoinsView
 # ------------------------------
-class EarnCoinsView(generics.GenericAPIView):
-    serializer_class = EarnCoinsRequestSerializer
+# class EarnCoinsView(generics.GenericAPIView):
+#     serializer_class = EarnCoinsRequestSerializer
 
-    @extend_schema(
-        request=EarnCoinsRequestSerializer,
-        responses={201: WalletTransactionSerializer},
-    )
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+#     @extend_schema(
+#         request=EarnCoinsRequestSerializer,
+#         responses={201: WalletTransactionSerializer},
+#     )
+#     def post(self, request, *args, **kwargs):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
 
-        user_id = serializer.validated_data["user_id"]
-        amount = serializer.validated_data["amount"]
+#         user_id = serializer.validated_data["user_id"]
+#         amount = serializer.validated_data["amount"]
 
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({"error": "User not found."}, status=404)
+#         try:
+#             user = User.objects.get(id=user_id)
+#         except User.DoesNotExist:
+#             return Response({"error": "User not found."}, status=404)
 
-        if not has_solved_puzzle(user):
-            return Response(
-                {"error": "You must solve a puzzle before earning coins."},
-                status=403,
-            )
+#         if not has_solved_puzzle(user):
+#             return Response(
+#                 {"error": "You must solve a puzzle before earning coins."},
+#                 status=403,
+#             )
 
-        transaction = WalletTransaction.objects.create(
-            user=user, tx_type="credit", amount=amount
-        )
+#         transaction = WalletTransaction.objects.create(
+#             user=user, tx_type="credit", amount=amount
+#         )
 
-        return Response(WalletTransactionSerializer(transaction).data, status=201)
+#         return Response(WalletTransactionSerializer(transaction).data, status=201)
 
 
-# ------------------------------
-# SpendCoinsView
-# ------------------------------
-class SpendCoinsView(generics.GenericAPIView):
-    serializer_class = SpendCoinsRequestSerializer
+# # ------------------------------
+# # SpendCoinsView
+# # ------------------------------
+# class SpendCoinsView(generics.GenericAPIView):
+#     serializer_class = SpendCoinsRequestSerializer
 
-    @extend_schema(
-        request=SpendCoinsRequestSerializer,
-        responses={201: WalletTransactionSerializer},
-    )
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+#     @extend_schema(
+#         request=SpendCoinsRequestSerializer,
+#         responses={201: WalletTransactionSerializer},
+#     )
+#     def post(self, request, *args, **kwargs):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
 
-        user_id = serializer.validated_data["user_id"]
-        amount = serializer.validated_data["amount"]
+#         user_id = serializer.validated_data["user_id"]
+#         amount = serializer.validated_data["amount"]
 
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({"error": "User not found."}, status=404)
+#         try:
+#             user = User.objects.get(id=user_id)
+#         except User.DoesNotExist:
+#             return Response({"error": "User not found."}, status=404)
 
-        if not has_solved_puzzle(user):
-            return Response(
-                {"error": "You must solve a puzzle before spending coins."},
-                status=403,
-            )
+#         if not has_solved_puzzle(user):
+#             return Response(
+#                 {"error": "You must solve a puzzle before spending coins."},
+#                 status=403,
+#             )
 
-        # calculate balance
-        total_earned = (
-            WalletTransaction.objects.filter(
-                user=user, tx_type="credit"
-            ).aggregate(total=Sum("amount"))["total"]
-            or 0
-        )
-        total_spent = (
-            WalletTransaction.objects.filter(
-                user=user, tx_type="debit"
-            ).aggregate(total=Sum("amount"))["total"]
-            or 0
-        )
+#         # calculate balance
+#         total_earned = (
+#             WalletTransaction.objects.filter(
+#                 user=user, tx_type="credit"
+#             ).aggregate(total=Sum("amount"))["total"]
+#             or 0
+#         )
+#         total_spent = (
+#             WalletTransaction.objects.filter(
+#                 user=user, tx_type="debit"
+#             ).aggregate(total=Sum("amount"))["total"]
+#             or 0
+#         )
 
-        balance = total_earned - total_spent
-        if amount > balance:
-            return Response({"error": "Insufficient coin balance."}, status=400)
+#         balance = total_earned - total_spent
+#         if amount > balance:
+#             return Response({"error": "Insufficient coin balance."}, status=400)
 
-        transaction = WalletTransaction.objects.create(
-            user=user, tx_type="debit", amount=amount
-        )
+#         transaction = WalletTransaction.objects.create(
+#             user=user, tx_type="debit", amount=amount
+#         )
 
-        return Response(WalletTransactionSerializer(transaction).data, status=201)
+#         return Response(WalletTransactionSerializer(transaction).data, status=201)
 
 
 # class JobListView(generics.ListAPIView):
@@ -1332,7 +1335,7 @@ class UserLoginView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        firebase_token = serializer.validated_data.get("firebase_token")
+        # firebase_token = serializer.validated_data.get("firebase_token")
         email = serializer.validated_data.get("email")
         password = serializer.validated_data.get("password")
 
@@ -1340,13 +1343,13 @@ class UserLoginView(GenericAPIView):
             user = None
 
             # Case 1: Firebase login
-            if firebase_token:
-                decoded_token = verify_firebase_token(firebase_token)
-                if decoded_token:
-                    user = get_or_create_user_from_firebase(decoded_token)
-                else:
-                    # Ignore Firebase failure and fallback to email/password
-                    pass
+            # if firebase_token:
+            #     decoded_token = verify_firebase_token(firebase_token)
+            #     if decoded_token:
+            #         user = get_or_create_user_from_firebase(decoded_token)
+            #     else:
+            #         # Ignore Firebase failure and fallback to email/password
+            #         pass
 
             # Case 2: Email/password login (fallback or if no Firebase token)
             if not user:
@@ -6492,14 +6495,6 @@ class UserInteractionView(generics.CreateAPIView):
         interaction_type = serializer.validated_data["interaction_type"]
         metadata = serializer.validated_data.get("metadata", {})
 
-        # Save interaction history (always)
-        interaction, _ = UserInteraction.objects.update_or_create(
-            user=user,
-            target_user=target_user,
-            interaction_type=interaction_type,
-            defaults={"metadata": metadata},
-        )
-
         # ---------------------------------------------------------
         # LIKE  → CHARGE COINS → CREATE MATCH REQUEST → USERMATCH
         # ---------------------------------------------------------
@@ -6581,6 +6576,13 @@ class UserInteractionView(generics.CreateAPIView):
                 user_match=user_match,
             )
 
+        # Save interaction history (always)
+        interaction, _ = UserInteraction.objects.update_or_create(
+            user=user,
+            target_user=target_user,
+            interaction_type=interaction_type,
+            defaults={"metadata": metadata},
+        )
         # ---------------------------------------------------------
         # PASS / DISLIKE → DO NOTHING (temporary memory only)
         # ---------------------------------------------------------
@@ -6990,3 +6992,52 @@ class TogglePostLikeView(GenericAPIView):
         result = serializer.save()
 
         return Response(result, status=status.HTTP_200_OK)
+
+
+class AdminOverviewView(GenericAPIView):
+    """
+    Admin Overview Dashboard API.
+    Returns system-wide analytics metrics.
+    """
+
+    serializer_class = AdminOverviewSerializer
+    permission_classes = [IsAdminUser, IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Admin-only protection
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {"detail": "You do not have permission to access this resource."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        days = int(request.query_params.get("days", 7))
+
+        service = OverviewAnalyticsService(days=days)
+        data = service.get_overview()
+
+        serializer = self.get_serializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class CloudinarySignatureView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CloudinarySignatureSerializer
+
+    def get(self, request, *args, **kwargs):
+        timestamp = int(time.time())
+
+        signature = cloudinary.utils.api_sign_request(
+            {"timestamp": timestamp},
+            cloudinary.config().api_secret
+        )
+
+        data = {
+            "timestamp": timestamp,
+            "signature": signature,
+            "api_key": cloudinary.config().api_key,
+            "cloud_name": cloudinary.config().cloud_name,
+        }
+
+        serializer = self.get_serializer(data)
+        return Response(serializer.data)

@@ -3,7 +3,7 @@ from .bondcoin import (
     WalletTransaction,
     Wallet,
     RevenueRecord,
-    BondmakerWallet,
+    # BondmakerWallet,
     ProductRevenueRecord,
 )
 from .chat import (
@@ -88,7 +88,7 @@ __all__ = [
     "WalletTransaction",
     "Wallet",
     "RevenueRecord",
-    "BondmakerWallet",
+    # "BondmakerWallet",
     "ProductRevenueRecord",
     # Chat
     "Chat",

@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from clean_enums import cleanup_openapi_schema
 from celery.schedules import crontab
 import json
+import cloudinary
 
 # Firebase Configuration
 import firebase_admin
@@ -545,3 +546,10 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute=0, hour=0),  # every midnight
     },
 }
+
+cloudinary.config(
+    cloud_name="drisz93x9",
+    api_key="154685282736747",
+    api_secret=os.getenv("cloudinary_api_secret"),
+    secure=True
+)

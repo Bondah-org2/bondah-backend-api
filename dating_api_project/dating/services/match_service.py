@@ -5,7 +5,7 @@ from dating.models import (
     Wallet,
     WalletTransaction,
     MatchRequest,
-    BondmakerWallet,
+    # BondmakerWallet,
     ProductRevenueRecord,
     User,
     UserMatch,
@@ -194,7 +194,7 @@ def payout_bondmaker(bondmaker: User):
     """
     with transaction.atomic():
         # Lock/create bondmaker wallet
-        wallet, _ = BondmakerWallet.objects.select_for_update().get_or_create(
+        wallet, _ = Wallet.objects.select_for_update().get_or_create(
             bondmaker=bondmaker
         )
 

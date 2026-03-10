@@ -67,6 +67,27 @@ from .models import (
     PaymentWebhook,
 )
 
+from .models import (
+    BondCircle,
+    BondCircleMember,
+    BondCirclePost,
+    BondCirclePostComment,
+    BondCirclePostLike,
+    BondmakerSubscription,
+    BondmakerTaskCompletion,
+    # BondmakerWallet,
+    MatchRequest,
+    Notification,
+    PasswordResetOTP,
+    ProductRevenueRecord,
+    Report,
+    RevenueRecord,
+    Specialisation,
+    SuggestedMatch,
+    Visibility,
+    Wallet,
+)
+
 # Register your models here.
 
 
@@ -138,7 +159,16 @@ class TranslationLogAdmin(admin.ModelAdmin):
 
 
 # Register other models
-# admin.site.register(PuzzleVerification)
+
+
+@admin.register(PuzzleVerification)
+class PuzzleVerificationAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "question", "is_correct", "created_at")
+    list_filter = ("is_correct", "created_at")
+    search_fields = ("user__email", "question")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
+
 # admin.site.register(CoinTransaction)
 
 
@@ -1373,3 +1403,116 @@ class PaymentWebhookAdmin(admin.ModelAdmin):
         ("Payload", {"fields": ("payload",)}),
         ("Timestamps", {"fields": ("created_at",)}),
     )
+
+
+@admin.register(BondCircle)
+class BondCircleAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "bondmaker", "created_at")
+    search_fields = ("name", "bondmaker__email")
+
+
+@admin.register(BondCircleMember)
+class BondCircleMemberAdmin(admin.ModelAdmin):
+    list_display = ("id", "circle", "user", "added_by", "joined_at")
+    search_fields = ("circle__name", "user__email", "added_by__email")
+
+
+@admin.register(BondCirclePost)
+class BondCirclePostAdmin(admin.ModelAdmin):
+    list_display = ("id", "circle", "author", "content_preview", "created_at")
+    search_fields = ("circle__name", "author__email", "content")
+
+    def content_preview(self, obj):
+        return obj.content[:80] + "..." if obj.content and len(obj.content) > 80 else obj.content
+
+    content_preview.short_description = "Content Preview"
+
+
+@admin.register(BondCirclePostComment)
+class BondCirclePostCommentAdmin(admin.ModelAdmin):
+    list_display = ("id", "post", "user", "content", "created_at")
+    search_fields = ("post__content", "user__email")
+
+
+@admin.register(BondCirclePostLike)
+class BondCirclePostLikeAdmin(admin.ModelAdmin):
+    list_display = ("id", "post", "user", "created_at")
+    search_fields = ("post__content", "user__email")
+
+
+@admin.register(BondmakerSubscription)
+class BondmakerSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ("id", "bondmaker", "user", "start_date", "end_date", "active")
+    search_fields = ("bondmaker__email", "user__email")
+
+
+@admin.register(BondmakerTaskCompletion)
+class BondmakerTaskCompletionAdmin(admin.ModelAdmin):
+    list_display = ("id", "bondmaker", "task_name", "completed_at")
+    search_fields = ("bondmaker__email", "task_name")
+
+
+# @admin.register(BondmakerWallet)
+# class BondmakerWalletAdmin(admin.ModelAdmin):
+#     list_display = ("id", "bondmaker", "available_usd", "locked_usd")
+#     search_fields = ("bondmaker__email",)
+
+
+@admin.register(MatchRequest)
+class MatchRequestAdmin(admin.ModelAdmin):
+    list_display = ("id", "requester", "bondmaker", "coins_charged", "status", "created_at")
+    search_fields = ("requester__email", "bondmaker__email")
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "title", "is_read", "created_at")
+    search_fields = ("user__email", "title", "message")
+
+
+@admin.register(PasswordResetOTP)
+class PasswordResetOTPAdmin(admin.ModelAdmin):
+    list_display = ("id", "email", "otp", "is_used", "created_at")
+    search_fields = ("email",)
+
+
+@admin.register(ProductRevenueRecord)
+class ProductRevenueRecordAdmin(admin.ModelAdmin):
+    list_display = ("id", "product_type", "bondmaker", "coins_used", "real_revenue_usd", "created_at")
+    search_fields = ("product_type", "bondmaker__email")
+
+
+@admin.register(RevenueRecord)
+class RevenueRecordAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "store", "amount_usd", "created_at")
+    search_fields = ("user__email", "store")
+
+
+@admin.register(Report)
+class ReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "reporter", "reported_user", "reason", "resolved", "created_at")
+    search_fields = ("reporter__email", "reported_user__email")
+
+
+@admin.register(Specialisation)
+class SpecialisationAdmin(admin.ModelAdmin):
+    list_display = ("id", "category")
+    search_fields = ("category",)
+
+
+@admin.register(SuggestedMatch)
+class SuggestedMatchAdmin(admin.ModelAdmin):
+    list_display = ("id", "bondmaker", "user", "suggested_user", "created_at")
+    search_fields = ("bondmaker__email", "user__email", "suggested_user__email")
+
+
+@admin.register(Visibility)
+class VisibilityAdmin(admin.ModelAdmin):
+    list_display = ("id", "owner", "bondmaker", "visibility", "expires_at")
+    search_fields = ("owner__email", "bondmaker__email")
+
+
+@admin.register(Wallet)
+class WalletAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "available_balance", "locked_balance", "updated_at")
+    search_fields = ("user__email",)

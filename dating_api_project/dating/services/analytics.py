@@ -13,7 +13,13 @@ from ..models import (
     PostInteraction,
     PostComment,
     BondmakerTaskCompletion,
+    DocumentVerification,
+    ProductRevenueRecord,
+    Report,
+    User,
 )
+from django.db.models import Case, When, DecimalField
+
 
 # Constants
 CACHE_TIMEOUT_SECONDS = 600  # 10 min cache
@@ -230,4 +236,178 @@ class BondmakerAnalyticsService:
 
     def clear_cache(self):
         """Clear cached analytics (useful for signals)."""
+        cache.delete(self._generate_cache_key())
+
+
+# ---------------------------------------------------------------------------
+# Overview statistics service used by admin/overview page
+# ---------------------------------------------------------------------------
+
+
+class OverviewAnalyticsService:
+    """
+    Enterprise-grade platform overview analytics service.
+    Designed for Admin Overview Page.
+    Cached, growth-aware, fine-grained.
+    """
+
+    def __init__(self, days=7):
+        self.days = days
+        self.now = timezone.now()
+        self.start_date = self.now - timedelta(days=days)
+        self.previous_start = self.start_date - timedelta(days=days)
+
+    # ==========================================================
+    # PUBLIC ENTRY
+    # ==========================================================
+
+    def get_overview(self):
+        # cache_key = self._generate_cache_key()
+        # cached = cache.get(cache_key)
+        # if cached:
+        #     return cached
+
+        data = {
+            "period_days": self.days,
+            "users_stats": self._get_user_stats(),
+            "financial_summary": self._financial_summary(),
+            "applications_stats": self._application_stats(),
+            "reports_stats": self._report_stats(),
+        }
+
+        # cache.set(cache_key, data, CACHE_TIMEOUT_SECONDS)
+        return data
+
+    # ==========================================================
+    # USERS STATS
+    # ==========================================================
+
+    def _get_user_stats(self):
+        total_seekers = User.objects.filter(is_matchmaker=False).count()
+
+        total_bondmakers = User.objects.filter(
+            is_matchmaker=True
+        ).count()
+
+        # New signups
+        new_current = User.objects.filter(
+            date_joined__gte=self.start_date
+        ).count()
+
+        new_previous = User.objects.filter(
+            date_joined__range=(self.previous_start, self.start_date)
+        ).count()
+
+        # Applications (DocumentVerification)
+        total_applications = DocumentVerification.objects.count()
+
+        applications_current = DocumentVerification.objects.filter(
+            uploaded_at__gte=self.start_date
+        ).count()
+
+        applications_previous = DocumentVerification.objects.filter(
+            uploaded_at__range=(self.previous_start, self.start_date)
+        ).count()
+
+        return {
+            "total_seekers": total_seekers,
+            "total_bondmakers": total_bondmakers,
+            "new_signups": new_current,
+            "new_signups_growth_percentage": self._calculate_growth(
+                new_current, new_previous
+            ),
+            "total_applications": total_applications,
+            "applications_growth_percentage": self._calculate_growth(
+                applications_current,
+                applications_previous,
+            ),
+        }
+
+    def _financial_summary(self):
+        total_requests = MatchRequest.objects.count()
+
+        # Total estimated payout from accepted matches (coins → USD logic if needed)
+        stats = ProductRevenueRecord.objects.aggregate(
+            total_estimated=Sum("bondmaker_share_usd"),
+            pending=Sum(
+                Case(
+                    When(paid=False, then="bondmaker_share_usd"),
+                    output_field=DecimalField(),
+                )
+            ),
+            completed=Sum(
+                Case(
+                    When(paid=True, then="bondmaker_share_usd"),
+                    output_field=DecimalField(),
+                )
+            ),
+            platform_total=Sum("platform_share_usd"),
+        )
+
+        return {
+            "total_estimated_payout": stats["total_estimated"] or 0,
+            "total_requests": total_requests,
+            "pending_payout": stats["pending"] or 0,
+            "completed_payout": stats["completed"] or 0,
+            "platform_revenue": stats["platform_total"] or 0,
+        }
+
+    def _application_stats(self):
+        pending_bondmaker = DocumentVerification.objects.filter(
+            status="pending"
+        ).count()
+
+        processing_bondmaker = DocumentVerification.objects.filter(
+            status="processing"
+        ).count()
+
+        approved_this_month = DocumentVerification.objects.filter(
+            status="approved",
+            verified_at__month=self.now.month,
+            verified_at__year=self.now.year,
+        ).count()
+
+        rejected_this_month = DocumentVerification.objects.filter(
+            status="rejected",
+            updated_at__month=self.now.month,
+            updated_at__year=self.now.year,
+        ).count()
+
+        return {
+            "pending_bondmaker": pending_bondmaker,
+            "processing_bondmaker": processing_bondmaker,
+            "approved_this_month": approved_this_month,
+            "rejected_this_month": rejected_this_month,
+        }
+
+    def _report_stats(self):
+        total_reports = Report.objects.count()
+
+        pending_reports = Report.objects.filter(
+            resolved=False
+        ).count()
+
+        resolved_reports = Report.objects.filter(
+            resolved=True
+        ).count()
+
+        return {
+            "total_reports": total_reports,
+            "pending_reports": pending_reports,
+            "resolved_reports": resolved_reports,
+        }
+
+    # ==========================================================
+    # UTILITIES
+    # ==========================================================
+
+    def _calculate_growth(self, current, previous):
+        if previous == 0:
+            return 100 if current > 0 else 0
+        return round(((current - previous) / previous) * 100, 2)
+
+    def _generate_cache_key(self):
+        return f"platform_overview_{self.days}"
+
+    def clear_cache(self):
         cache.delete(self._generate_cache_key())
