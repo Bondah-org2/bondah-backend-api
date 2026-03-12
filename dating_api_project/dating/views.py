@@ -361,6 +361,7 @@ from .story_query import StoryQueryMixin
 from rest_framework.decorators import action
 import cloudinary
 import cloudinary.utils
+import datetime
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -7025,7 +7026,7 @@ class CloudinarySignatureView(GenericAPIView):
     serializer_class = CloudinarySignatureSerializer
 
     def get(self, request, *args, **kwargs):
-        timestamp = int(time.time())
+        timestamp = datetime.datetime.now()
 
         signature = cloudinary.utils.api_sign_request(
             {"timestamp": timestamp},
