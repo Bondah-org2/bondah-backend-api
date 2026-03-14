@@ -2874,8 +2874,8 @@ class PostSerializer(serializers.ModelSerializer):
     mentions = serializers.ListField(
         child=serializers.CharField(), required=False, allow_empty=True
     )
-    has_liked = serializers.SerializerMethodField()
-    has_bonded = serializers.SerializerMethodField()
+    has_liked = serializers.SerializerMethodField(default=False)
+    has_bonded = serializers.SerializerMethodField(default=False)
     is_featured = serializers.BooleanField(default=False)
     is_reported = serializers.BooleanField(default=False)
     video_thumbnail = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)

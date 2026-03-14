@@ -34,6 +34,7 @@ from django.utils.decorators import method_decorator
 from .utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
 from .firebase_utils import ensure_firestore_user_document
+from .permissions import IsBondmakerOrReadOnly
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -3918,8 +3919,18 @@ class PostViewSet(viewsets.ModelViewSet):
     - interact: like, share, bond (custom action)
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsBondmakerOrReadOnly]
     lookup_field = "pk"
+
+    def get_permissions(self):
+        """
+        Allow normal authenticated users to interact with posts,
+        but restrict post creation to bondmakers.
+        """
+        if self.action == "interact":
+            return [permissions.IsAuthenticated()]
+
+        return super().get_permissions()
 
     # -------- Queryset --------
     def get_queryset(self):
@@ -3952,6 +3963,9 @@ class PostViewSet(viewsets.ModelViewSet):
 
     # -------- CRUD Hooks --------
     def perform_create(self, serializer):
+        if not self.request.user.is_matchmaker:
+            raise PermissionDenied("Only bondmakers can create posts.")
+
         serializer.save(author=self.request.user)
 
     def perform_destroy(self, instance):
@@ -4002,7 +4016,7 @@ class PostViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_201_CREATED,
                 )
 
-        # -------- EXISTING SHARE / BOND LOGIC (UNCHANGED) --------
+        # -------- EXISTING SHARE / BOND LOGIC  --------
         obj, created = PostInteraction.objects.get_or_create(
             user=request.user, post=post, interaction_type=interaction_type
         )
@@ -4082,7 +4096,7 @@ class PostCommentViewSet(viewsets.ModelViewSet):
         post = get_object_or_404(Post, pk=self.kwargs["post_pk"])
 
         with transaction.atomic():
-            comment = serializer.save(author=self.request.user, post=post)
+            serializer.save(author=self.request.user, post=post)
 
             Post.objects.filter(id=post.id).update(
                 comments_count=F("comments_count") + 1
@@ -4174,24 +4188,6 @@ class PostCommentViewSet(viewsets.ModelViewSet):
 #         serializer.save(reporter=self.request.user)
 
 
-# class PostShareView(generics.CreateAPIView):
-#     """
-#     Share a post to external platforms
-#     """
-#     permission_classes = [IsAuthenticated]
-#     serializer_class = PostShareSerializer
-
-#     def perform_create(self, serializer):
-#         """Create share with current user and post"""
-#         post_id = self.kwargs["post_id"]
-#         post = get_object_or_404(Post, id=post_id, is_active=True)
-
-#         serializer.save(user=self.request.user, post=post)
-
-#         # Update post shares count
-#         post.shares_count += 1
-#         post.save(update_fields=["shares_count"])
-
 
 @extend_schema_view(
     retrieve=extend_schema(
@@ -4255,7 +4251,6 @@ class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
         StoryView.objects.get_or_create(story=story, viewer=request.user)
         serializer = self.get_serializer(story)
         return Response(serializer.data)
-    
 
     @action(detail=True, methods=["post"])
     def like(self, request, pk=None):
@@ -4292,7 +4287,7 @@ class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Update reactions_count if desired
+        # Update reactions_count
         story.reactions_count = story.interactions.count()
         story.save(update_fields=["reactions_count"])
 
@@ -7026,7 +7021,7 @@ class CloudinarySignatureView(GenericAPIView):
     serializer_class = CloudinarySignatureSerializer
 
     def get(self, request, *args, **kwargs):
-        timestamp = datetime.datetime.now()
+        timestamp = int(time.time())
 
         signature = cloudinary.utils.api_sign_request(
             {"timestamp": timestamp},

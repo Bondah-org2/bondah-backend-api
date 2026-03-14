@@ -202,12 +202,12 @@ from .liveness_views import (
 )
 
 router = DefaultRouter()
-router.register(r"posts", PostViewSet, basename="posts")
+router.register(r"bondstory/posts", PostViewSet, basename="bondstory-posts")
 router.register(r"stories", StoryViewSet, basename="stories")
 
 # Nested router for comments under posts
-posts_router = NestedDefaultRouter(router, r"posts", lookup="post")  # lookup='post' ensures post_pk
-posts_router.register(r"comments", PostCommentViewSet, basename="post-comments")
+posts_router = NestedDefaultRouter(router, r"bondstory/posts", lookup="post")  # lookup='post' ensures post_pk
+posts_router.register(r"bondstory/comments", PostCommentViewSet, basename="post-comments")
 
 
 urlpatterns = [

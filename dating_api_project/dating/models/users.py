@@ -364,7 +364,6 @@ class User(AbstractUser):
         blank=True,
         null=True,
         choices=[
-            ("casual", "Casual Dating"),
             ("serious", "Serious Relationship"),
             ("marriage", "Marriage"),
             ("sugar", "Sugar Relationship"),

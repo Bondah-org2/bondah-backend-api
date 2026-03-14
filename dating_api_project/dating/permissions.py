@@ -1,6 +1,7 @@
 from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import AuthenticationFailed
 from .jwt_utils import get_admin_user_from_token
+from rest_framework.permissions import SAFE_METHODS
 
 
 class AdminJWTPermission(BasePermission):
@@ -38,3 +39,21 @@ class AdminJWTPermission(BasePermission):
         # Add admin user to request for use in views
         request.admin_user = admin_user
         return True
+
+
+# permissions.py
+
+class IsBondmakerOrReadOnly(BasePermission):
+    """
+    Only bondmakers can create/update posts.
+    Normal users can read and interact.
+    """
+
+    def has_permission(self, request, view):
+        # Allow read operations
+        if request.method in SAFE_METHODS:
+            return True
+
+        # Only bondmakers can create/update/delete
+        return request.user.is_authenticated and request.user.is_matchmaker
+    
