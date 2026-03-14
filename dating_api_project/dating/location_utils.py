@@ -259,17 +259,17 @@ def calculate_match_score(user1, user2) -> float:
     """
     score = 0.0
 
-    # Distance factor (0 - 40)
+    # Distance factor (0 - 30)
     if hasattr(user1, "get_distance_to"):
         distance = user1.get_distance_to(user2)
         if distance is not None and getattr(user1, "max_distance", 0) > 0:
-            distance_score = max(0, 40 - (distance / user1.max_distance * 40))
+            distance_score = max(0, 30 - (distance / user1.max_distance * 40))
             score += distance_score
 
-    # Age factor (0 - 30)
+    # Age factor (0 - 40)
     if getattr(user1, "age", None) and getattr(user2, "age", None):
         age_diff = abs(user1.age - user2.age)
-        age_score = max(0, 30 - (age_diff * 2))
+        age_score = max(0, 40 - (age_diff * 2))
         score += age_score
 
     # Gender preference (0 - 30)

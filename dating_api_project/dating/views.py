@@ -1691,18 +1691,18 @@ class UserProfileViews(generics.RetrieveUpdateAPIView):
             cache.delete(f"user_static_profile:{instance.id}")
 
             # 2 Update Firestore if needed
-            from .firebase_utils import update_user_profile_in_firestore
+            # from .firebase_utils import update_user_profile_in_firestore
 
-            firestore_data = {}
-            firestore_fields = ["bio", "interests", "photos"]
+            # firestore_data = {}
+            # firestore_fields = ["bio", "interests", "photos"]
 
-            for field in firestore_fields:
-                if field in request.data:
-                    firestore_data[field] = request.data[field]
+            # for field in firestore_fields:
+            #     if field in request.data:
+            #         firestore_data[field] = request.data[field]
 
-            if firestore_data:
-                firebase_uid = getattr(instance, "firebase_uid", instance.email)
-                update_user_profile_in_firestore(firebase_uid, firestore_data)
+            # if firestore_data:
+            #     firebase_uid = getattr(instance, "firebase_uid", instance.email)
+            #     update_user_profile_in_firestore(firebase_uid, firestore_data)
 
             return Response(
                 {
@@ -3271,7 +3271,7 @@ class ChatMessagesView(generics.ListAPIView):
             participants=self.request.user
         )
 
-        return chat.messages.select_related("sender").order_by("-timestamp")
+        return chat.messages.select_related("sender").order_by("timestamp")
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
@@ -3285,7 +3285,7 @@ class ChatMessagesView(generics.ListAPIView):
 
         return super().list(request, *args, **kwargs)
 
-
+    
 
 # class ChatListView(generics.ListCreateAPIView):
 #     """

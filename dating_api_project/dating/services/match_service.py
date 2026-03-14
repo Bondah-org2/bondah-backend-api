@@ -42,8 +42,8 @@ def create_match_request(
         # Lock wallet row
         wallet = Wallet.objects.select_for_update().get(user=requester)
 
-        # if wallet.available_balance < coins:
-        #     raise ValidationError("Insufficient coins.")
+        if wallet.available_balance < coins:
+            raise ValidationError("Insufficient coins.")
 
         # Check for existing pending request for the same target
         existing_request = (

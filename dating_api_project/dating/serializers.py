@@ -2121,6 +2121,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "location",
             "age",
             "date_of_birth",
+            "preferred_gender"
             # "visibility_status",
             # "visibility_choice",
         ]
@@ -2568,7 +2569,7 @@ class ChatListSerializer(serializers.ModelSerializer):
             "unread_count",
         ]
 
-    def get_participants(self, obj):
+    def get_participants(self, obj) -> dict:
         request = self.context["request"]
 
         users = obj.participants.exclude(id=request.user.id)
