@@ -24,6 +24,7 @@ from .pagination import (
     UserSwipeDeckPagination,
     BondmakerSearchPagination,
     BondCirclePostPagination,
+    ChatMessagePagination,
 )
 from django.core.exceptions import ValidationError
 from .location_utils import update_user_location, geocode_address
@@ -1291,9 +1292,9 @@ class ConfirmRegistrationView(generics.CreateAPIView):
         user = data["user"]
         tokens = data["tokens"]
 
-        # Ensure Firestore document exists
-        firebase_uid = getattr(user, "firebase_uid", user.email)
-        ensure_firestore_user_document(firebase_uid, user)
+        # # Ensure Firestore document exists
+        # firebase_uid = getattr(user, "firebase_uid", user.email)
+        # ensure_firestore_user_document(firebase_uid, user)
 
         response_data = {
             "user": {"id": user.id, "email": user.email},
@@ -3247,9 +3248,43 @@ class SendMessageView(generics.CreateAPIView):
     def perform_create(self, serializer):
         chat_id = self.kwargs["chat_id"]
 
-        chat = get_object_or_404(Chat, id=chat_id, participants=self.request.user)
+        chat = get_object_or_404(
+            Chat.objects.prefetch_related("participants"),
+            id=chat_id,
+            participants=self.request.user
+        )
 
         serializer.save(chat=chat, sender=self.request.user, message_type="text")
+
+
+class ChatMessagesView(generics.ListAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ChatMessagePagination
+
+    def get_queryset(self):
+        chat_id = self.kwargs["chat_id"]
+
+        chat = get_object_or_404(
+            Chat,
+            id=chat_id,
+            participants=self.request.user
+        )
+
+        return chat.messages.select_related("sender").order_by("-timestamp")
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+
+        queryset.filter(is_read=False).exclude(
+            sender=request.user
+        ).update(
+            is_read=True,
+            read_at=timezone.now()
+        )
+
+        return super().list(request, *args, **kwargs)
+
 
 
 # class ChatListView(generics.ListCreateAPIView):
@@ -6317,16 +6352,17 @@ class MatchRequestCreateView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        match_request, user_match = create_match_request(
-            requester=request.user,
-            bondmaker=get_object_or_404(
-                User, id=serializer.validated_data["bondmaker_id"]
-            ),
-            target_user=get_object_or_404(
-                User, id=serializer.validated_data["target_user_id"]
-            ),
-            coins=serializer.validated_data["coins"],
-        )
+        try:
+            match_request, user_match = create_match_request(
+                requester=request.user,
+                bondmaker=get_object_or_404(
+                    User, id=serializer.validated_data["bondmaker_id"]),
+                target_user=get_object_or_404(
+                    User, id=serializer.validated_data["target_user_id"]),
+                coins=serializer.validated_data["coins"],
+            )
+        except ValidationError as e:
+            return Response({"detail": str(e)}, status=400)
 
         # Update Notification Table
         # Send push notification to bondmaker

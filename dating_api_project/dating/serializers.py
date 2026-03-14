@@ -2523,7 +2523,6 @@ class MessageSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "sender_name",
-            "message_type",
             "content",
             "timestamp",
         ]
@@ -2556,7 +2555,7 @@ class ChatDetailSerializer(serializers.ModelSerializer):
 
 
 class ChatListSerializer(serializers.ModelSerializer):
-    other_user = serializers.SerializerMethodField()
+    participants = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -2564,23 +2563,24 @@ class ChatListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "chat_type",
-            "other_user",
+            "participants",
             "last_message_at",
             "unread_count",
         ]
 
-    def get_other_user(self, obj) -> dict:
+    def get_participants(self, obj):
         request = self.context["request"]
-        other = obj.get_other_participant(request.user)
 
-        if not other:
-            return None
+        users = obj.participants.exclude(id=request.user.id)
 
-        return {
-            "id": other.id,
-            "name": other.name,
-            "profile_picture": other.profile_picture,
-        }
+        return [
+            {
+                "id": user.id,
+                "name": user.name,
+                "profile_picture": user.profile_picture,
+            }
+            for user in users
+        ]
 
     def get_unread_count(self, obj) -> int:
         request = self.context["request"]
@@ -4231,7 +4231,7 @@ class MatchRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Selected user is not a bondmaker")
         return value
 
-    def validate_taget_user(self, attrs):
+    def validate_target_user(self, attrs):
         target_user = User.objects.get(id=attrs["target_user_id"])
 
         visibility = Visibility.objects.filter(

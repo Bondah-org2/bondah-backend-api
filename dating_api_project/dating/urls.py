@@ -191,6 +191,7 @@ from .views import (
     PostCommentViewSet,
     AdminOverviewView,
     CloudinarySignatureView,
+    ChatMessagesView,
 )
 from .liveness_views import (
     StartLivenessCheckView,
@@ -868,6 +869,7 @@ urlpatterns = [
     path("chats/", ChatListView.as_view()),
     path("chats/<int:pk>/", ChatDetailView.as_view()),
     path("chats/<int:chat_id>/send/", SendMessageView.as_view()),
+    path("chats/<int:chat_id>/messages/", ChatMessagesView.as_view()),
 
     # ViewSet for Post, Story for BondStory
     path("", include(router.urls)),

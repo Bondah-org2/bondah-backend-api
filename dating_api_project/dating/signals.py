@@ -232,26 +232,24 @@ def create_chat_on_match(sender, instance, created, **kwargs):
                 chat=chat,
                 message_type="system",
                 content=f"{bondmaker.name} made the match",
-                is_system=True,
             )
 
         Message.objects.create(
             chat=chat,
             message_type="system",
             content="You were added to this match",
-            is_system=True,
         )
 
-        if bondmaker:
-            Message.objects.create(
-                chat=chat,
-                sender=bondmaker,
-                message_type="matchmaker_intro",
-                content=(
-                    "Hi I’ve matched you because I see a good fit. "
-                    "Please introduce yourselves and get to know each other."
-                ),
-            )
+        # if bondmaker:
+        #     Message.objects.create(
+        #         chat=chat,
+        #         sender=bondmaker,
+        #         message_type="matchmaker_intro",
+        #         content=(
+        #             "Hi I’ve matched you because I see a good fit. "
+        #             "Please introduce yourselves and get to know each other."
+        #         ),
+        #     )
 
 
 # @receiver(post_save, sender=PostComment)
