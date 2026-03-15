@@ -4703,7 +4703,7 @@ class AdminOverviewSerializer(serializers.Serializer):
 
 
 class CloudinarySignatureSerializer(serializers.Serializer):
-    timestamp = serializers.CharField()
+    timestamp = serializers.IntegerField()
     signature = serializers.CharField()
     api_key = serializers.CharField()
     cloud_name = serializers.CharField()
