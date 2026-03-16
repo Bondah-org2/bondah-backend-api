@@ -43,10 +43,10 @@ from .models import (
     PuzzleVerification,
     Waitlist,
     EmailLog,
-    Job,
-    JobApplication,
-    AdminUser,
-    AdminOTP,
+    # Job,
+    # JobApplication,
+    # AdminUser,
+    # AdminOTP,
     TranslationLog,
     SocialAccount,
     DeviceRegistration,
@@ -124,12 +124,10 @@ from .serializers import (
     # JobListSerializer,
     # JobDetailSerializer,
     # JobApplicationSerializer,
-    AdminLoginSerializer,
-    AdminOTPVerificationSerializer,
-    AdminJobCreateSerializer,
-    AdminJobUpdateSerializer,
-    AdminJobListSerializer,
-    AdminJobApplicationSerializer,
+    # AdminJobCreateSerializer,
+    # AdminJobUpdateSerializer,
+    # AdminJobListSerializer,
+    # AdminJobApplicationSerializer,
     TranslationRequestSerializer,
     TranslationResponseSerializer,
     SupportedLanguagesSerializer,
@@ -173,12 +171,12 @@ from .serializers import (
     UsernameUpdateSerializer,
     DocumentVerificationCreateSerializer,
     DocumentVerificationSerializer,
-    LiveParticipantSerializer,
-    UserSecurityQuestionSerializer,
-    UserSecurityQuestionSerializer,
-    UserSecurityQuestionCreateSerializer,
-    UserSocialHandleSerializer,
-    UserSocialHandleCreateSerializer,
+    # LiveParticipantSerializer,
+    # UserSecurityQuestionSerializer,
+    # UserSecurityQuestionSerializer,
+    # UserSecurityQuestionCreateSerializer,
+    # UserSocialHandleSerializer,
+    # UserSocialHandleCreateSerializer,
     ChatDetailSerializer,
     # ChatSerializer,
     # ChatCreateSerializer,
@@ -191,8 +189,8 @@ from .serializers import (
     UserInteractionSerializer,
     PostInteractionSerializer,
     # CommentInteractionSerializer,
-    StoryInteractionSerializer,
-    AdminJobApplicationDetailSerializer,
+    # StoryInteractionSerializer,
+    # AdminJobApplicationDetailSerializer,
     # FeedSuggestionsResponseSerializer,
     TranslationRequestSerializer,
     TranslationResponseSerializer,
@@ -200,10 +198,8 @@ from .serializers import (
     NewsletterWelcomeEmailSerializer,
     WaitlistConfirmationEmailSerializer,
     TranslationStatsResponseSerializer,
-    AdminUpdateApplicationStatusSerializer,
+    # AdminUpdateApplicationStatusSerializer,
     WaitlistEntrySerializer,
-    AdminLogoutSerializer,
-    AdminTokenRefreshSerializer,
     UserLogoutRequestSerializer,
     UserLoginRequestSerializer,
     TokenRefreshRequestSerializer,
@@ -219,8 +215,8 @@ from .serializers import (
     PostCommentCreateSerializer,
     LiveGiftSerializer,
     PaymentWebhookSerializer,
-    FirebaseMatchSerializer,
-    PushNotificationSerializer,
+    # FirebaseMatchSerializer,
+    # PushNotificationSerializer,
     UserRoleStatusSerializer,
     BondmakerListSerializer,
     PublicBondmakerProfileSerializer,
@@ -241,11 +237,11 @@ from .serializers import (
     VerifyOTPSerializer,
     ResendEmailOTPSerializer,
     StoryCreateSerializer,
-    StoryListSerializer,
-    StoryDetailSerializer,
+    # StoryListSerializer,
+    # StoryDetailSerializer,
     StoryViewerSerializer,
     # PostShareSerializer,
-    LiveSessionSerializer,
+    # LiveSessionSerializer,
     PasswordResetResendSerializer,
     UserSwipeCardSerializer,
     PendingMatchUserSerializer,
@@ -272,7 +268,12 @@ from .serializers import (
     SubscribeSerializer,
     PostCommentNestedSerializer,
     AdminOverviewSerializer,
-    CloudinarySignatureSerializer
+    CloudinarySignatureSerializer,
+    AdminLoginSerializer,
+    AdminLogoutSerializer,
+    CreateTeamMemberSerializer,
+    UpdateAdminMemberSerializer,
+    TeamMemberSerializer,
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -288,15 +289,11 @@ from django.db.models import Count, Avg
 from .location_utils import (
     calculate_match_score,
     get_location_statistics,
-    is_user_visible_to,
-    calculate_distance,
 )
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse, OpenApiParameter
 
 from .schema import (
     authentication_required_schema,
-    paginated_list_schema,
-    BondahSchemaMixin,
 )
 from .services.match_service import reject_match_request
 from .services.payment_service import process_apple_purchase, process_google_purchase
@@ -312,14 +309,12 @@ from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParam
 from drf_spectacular.types import OpenApiTypes
 from django.db.models import Q
 from .jwt_utils import generate_tokens, refresh_access_token, revoke_refresh_token
-from .permissions import AdminJWTPermission
+from .permissions import IsPrincipalAdmin
 from response_serializers import (
     ErrorWithDetailsSerializer,
     SimpleStatusResponseSerializer,
     CustomErrorResponseSerializer,
     StatusMessageSerializer,
-    AdminLoginOTPResponseSerializer,
-    AdminLoginSuccessResponseSerializer,
     SupportedLanguagesResponseSerializer,
     TokenRefreshResponseSerializer,
     NotificationSettingsErrorSerializer,
@@ -333,13 +328,7 @@ from response_serializers import (
     OAuthUnlinkAccountResponseSerializer,
     SocialAccountsListResponseSerializer,
     OAuthLoginResponseSerializer,
-    UserRegisterResponseSerializer,
-    UserLoginErrorSerializer,
-    UserLoginResponseSerializer,
-    UserLoginUnauthorizedSerializer,
-    UserLoginValidationErrorSerializer,
     UserProfileWithSocialSerializer,
-    UserRegisterErrorSerializer,
     NotificationSettingsResponseSerializer,
 )
 from schema_serializers import (
@@ -854,395 +843,320 @@ class SubmitPuzzleAnswerView(APIView):
 #             )
 
 
-class AdminLoginView(GenericAPIView):
-    serializer_class = AdminLoginSerializer
+# class AdminJobListView(generics.ListAPIView):
+#     queryset = Job.objects.all()
+#     serializer_class = AdminJobListSerializer
 
+#     @extend_schema(
+#         responses={200: AdminJobListSerializer(many=True)},
+#         description="List all jobs with summary information.",
+#     )
+#     def get(self, request, *args, **kwargs):
+#         return super().get(request, *args, **kwargs)
+
+
+# class AdminJobCreateView(generics.CreateAPIView):
+#     queryset = Job.objects.all()
+#     serializer_class = AdminJobCreateSerializer
+
+#     @extend_schema(
+#         request=AdminJobCreateSerializer,
+#         responses={201: AdminJobCreateSerializer, 400: SimpleStatusResponseSerializer},
+#         description="Create a new job posting.",
+#     )
+#     def post(self, request, *args, **kwargs):
+#         return super().post(request, *args, **kwargs)
+
+
+# class AdminJobUpdateView(generics.UpdateAPIView):
+#     queryset = Job.objects.all()
+#     serializer_class = AdminJobUpdateSerializer
+
+#     @extend_schema(
+#         request=AdminJobUpdateSerializer,
+#         responses={200: AdminJobUpdateSerializer, 400: SimpleStatusResponseSerializer},
+#         description="Update an existing job posting.",
+#     )
+#     def put(self, request, *args, **kwargs):
+#         return super().put(request, *args, **kwargs)
+
+
+# class AdminJobApplicationsView(GenericAPIView):
+#     serializer_class = AdminJobApplicationSerializer
+
+#     @extend_schema(
+#         responses={200: AdminJobApplicationSerializer(many=True)},
+#         description="Retrieve job applications with optional filters",
+#     )
+#     def get(self, request, *args, **kwargs):
+#         job_id = request.query_params.get("job_id")
+#         status_filter = request.query_params.get("status")
+
+#         applications = JobApplication.objects.all().order_by("-applied_at")
+#         if job_id:
+#             applications = applications.filter(job_id=job_id)
+#         if status_filter:
+#             applications = applications.filter(status=status_filter)
+
+#         serializer = self.get_serializer(applications, many=True)
+#         return Response(
+#             {
+#                 "message": "Applications retrieved successfully",
+#                 "status": "success",
+#                 "applications": serializer.data,
+#             }
+#         )
+
+
+# class AdminUpdateApplicationStatusView(GenericAPIView):
+#     serializer_class = AdminUpdateApplicationStatusSerializer
+
+#     @extend_schema(
+#         request=AdminUpdateApplicationStatusSerializer,
+#         responses={200: AdminJobApplicationSerializer},
+#         description="Update the status of a specific job application",
+#     )
+#     def put(self, request, application_id, *args, **kwargs):
+#         try:
+#             application = JobApplication.objects.get(id=application_id)
+
+#             serializer = self.get_serializer(data=request.data)
+#             serializer.is_valid(raise_exception=True)
+
+#             application.status = serializer.validated_data["status"]
+#             application.save()
+
+#             return Response(
+#                 {
+#                     "message": "Application status updated successfully",
+#                     "status": "success",
+#                     "application": AdminJobApplicationSerializer(application).data,
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except JobApplication.DoesNotExist:
+#             return Response(
+#                 {"message": "Application not found", "status": "error"},
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+#         except Exception as e:
+#             return Response(
+#                 {
+#                     "message": f"Failed to update application status: {str(e)}",
+#                     "status": "error",
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+# class AdminJobApplicationDetailView(GenericAPIView):
+#     serializer_class = AdminJobApplicationDetailSerializer
+
+#     @extend_schema(
+#         responses={200: AdminJobApplicationDetailSerializer},
+#         description="Retrieve detailed information of a specific job application",
+#     )
+#     def get(self, request, application_id, *args, **kwargs):
+#         """Get detailed view of a specific job application"""
+#         try:
+#             application = JobApplication.objects.get(id=application_id)
+#             serializer = self.get_serializer(application)
+#             return Response(
+#                 {
+#                     "message": "Application details retrieved successfully",
+#                     "status": "success",
+#                     "application": serializer.data,
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+#         except JobApplication.DoesNotExist:
+#             return Response(
+#                 {"message": "Application not found", "status": "error"},
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+#         except Exception as e:
+#             return Response(
+#                 {
+#                     "message": f"Failed to retrieve application details: {str(e)}",
+#                     "status": "error",
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+# @extend_schema(
+#     responses={200: OpenApiTypes.OBJECT},
+#     description="Debug endpoint to check authentication status",
+# )
+# class AdminDebugAuthView(GenericAPIView):
+#     permission_classes = [AllowAny]
+
+#     def get(self, request, *args, **kwargs):
+#         auth_header = request.headers.get("Authorization")
+#         debug_info = {
+#             "has_authorization_header": bool(auth_header),
+#             "authorization_header": auth_header,
+#             "all_headers": dict(request.headers),
+#         }
+
+#         if auth_header:
+#             if auth_header.startswith("Bearer "):
+#                 token = auth_header.split(" ")[1]
+#                 debug_info["token_length"] = len(token) if token else 0
+#                 debug_info["token_format"] = "Valid Bearer format"
+#                 try:
+#                     from .jwt_utils import verify_token
+
+#                     payload = verify_token(token, "access")
+#                     debug_info["token_valid"] = True
+#                     debug_info["token_payload"] = payload
+#                 except Exception as e:
+#                     debug_info["token_valid"] = False
+#                     debug_info["token_error"] = str(e)
+#             else:
+#                 debug_info["token_format"] = (
+#                     "Invalid format - should start with 'Bearer '"
+#                 )
+#         else:
+#             debug_info["token_format"] = "No Authorization header"
+
+#         return Response(
+#             {
+#                 "message": "Debug authentication info",
+#                 "status": "success",
+#                 "debug_info": debug_info,
+#             },
+#             status=status.HTTP_200_OK,
+#         )
+
+
+class AdminLoginView(APIView):
+    permission_classes = [AllowAny]
     @extend_schema(
         request=AdminLoginSerializer,
-        responses={
-            200: AdminLoginOTPResponseSerializer,
-            400: SimpleStatusResponseSerializer,
-            401: SimpleStatusResponseSerializer,
-            500: SimpleStatusResponseSerializer,
-        },
-        description="Admin login endpoint. Generates OTP and sends to email.",
+        responses=200
     )
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+    def post(self, request):
+
+        serializer = AdminLoginSerializer(data=request.data)
+
         serializer.is_valid(raise_exception=True)
 
-        email = serializer.validated_data["email"]
-        password = serializer.validated_data["password"]
+        user = serializer.validated_data["user"]
+        user.last_used = timezone.now()
+        user.save()
 
-        try:
-            admin_user = AdminUser.objects.get(email=email, is_active=True)
-        except AdminUser.DoesNotExist:
-            return Response(
-                {"status": "error", "message": "Invalid credentials"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+        refresh = RefreshToken.for_user(user)
 
-        if not check_password(password, admin_user.password):
-            return Response(
-                {"status": "error", "message": "Invalid credentials"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+        return Response({
 
-        # Generate OTP
-        otp_code = "".join(random.choices(string.digits, k=6))
-        expires_at = timezone.now() + timedelta(minutes=10)
+            "access": str(refresh.access_token),
 
-        AdminOTP.objects.create(
-            admin_user=admin_user, otp_code=otp_code, expires_at=expires_at
-        )
+            "refresh": str(refresh),
 
-        # Send OTP email
-        subject = " Admin Login OTP - Bondah Dating"
-        message = f"Your OTP for admin login is: {otp_code}\nIt expires in 10 minutes."
-        send_mail(
-            subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=True
-        )
-
-        return Response(
-            {
-                "status": "success",
-                "message": "OTP sent to your email",
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class AdminOTPVerificationView(GenericAPIView):
-    serializer_class = AdminOTPVerificationSerializer
-
-    @extend_schema(
-        request=AdminOTPVerificationSerializer,
-        responses={
-            200: AdminLoginSuccessResponseSerializer,
-            400: SimpleStatusResponseSerializer,
-            500: SimpleStatusResponseSerializer,
-        },
-        description="Verify OTP and generate JWT tokens for admin.",
-    )
-    def post(self, request, *args, **kwargs):
-        # Use GenericAPIView's serializer handling
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        email = serializer.validated_data["email"]
-        otp_code = serializer.validated_data["otp_code"]
-
-        try:
-            admin_user = AdminUser.objects.get(email=email, is_active=True)
-            otp = AdminOTP.objects.filter(
-                admin_user=admin_user, otp_code=otp_code, is_used=False
-            ).latest("created_at")
-        except (AdminUser.DoesNotExist, AdminOTP.DoesNotExist):
-            return Response(
-                {"status": "error", "message": "Invalid OTP"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if otp.expires_at < timezone.now():
-            return Response(
-                {"status": "error", "message": "OTP has expired"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Mark OTP as used
-        otp.is_used = True
-        otp.save(update_fields=["is_used"])
-
-        # Update last login
-        admin_user.last_login = timezone.now()
-        admin_user.save(update_fields=["last_login"])
-
-        # Generate JWT tokens
-        tokens = generate_tokens(admin_user)
-
-        return Response(
-            {
-                "status": "success",
-                "message": "Login successful",
-                "admin_email": admin_user.email,
-                "access_token": tokens["access_token"],
-                "refresh_token": tokens["refresh_token"],
-                "access_token_expires": tokens["access_token_expires"],
-                "refresh_token_expires": tokens["refresh_token_expires"],
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class AdminJobListView(generics.ListAPIView):
-    queryset = Job.objects.all()
-    serializer_class = AdminJobListSerializer
-
-    @extend_schema(
-        responses={200: AdminJobListSerializer(many=True)},
-        description="List all jobs with summary information.",
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-
-
-class AdminJobCreateView(generics.CreateAPIView):
-    queryset = Job.objects.all()
-    serializer_class = AdminJobCreateSerializer
-
-    @extend_schema(
-        request=AdminJobCreateSerializer,
-        responses={201: AdminJobCreateSerializer, 400: SimpleStatusResponseSerializer},
-        description="Create a new job posting.",
-    )
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
-
-
-class AdminJobUpdateView(generics.UpdateAPIView):
-    queryset = Job.objects.all()
-    serializer_class = AdminJobUpdateSerializer
-
-    @extend_schema(
-        request=AdminJobUpdateSerializer,
-        responses={200: AdminJobUpdateSerializer, 400: SimpleStatusResponseSerializer},
-        description="Update an existing job posting.",
-    )
-    def put(self, request, *args, **kwargs):
-        return super().put(request, *args, **kwargs)
-
-
-class AdminJobApplicationsView(GenericAPIView):
-    serializer_class = AdminJobApplicationSerializer
-
-    @extend_schema(
-        responses={200: AdminJobApplicationSerializer(many=True)},
-        description="Retrieve job applications with optional filters",
-    )
-    def get(self, request, *args, **kwargs):
-        job_id = request.query_params.get("job_id")
-        status_filter = request.query_params.get("status")
-
-        applications = JobApplication.objects.all().order_by("-applied_at")
-        if job_id:
-            applications = applications.filter(job_id=job_id)
-        if status_filter:
-            applications = applications.filter(status=status_filter)
-
-        serializer = self.get_serializer(applications, many=True)
-        return Response(
-            {
-                "message": "Applications retrieved successfully",
-                "status": "success",
-                "applications": serializer.data,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role.name if user.role else None,
             }
-        )
+
+        }, status=status.HTTP_200_OK)
 
 
-class AdminUpdateApplicationStatusView(GenericAPIView):
-    serializer_class = AdminUpdateApplicationStatusSerializer
-
-    @extend_schema(
-        request=AdminUpdateApplicationStatusSerializer,
-        responses={200: AdminJobApplicationSerializer},
-        description="Update the status of a specific job application",
-    )
-    def put(self, request, application_id, *args, **kwargs):
-        try:
-            application = JobApplication.objects.get(id=application_id)
-
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-
-            application.status = serializer.validated_data["status"]
-            application.save()
-
-            return Response(
-                {
-                    "message": "Application status updated successfully",
-                    "status": "success",
-                    "application": AdminJobApplicationSerializer(application).data,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except JobApplication.DoesNotExist:
-            return Response(
-                {"message": "Application not found", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as e:
-            return Response(
-                {
-                    "message": f"Failed to update application status: {str(e)}",
-                    "status": "error",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-class AdminJobApplicationDetailView(GenericAPIView):
-    serializer_class = AdminJobApplicationDetailSerializer
+class AdminLogoutView(APIView):
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        responses={200: AdminJobApplicationDetailSerializer},
-        description="Retrieve detailed information of a specific job application",
+        request=AdminLogoutSerializer,
+        responses=200
     )
-    def get(self, request, application_id, *args, **kwargs):
-        """Get detailed view of a specific job application"""
-        try:
-            application = JobApplication.objects.get(id=application_id)
-            serializer = self.get_serializer(application)
-            return Response(
-                {
-                    "message": "Application details retrieved successfully",
-                    "status": "success",
-                    "application": serializer.data,
-                },
-                status=status.HTTP_200_OK,
-            )
-        except JobApplication.DoesNotExist:
-            return Response(
-                {"message": "Application not found", "status": "error"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as e:
-            return Response(
-                {
-                    "message": f"Failed to retrieve application details: {str(e)}",
-                    "status": "error",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+    def post(self, request):
 
+        serializer = AdminLogoutSerializer(data=request.data)
 
-@extend_schema(
-    request=AdminTokenRefreshSerializer,
-    responses={200: OpenApiTypes.OBJECT},
-    description="Refresh access token using refresh token",
-)
-class AdminTokenRefreshView(GenericAPIView):
-    serializer_class = AdminTokenRefreshSerializer
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        refresh_token = serializer.validated_data["refresh_token"]
-
-        try:
-            new_tokens = refresh_access_token(refresh_token)
-            return Response(
-                {
-                    "message": "Token refreshed successfully",
-                    "status": "success",
-                    "access_token": new_tokens["access_token"],
-                    "access_token_expires": new_tokens["access_token_expires"],
-                },
-                status=status.HTTP_200_OK,
-            )
-        except Exception as e:
-            return Response(
-                {"message": f"Failed to refresh token: {str(e)}", "status": "error"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-
-@extend_schema(
-    request=AdminLogoutSerializer,
-    responses={200: OpenApiTypes.OBJECT},
-    description="Logout admin user and revoke refresh token",
-)
-class AdminLogoutView(GenericAPIView):
-    serializer_class = AdminLogoutSerializer
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        refresh_token = serializer.validated_data.get("refresh_token")
-        if refresh_token:
-            revoke_refresh_token(refresh_token)
+        serializer.save()
 
         return Response(
-            {"message": "Logged out successfully", "status": "success"},
-            status=status.HTTP_200_OK,
+            {"message": "Logged out successfully"},
+            status=status.HTTP_200_OK
         )
 
 
-@extend_schema(
-    responses={200: OpenApiTypes.OBJECT},
-    description="Verify if access token is valid",
-)
-class AdminVerifyTokenView(GenericAPIView):
-    permission_classes = [AdminJWTPermission]
+class CreateAdminMemberView(generics.CreateAPIView):
 
-    def get(self, request, *args, **kwargs):
-        try:
-            admin_user = request.admin_user
-            return Response(
-                {
-                    "message": "Token is valid",
-                    "status": "success",
-                    "admin_email": admin_user.email,
-                    "admin_id": admin_user.id,
-                },
-                status=status.HTTP_200_OK,
+    serializer_class = CreateTeamMemberSerializer
+    permission_classes = [IsPrincipalAdmin]
+
+    def perform_create(self, serializer):
+        if not self.request.user.is_principal_admin:
+            raise PermissionError("Only Principal Admin can Create members")
+        serializer.save()
+
+
+class UpdateAdminMemberView(generics.UpdateAPIView):
+    queryset = User.objects.filter(is_staff=True)
+    serializer_class = UpdateAdminMemberSerializer
+    permission_classes = [IsPrincipalAdmin]
+
+    def perform_update(self, serializer):
+        if not self.request.user.is_principal_admin:
+            raise PermissionError("Only Principal Admin can update members")
+        serializer.save()
+
+
+class RemoveAdminMemberView(generics.DestroyAPIView):
+    queryset = User.objects.filter(is_staff=True)
+    permission_classes = [IsAuthenticated]
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_principal_admin:
+            raise PermissionError("Only Principal Admin can remove members")
+        instance.delete()
+
+
+class AdminTeamView(generics.ListAPIView):
+    serializer_class = TeamMemberSerializer
+    permission_classes = [IsPrincipalAdmin]
+
+    def get_queryset(self):
+        """
+        Returns team members created by the principal admin.
+        Supports:
+            - Search by name, ID, wallet
+            - Filter by role
+            - Filter by status
+        """
+        qs = User.objects.filter(created_by=self.request.user, is_staff=True).select_related("role")
+
+        # ----- Search -----
+        search_query = self.request.query_params.get("search", None)
+        if search_query:
+            filters = (
+                Q(first_name__icontains=search_query) |
+                Q(last_name__icontains=search_query) |
+                Q(email__icontains=search_query) |
+                Q(id__icontains=search_query)
             )
-        except Exception as e:
-            return Response(
-                {"message": f"Token verification failed: {str(e)}", "status": "error"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+            if search_query.isdigit():
+                filters |= Q(id=int(search_query))
+            qs = qs.filter(filters)
 
+        # ----- Filter by role -----
+        role_filter = self.request.query_params.get("role", None)
+        if role_filter and role_filter.lower() != "all":
+            qs = qs.filter(role__name__iexact=role_filter)
 
-@extend_schema(
-    responses={200: OpenApiTypes.OBJECT},
-    description="Debug endpoint to check authentication status",
-)
-class AdminDebugAuthView(GenericAPIView):
-    permission_classes = [AllowAny]
+        # ----- Filter by status -----
+        status_filter = self.request.query_params.get("status", None)
+        if status_filter and status_filter.lower() != "all":
+            qs = qs.filter(status__iexact=status_filter)
 
-    def get(self, request, *args, **kwargs):
-        auth_header = request.headers.get("Authorization")
-        debug_info = {
-            "has_authorization_header": bool(auth_header),
-            "authorization_header": auth_header,
-            "all_headers": dict(request.headers),
-        }
-
-        if auth_header:
-            if auth_header.startswith("Bearer "):
-                token = auth_header.split(" ")[1]
-                debug_info["token_length"] = len(token) if token else 0
-                debug_info["token_format"] = "Valid Bearer format"
-                try:
-                    from .jwt_utils import verify_token
-
-                    payload = verify_token(token, "access")
-                    debug_info["token_valid"] = True
-                    debug_info["token_payload"] = payload
-                except Exception as e:
-                    debug_info["token_valid"] = False
-                    debug_info["token_error"] = str(e)
-            else:
-                debug_info["token_format"] = (
-                    "Invalid format - should start with 'Bearer '"
-                )
-        else:
-            debug_info["token_format"] = "No Authorization header"
-
-        return Response(
-            {
-                "message": "Debug authentication info",
-                "status": "success",
-                "debug_info": debug_info,
-            },
-            status=status.HTTP_200_OK,
-        )
-
+        return qs.order_by("-date_joined")  # newest first
 
 # =============================================================================
 # MOBILE APP AUTHENTICATION VIEWS

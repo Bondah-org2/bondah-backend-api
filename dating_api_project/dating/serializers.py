@@ -25,8 +25,10 @@ from .models import (
     Waitlist,
     Job,
     JobApplication,
-    AdminUser,
-    AdminOTP,
+    # AdminUser,
+    # AdminOTP,
+    AdminPermission,
+    AdminRole,
     TranslationLog,
     SocialAccount,
     DeviceRegistration,
@@ -90,6 +92,7 @@ from .models import (
     BondCircle,
     BondCircleMember,
 )
+
 from drf_spectacular.utils import extend_schema_field
 from typing import List, Dict, Any, Optional
 from .location_utils import calculate_distance, calculate_match_score
@@ -891,34 +894,15 @@ class UserLogoutRequestSerializer(serializers.Serializer):
 #         }
 
 
-class AdminLoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField()
-
-
-class AdminOTPVerificationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp_code = serializers.CharField(max_length=6)
-
-
-class AdminTokenRefreshSerializer(serializers.Serializer):
-    refresh_token = serializers.CharField()
-
-
-class AdminLogoutSerializer(serializers.Serializer):
-    refresh_token = serializers.CharField(required=False)
-
-
-class TokensSerializer(serializers.Serializer):
-    access = serializers.CharField()
-    refresh = serializers.CharField()
-
-
 # class ResendOTPSerializer(serializers.Serializer):
 #     type = serializers.ChoiceField(choices=["email", "phone"])
 #     identifier = serializers.CharField(required=False)
 #     phone_number = serializers.CharField(required=False)
 #     country_code = serializers.CharField(default="+1", required=False)
+
+class TokensSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
 
 
 class TokenRefreshRequestSerializer(serializers.Serializer):
@@ -4707,3 +4691,266 @@ class CloudinarySignatureSerializer(serializers.Serializer):
     signature = serializers.CharField()
     api_key = serializers.CharField()
     cloud_name = serializers.CharField()
+
+
+class AdminPermissionSerializer(serializers.ModelSerializer):
+    can_view_overview = serializers.BooleanField(default=True)
+    can_view_applications = serializers.BooleanField(default=False)
+    can_view_withdrawals = serializers.BooleanField(default=False)
+    can_view_reports = serializers.BooleanField(default=False)
+    can_manage_team = serializers.BooleanField(default=False)
+
+    class Meta:
+        model = AdminPermission
+        fields = [
+            "can_view_overview",
+            "can_view_applications",
+            "can_view_withdrawals",
+            "can_view_reports",
+            "can_manage_team"
+        ]
+
+
+class AdminRoleSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = AdminRole
+        fields = "__all__"
+
+
+class CreateTeamMemberSerializer(serializers.ModelSerializer):
+
+    role = serializers.SlugRelatedField(
+        queryset=AdminRole.objects.all(),
+        slug_field="name")
+
+    permissions = AdminPermissionSerializer(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "name",
+            "email",
+            "role",
+            "permissions",
+            "status",
+            "password"
+        ]
+
+    def validate_email(self, value):
+        """
+        Prevent duplicate team member emails
+        """
+
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError(
+                "A user with this email already exists."
+            )
+
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data):
+
+        request = self.context["request"]
+        principal_admin = request.user
+
+        permissions_data = validated_data.pop("permissions", None)
+        role = validated_data.pop("role")
+        password = validated_data.pop("password", None)
+
+        user = User(
+            **validated_data,
+            role=role,
+            is_staff=True,
+            created_by=principal_admin
+        )
+
+        user.set_password(password)
+        user.save()
+
+        # If permissions are manually supplied
+        if permissions_data:
+
+            AdminPermission.objects.create(
+                user=user,
+                **permissions_data
+            )
+
+        # Otherwise copy role permissions dynamically
+        else:
+
+            permission_fields = [
+                f.name for f in AdminPermission._meta.fields if f.name.startswith("can_")
+            ]
+
+            AdminPermission.objects.create(
+                user=user,
+                **{field: getattr(role, field) for field in permission_fields}
+            )
+
+        return user
+
+
+class AdminLoginSerializer(serializers.Serializer):
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+
+        email = data.get("email")
+        password = data.get("password")
+
+        user = authenticate(username=email, password=password)
+
+        if not user:
+            raise serializers.ValidationError("Invalid login credentials")
+
+        if not user.is_staff:
+            raise serializers.ValidationError("Not an admin account")
+
+        data["user"] = user
+
+        return data
+
+
+class AdminLogoutSerializer(serializers.Serializer):
+
+    refresh = serializers.CharField()
+
+    def validate(self, attrs):
+
+        self.token = attrs["refresh"]
+
+        return attrs
+
+    def save(self):
+
+        try:
+
+            token = RefreshToken(self.token)
+
+            token.blacklist()
+
+        except Exception:
+
+            raise serializers.ValidationError("Invalid refresh token")
+
+
+class TeamMemberSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
+    joined_date = serializers.SerializerMethodField()
+    last_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "name",
+            "email",
+            "role",
+            "permissions",
+            "joined_date",
+            "last_active",
+            "status"
+        ]
+
+    def get_role(self, obj):
+        return obj.role.name if obj.role else None
+
+    def get_permissions(self, obj) -> List:
+
+        if not hasattr(obj, "admin_permissions"):
+            return []
+
+        perm = obj.admin_permissions
+
+        permissions = []
+
+        if perm.can_view_overview:
+            permissions.append("Overview")
+
+        if perm.can_view_applications:
+            permissions.append("Applications")
+
+        if perm.can_view_withdrawals:
+            permissions.append("Withdrawals")
+
+        if perm.can_view_reports:
+            permissions.append("Reports")
+
+        if perm.can_manage_team:
+            permissions.append("Team")
+
+        return permissions
+
+    def get_joined_date(self, obj) -> str:
+        return obj.date_joined.strftime("%d-%m-%y")
+
+    def get_last_active(self, obj) -> str:
+
+        if obj.last_active:
+            return obj.last_active.strftime("%d-%m-%y")
+
+        return None
+
+
+class UpdateAdminMemberSerializer(serializers.ModelSerializer):
+
+    role = serializers.SlugRelatedField(
+        queryset=AdminRole.objects.all(),
+        slug_field="name"
+    )
+
+    permissions = AdminPermissionSerializer(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "name",
+            "email",
+            "role",
+            "permissions",
+            "status",
+        ]
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        """
+        Updates a User (admin team member) and their permissions.
+        """
+
+        # Pop permissions and role from data
+        permissions_data = validated_data.pop("permissions", None)
+        role = validated_data.pop("role", None)
+
+        # Update basic fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        # Update role if provided
+        if role:
+            instance.role = role
+
+        instance.save()
+
+        # Update or create permissions
+        if permissions_data:
+            # If user already has a permission row, update it
+            perm_obj, created = AdminPermission.objects.get_or_create(user=instance)
+            for field, value in permissions_data.items():
+                setattr(perm_obj, field, value)
+            perm_obj.save()
+        else:
+            # Copy role permissions dynamically
+            perm_obj, created = AdminPermission.objects.get_or_create(user=instance)
+            permission_fields = [
+                f.name for f in AdminPermission._meta.fields if f.name.startswith("can_")
+            ]
+            for field in permission_fields:
+                setattr(perm_obj, field, getattr(role, field))
+            perm_obj.save()
+
+        return instance

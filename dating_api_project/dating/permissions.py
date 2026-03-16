@@ -41,8 +41,6 @@ class AdminJWTPermission(BasePermission):
         return True
 
 
-# permissions.py
-
 class IsBondmakerOrReadOnly(BasePermission):
     """
     Only bondmakers can create/update posts.
@@ -56,4 +54,12 @@ class IsBondmakerOrReadOnly(BasePermission):
 
         # Only bondmakers can create/update/delete
         return request.user.is_authenticated and request.user.is_matchmaker
-    
+
+
+class IsPrincipalAdmin(BasePermission):
+
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated
+            and request.user.is_principal_admin
+        )

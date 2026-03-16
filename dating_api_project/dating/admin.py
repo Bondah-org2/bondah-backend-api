@@ -8,8 +8,6 @@ from .models import (
     EmailLog,
     Job,
     JobApplication,
-    AdminUser,
-    AdminOTP,
     TranslationLog,
     SocialAccount,
     DeviceRegistration,
@@ -86,6 +84,8 @@ from .models import (
     SuggestedMatch,
     Visibility,
     Wallet,
+    AdminRole,
+    AdminPermission,
 )
 
 # Register your models here.
@@ -139,16 +139,21 @@ class EmailLogAdmin(admin.ModelAdmin):
     search_fields = ("recipient_email",)
 
 
-@admin.register(AdminUser)
-class AdminUserAdmin(admin.ModelAdmin):
-    list_display = ("email", "is_active", "created_at")
-    search_fields = ("email",)
+@admin.register(AdminRole)
+class AdminRoleAdmin(admin.ModelAdmin):
+    list_display = ("name", "created_at",
+                    "can_view_overview", "can_view_applications",
+                    "can_view_withdrawals", "can_view_reports",
+                    "can_manage_team")
+    search_fields = ("name",)
 
 
-@admin.register(AdminOTP)
-class AdminOTPAdmin(admin.ModelAdmin):
-    list_display = ("admin_user", "otp_code", "is_used", "created_at", "expires_at")
-    list_filter = ("is_used", "created_at")
+@admin.register(AdminPermission)
+class AdminPermissionAdmin(admin.ModelAdmin):
+    list_display = ("user", "updated_at",
+                    "can_view_overview", "can_view_applications",
+                    "can_view_withdrawals", "can_view_reports",
+                    "can_manage_team")
 
 
 @admin.register(TranslationLog)

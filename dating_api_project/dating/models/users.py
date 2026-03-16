@@ -44,6 +44,37 @@ class Specialisation(models.Model):
         return self.get_category_display()
 
 
+class AdminRole(models.Model):
+    """
+    Role assigned to a team member.
+    Defines default permissions.
+    """
+
+    ROLE_CHOICES = [
+        ("support", "Support"),
+        ("moderator", "Moderator"),
+        ("finance", "Finance"),
+        ("manager", "Manager"),
+        ("viewer", "Viewer"),
+        ("super_admin", "Super_admin"),
+        ("admin", "Admin")
+    ]
+
+    name = models.CharField(max_length=50, choices=ROLE_CHOICES, unique=True)
+
+    # Default permissions
+    can_view_overview = models.BooleanField(default=True)
+    can_view_applications = models.BooleanField(default=False)
+    can_view_withdrawals = models.BooleanField(default=False)
+    can_view_reports = models.BooleanField(default=False)
+    can_manage_team = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.get_name_display()
+    
+
 class User(AbstractUser):
     name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
@@ -59,6 +90,36 @@ class User(AbstractUser):
         blank=True,
         null=True,
     )
+    is_principal_admin = models.BooleanField(default=False)
+
+    role = models.ForeignKey(
+        AdminRole,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    created_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="team_members"
+    )
+
+    STATUS_CHOICES = [
+        ("active", "Active"),
+        ("inactive", "Inactive")
+    ]
+
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default="active"
+    )
+
+    last_used = models.DateTimeField(null=True, blank=True)
+    last_active = models.DateTimeField(null=True, blank=True)
     username = models.CharField(
         max_length=30,
         unique=True,
@@ -763,36 +824,56 @@ class JobApplication(models.Model):
         unique_together = ["job", "email"]  # Prevent duplicate applications
 
 
-class AdminUser(models.Model):
-    email = models.EmailField(unique=True)
-    password = models.CharField(max_length=128)  # Will be hashed
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    last_login = models.DateTimeField(null=True, blank=True)
+class AdminPermission(models.Model):
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="admin_permissions"
+    )
+
+    can_view_overview = models.BooleanField(default=True)
+    can_view_applications = models.BooleanField(default=False)
+    can_view_withdrawals = models.BooleanField(default=False)
+    can_view_reports = models.BooleanField(default=False)
+    can_manage_team = models.BooleanField(default=False)
+
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Admin: {self.email}"
-
-    class Meta:
-        verbose_name = "Admin User"
-        verbose_name_plural = "Admin Users"
+        return f"{self.user.email} admin permissions"
 
 
-class AdminOTP(models.Model):
-    admin_user = models.ForeignKey(AdminUser, on_delete=models.CASCADE)
-    otp_code = models.CharField(max_length=6)
-    is_used = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
+# class AdminUser(models.Model):
+#     email = models.EmailField(unique=True)
+#     password = models.CharField(max_length=128)  # Will be hashed
+#     is_active = models.BooleanField(default=True)
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     last_login = models.DateTimeField(null=True, blank=True)
 
-    def __str__(self):
-        return f"OTP for {self.admin_user.email}"
+#     def __str__(self):
+#         return f"Admin: {self.email}"
 
-    def is_expired(self):
-        return timezone.now() > self.expires_at
+#     class Meta:
+#         verbose_name = "Admin User"
+#         verbose_name_plural = "Admin Users"
 
-    class Meta:
-        ordering = ["-created_at"]
+
+# class AdminOTP(models.Model):
+#     admin_user = models.ForeignKey(AdminUser, on_delete=models.CASCADE)
+#     otp_code = models.CharField(max_length=6)
+#     is_used = models.BooleanField(default=False)
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     expires_at = models.DateTimeField()
+
+#     def __str__(self):
+#         return f"OTP for {self.admin_user.email}"
+
+#     def is_expired(self):
+#         return timezone.now() > self.expires_at
+
+#     class Meta:
+#         ordering = ["-created_at"]
 
 
 class TranslationLog(models.Model):

@@ -8,7 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 import secrets
 import hashlib
 import re
-from .models import AdminUser
+from .models import User
 
 # Set up logging for security events
 logger = logging.getLogger(__name__)
@@ -246,7 +246,7 @@ def refresh_access_token(refresh_token, device_info=None):
         payload = verify_token(refresh_token, "refresh", device_info)
 
         # Get admin user
-        admin_user = AdminUser.objects.get(id=payload["user_id"], is_active=True)
+        admin_user = User.objects.get(is_staff=True, id=payload["user_id"], is_active=True)
 
         # Rate limit token refresh
         _rate_limit_check(admin_user.id, "refresh")
@@ -343,15 +343,14 @@ def get_admin_user_from_token(token, device_info=None):
     """
     try:
         payload = verify_token(token, "access", device_info)
-        from .models import AdminUser
 
-        user = AdminUser.objects.get(id=payload["user_id"], is_active=True)
+        user = User.objects.get(is_staff=True, id=payload["user_id"], is_active=True)
 
         # Log access for audit
         logger.debug(f"Admin user {user.id} accessed system")
 
         return user
-    except (jwt.InvalidTokenError, AdminUser.DoesNotExist, Exception) as e:
+    except (jwt.InvalidTokenError, User.DoesNotExist, Exception) as e:
         logger.warning(f"Failed to get admin user from token: {str(e)}")
         return None
 

@@ -17,19 +17,19 @@ from .views import (
     # JobApplicationView,
     # JobOptionsView,
     AdminLoginView,
-    AdminOTPVerificationView,
-    AdminJobListView,
-    AdminJobCreateView,
-    AdminJobUpdateView,
-    AdminJobApplicationsView,
-    AdminJobApplicationDetailView,
-    AdminUpdateApplicationStatusView,
+    UpdateAdminMemberView,
+    RemoveAdminMemberView,
+    CreateAdminMemberView,
+    AdminTeamView,
+    # AdminJobListView,
+    # AdminJobCreateView,
+    # AdminJobUpdateView,
+    # AdminJobApplicationsView,
+    # AdminJobApplicationDetailView,
+    # AdminUpdateApplicationStatusView,
     AdminWaitlistListView,
     AdminNewsletterListView,
-    AdminTokenRefreshView,
     AdminLogoutView,
-    AdminVerifyTokenView,
-    AdminDebugAuthView,
     TranslationView,
     # SupportedLanguagesView,
     TranslationHistoryView,
@@ -258,40 +258,53 @@ urlpatterns = [
     # Admin API endpoints
     path("admin/login/", AdminLoginView.as_view(), name="admin-login"),
     path(
-        "admin/verify-otp/", AdminOTPVerificationView.as_view(), name="admin-verify-otp"
-    ),
-    path(
-        "admin/refresh-token/",
-        AdminTokenRefreshView.as_view(),
-        name="admin-refresh-token",
+        "principal/token/refresh/",
+        TokenRefreshView.as_view(),
+        name="token-refresh"
     ),
     path("admin/logout/", AdminLogoutView.as_view(), name="admin-logout"),
     path(
-        "admin/verify-token/", AdminVerifyTokenView.as_view(), name="admin-verify-token"
-    ),
-    path("admin/debug-auth/", AdminDebugAuthView.as_view(), name="admin-debug-auth"),
-    path("admin/jobs/", AdminJobListView.as_view(), name="admin-job-list"),
-    path("admin/jobs/create/", AdminJobCreateView.as_view(), name="admin-job-create"),
-    path(
-        "admin/jobs/<int:job_id>/update/",
-        AdminJobUpdateView.as_view(),
-        name="admin-job-update",
+        "admin/members/<int:pk>/update/",
+        UpdateAdminMemberView.as_view(),
+        name="update-team-member"
     ),
     path(
-        "admin/applications/",
-        AdminJobApplicationsView.as_view(),
-        name="admin-applications",
+        "admin/team/<int:pk>/delete/",
+        RemoveAdminMemberView.as_view(),
+        name="delete-team-member"
     ),
     path(
-        "admin/applications/<int:application_id>/",
-        AdminJobApplicationDetailView.as_view(),
-        name="admin-application-detail",
+        "admin/member/create/",
+        CreateAdminMemberView.as_view(),
+        name="create-team-member"
     ),
     path(
-        "admin/applications/<int:application_id>/status/",
-        AdminUpdateApplicationStatusView.as_view(),
-        name="admin-update-application-status",
+        "admin/team/",
+        AdminTeamView.as_view(),
+        name="team-list"
     ),
+    # path("admin/jobs/", AdminJobListView.as_view(), name="admin-job-list"),
+    # path("admin/jobs/create/", AdminJobCreateView.as_view(), name="admin-job-create"),
+    # path(
+    #     "admin/jobs/<int:job_id>/update/",
+    #     AdminJobUpdateView.as_view(),
+    #     name="admin-job-update",
+    # ),
+    # path(
+    #     "admin/applications/",
+    #     AdminJobApplicationsView.as_view(),
+    #     name="admin-applications",
+    # ),
+    # path(
+    #     "admin/applications/<int:application_id>/",
+    #     AdminJobApplicationDetailView.as_view(),
+    #     name="admin-application-detail",
+    # ),
+    # path(
+    #     "admin/applications/<int:application_id>/status/",
+    #     AdminUpdateApplicationStatusView.as_view(),
+    #     name="admin-update-application-status",
+    # ),
     path(
         "admin/waitlist/", AdminWaitlistListView.as_view(), name="admin-waitlist-list"
     ),
@@ -877,4 +890,5 @@ urlpatterns = [
 
     # Cloudinary Signature request view
     path("cloudinary-signature/", CloudinarySignatureView.as_view(), name="cloudinary"),
+
 ]
