@@ -4711,20 +4711,11 @@ class AdminPermissionSerializer(serializers.ModelSerializer):
         ]
 
 
-class AdminRoleSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = AdminRole
-        fields = "__all__"
-
-
 class CreateTeamMemberSerializer(serializers.ModelSerializer):
-
     role = serializers.SlugRelatedField(
-        queryset=AdminRole.objects.all(),
-        slug_field="name")
-
-    permissions = AdminPermissionSerializer(required=False, allow_null=True)
+        queryset=AdminRole.objects.all(), slug_field="name"
+    )
+    permissions = AdminPermissionSerializer(read_only=True)
 
     class Meta:
         model = User
@@ -4734,24 +4725,17 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
             "role",
             "permissions",
             "status",
-            "password"
+            "password",
         ]
+        extra_kwargs = {"password": {"write_only": True}}
 
     def validate_email(self, value):
-        """
-        Prevent duplicate team member emails
-        """
-
         if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError(
-                "A user with this email already exists."
-            )
-
+            raise serializers.ValidationError("A user with this email already exists.")
         return value
 
     @transaction.atomic
     def create(self, validated_data):
-
         request = self.context["request"]
         principal_admin = request.user
 
@@ -4759,36 +4743,32 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
         role = validated_data.pop("role")
         password = validated_data.pop("password", None)
 
+        # Create the user
         user = User(
-            **validated_data,
-            role=role,
-            is_staff=True,
-            created_by=principal_admin
+            **validated_data, role=role, is_staff=True, created_by=principal_admin
         )
-
         user.set_password(password)
         user.save()
 
-        # If permissions are manually supplied
+        # Create or update AdminPermission
+        perm_obj, _ = AdminPermission.objects.get_or_create(user=user)
+
         if permissions_data:
-
-            AdminPermission.objects.create(
-                user=user,
-                **permissions_data
-            )
-
-        # Otherwise copy role permissions dynamically
+            # Apply manual overrides
+            for field, value in permissions_data.items():
+                setattr(perm_obj, field, value)
         else:
+            # Copy role defaults
+            for field in [
+                "can_view_overview",
+                "can_view_applications",
+                "can_view_withdrawals",
+                "can_view_reports",
+                "can_manage_team",
+            ]:
+                setattr(perm_obj, field, getattr(role, field))
 
-            permission_fields = [
-                f.name for f in AdminPermission._meta.fields if f.name.startswith("can_")
-            ]
-
-            AdminPermission.objects.create(
-                user=user,
-                **{field: getattr(role, field) for field in permission_fields}
-            )
-
+        perm_obj.save()
         return user
 
 
@@ -4854,75 +4834,46 @@ class TeamMemberSerializer(serializers.ModelSerializer):
             "permissions",
             "joined_date",
             "last_active",
-            "status"
+            "status",
         ]
 
     def get_role(self, obj) -> str:
         return obj.role.name if obj.role else None
 
     def get_permissions(self, obj) -> List:
-
-        if not hasattr(obj, "admin_permissions"):
+        perm = getattr(obj, "admin_permissions", None)
+        if not perm:
             return []
 
-        perm = obj.admin_permissions
+        mapping = {
+            "can_view_overview": "Overview",
+            "can_view_applications": "Applications",
+            "can_view_withdrawals": "Withdrawals",
+            "can_view_reports": "Reports",
+            "can_manage_team": "Team",
+        }
 
-        permissions = []
-
-        if perm.can_view_overview:
-            permissions.append("Overview")
-
-        if perm.can_view_applications:
-            permissions.append("Applications")
-
-        if perm.can_view_withdrawals:
-            permissions.append("Withdrawals")
-
-        if perm.can_view_reports:
-            permissions.append("Reports")
-
-        if perm.can_manage_team:
-            permissions.append("Team")
-
-        return permissions
+        return [label for field, label in mapping.items() if getattr(perm, field, False)]
 
     def get_joined_date(self, obj) -> str:
         return obj.date_joined.strftime("%d-%m-%y")
 
     def get_last_active(self, obj) -> str:
-
-        if obj.last_active:
-            return obj.last_active.strftime("%d-%m-%y")
-
-        return None
+        return obj.last_active.strftime("%d-%m-%y") if obj.last_active else None
 
 
 class UpdateAdminMemberSerializer(serializers.ModelSerializer):
-
     role = serializers.SlugRelatedField(
-        queryset=AdminRole.objects.all(),
-        slug_field="name"
+        queryset=AdminRole.objects.all(), slug_field="name"
     )
-
-    permissions = AdminPermissionSerializer(required=False, allow_null=True)
+    permissions = AdminPermissionSerializer(read_only=True)
 
     class Meta:
         model = User
-        fields = [
-            "name",
-            "email",
-            "role",
-            "permissions",
-            "status",
-        ]
+        fields = ["name", "email", "role", "permissions", "status"]
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        """
-        Updates a User (admin team member) and their permissions.
-        """
-
-        # Pop permissions and role from data
         permissions_data = validated_data.pop("permissions", None)
         role = validated_data.pop("role", None)
 
@@ -4933,26 +4884,25 @@ class UpdateAdminMemberSerializer(serializers.ModelSerializer):
         # Update role if provided
         if role:
             instance.role = role
-
         instance.save()
 
-        # Update or create permissions
+        # Update permissions
+        perm_obj, _ = AdminPermission.objects.get_or_create(user=instance)
+
         if permissions_data:
-            # If user already has a permission row, update it
-            perm_obj, created = AdminPermission.objects.get_or_create(user=instance)
             for field, value in permissions_data.items():
                 setattr(perm_obj, field, value)
-            perm_obj.save()
-        else:
-            # Copy role permissions dynamically
-            perm_obj, created = AdminPermission.objects.get_or_create(user=instance)
-            permission_fields = [
-                f.name for f in AdminPermission._meta.fields if f.name.startswith("can_")
-            ]
-            for field in permission_fields:
+        elif role:
+            for field in [
+                "can_view_overview",
+                "can_view_applications",
+                "can_view_withdrawals",
+                "can_view_reports",
+                "can_manage_team",
+            ]:
                 setattr(perm_obj, field, getattr(role, field))
-            perm_obj.save()
 
+        perm_obj.save()
         return instance
 
 
