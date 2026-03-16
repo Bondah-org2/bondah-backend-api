@@ -274,6 +274,7 @@ from .serializers import (
     CreateTeamMemberSerializer,
     UpdateAdminMemberSerializer,
     TeamMemberSerializer,
+    RemoveAdminMemberSerializer,
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -330,6 +331,7 @@ from response_serializers import (
     OAuthLoginResponseSerializer,
     UserProfileWithSocialSerializer,
     NotificationSettingsResponseSerializer,
+    AdminLoginResponseSerializer,
 )
 from schema_serializers import (
     GetPuzzleRequestSerializer,
@@ -1031,6 +1033,9 @@ class SubmitPuzzleAnswerView(APIView):
 #         )
 
 
+@extend_schema(
+    responses=AdminLoginResponseSerializer
+)
 class AdminLoginView(APIView):
     permission_classes = [AllowAny]
     @extend_schema(
@@ -1110,6 +1115,7 @@ class UpdateAdminMemberView(generics.UpdateAPIView):
 
 
 class RemoveAdminMemberView(generics.DestroyAPIView):
+    serializer_class = RemoveAdminMemberSerializer
     queryset = User.objects.filter(is_staff=True)
     permission_classes = [IsAuthenticated]
 

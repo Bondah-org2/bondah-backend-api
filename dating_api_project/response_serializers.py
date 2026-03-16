@@ -47,6 +47,12 @@ class AdminLoginOTPResponseSerializer(serializers.Serializer):
     )  # optional; only for debugging/testing
 
 
+class AdminLoginResponseSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+    user = serializers.DictField()  # Or nested UserSerializer if you have one
+
+
 # Response when login with OTP is successful
 class AdminLoginSuccessResponseSerializer(serializers.Serializer):
     status = serializers.CharField()

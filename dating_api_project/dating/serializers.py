@@ -4857,7 +4857,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
             "status"
         ]
 
-    def get_role(self, obj):
+    def get_role(self, obj) -> str:
         return obj.role.name if obj.role else None
 
     def get_permissions(self, obj) -> List:
@@ -4954,3 +4954,7 @@ class UpdateAdminMemberSerializer(serializers.ModelSerializer):
             perm_obj.save()
 
         return instance
+
+
+class RemoveAdminMemberSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
