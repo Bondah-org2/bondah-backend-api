@@ -4715,7 +4715,13 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
     role = serializers.SlugRelatedField(
         queryset=AdminRole.objects.all(), slug_field="name"
     )
-    permissions = AdminPermissionSerializer(read_only=True)
+    permissions = AdminPermissionSerializer(
+        required=False,
+        write_only=True
+    )
+    permission_data = AdminPermissionSerializer(source="admin_permissions",
+                                                required=False,
+                                                read_only=True)
 
     class Meta:
         model = User
@@ -4726,6 +4732,7 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
             "permissions",
             "status",
             "password",
+            "permission_data",
         ]
         extra_kwargs = {"password": {"write_only": True}}
 
@@ -4741,34 +4748,36 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
 
         permissions_data = validated_data.pop("permissions", None)
         role = validated_data.pop("role")
-        password = validated_data.pop("password", None)
+        password = validated_data.pop("password")
 
-        # Create the user
+        # Create user
         user = User(
-            **validated_data, role=role, is_staff=True, created_by=principal_admin
+            **validated_data,
+            role=role,
+            is_staff=True,
+            created_by=principal_admin
         )
         user.set_password(password)
         user.save()
 
-        # Create or update AdminPermission
-        perm_obj, _ = AdminPermission.objects.get_or_create(user=user)
+        # Create permission object
+        perm_obj, created = AdminPermission.objects.get_or_create(user=user)
 
+        permission_fields = [
+            f.name for f in AdminPermission._meta.fields if f.name.startswith("can_")
+        ]
+
+        # Start with role defaults
+        for field in permission_fields:
+            setattr(perm_obj, field, getattr(role, field))
+
+        # Override only provided permissions
         if permissions_data:
-            # Apply manual overrides
             for field, value in permissions_data.items():
                 setattr(perm_obj, field, value)
-        else:
-            # Copy role defaults
-            for field in [
-                "can_view_overview",
-                "can_view_applications",
-                "can_view_withdrawals",
-                "can_view_reports",
-                "can_manage_team",
-            ]:
-                setattr(perm_obj, field, getattr(role, field))
 
         perm_obj.save()
+
         return user
 
 
@@ -4863,46 +4872,61 @@ class TeamMemberSerializer(serializers.ModelSerializer):
 
 
 class UpdateAdminMemberSerializer(serializers.ModelSerializer):
+
     role = serializers.SlugRelatedField(
-        queryset=AdminRole.objects.all(), slug_field="name"
+        queryset=AdminRole.objects.all(),
+        slug_field="name"
     )
-    permissions = AdminPermissionSerializer(read_only=True)
+
+    permissions = AdminPermissionSerializer(write_only=True, required=False)
+
+    permission_data = AdminPermissionSerializer(source="admin_permissions",
+                                                required=False,
+                                                read_only=True)
 
     class Meta:
         model = User
-        fields = ["name", "email", "role", "permissions", "status"]
+        fields = [
+            "name",
+            "email",
+            "role",
+            "permissions",
+            "status",
+            "permission_data"
+        ]
 
     @transaction.atomic
     def update(self, instance, validated_data):
+
         permissions_data = validated_data.pop("permissions", None)
         role = validated_data.pop("role", None)
 
-        # Update basic fields
+        # Update user fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        # Update role if provided
         if role:
             instance.role = role
+
         instance.save()
 
-        # Update permissions
         perm_obj, _ = AdminPermission.objects.get_or_create(user=instance)
 
-        if permissions_data:
+        if permissions_data is not None:
+            # Manual override from client
             for field, value in permissions_data.items():
                 setattr(perm_obj, field, value)
+
         elif role:
-            for field in [
-                "can_view_overview",
-                "can_view_applications",
-                "can_view_withdrawals",
-                "can_view_reports",
-                "can_manage_team",
-            ]:
+            # Sync from role ONLY if no manual permissions sent
+            permission_fields = [
+                f.name for f in AdminPermission._meta.fields if f.name.startswith("can_")
+            ]
+            for field in permission_fields:
                 setattr(perm_obj, field, getattr(role, field))
 
         perm_obj.save()
+
         return instance
 
 
