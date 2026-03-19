@@ -1343,8 +1343,11 @@ class UserLogoutView(GenericAPIView):
 
         refresh_token = serializer.validated_data.get("refresh_token")
         if refresh_token:
-            token = RefreshToken(refresh_token)
-            token.blacklist()
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except Exception:
+                raise ValidationError("Invalid or expired token")
 
         return Response(
             {"message": "Logout successful", "status": "success"},

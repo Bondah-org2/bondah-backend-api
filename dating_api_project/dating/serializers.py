@@ -2105,7 +2105,9 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "location",
             "age",
             "date_of_birth",
-            "preferred_gender"
+            "preferred_gender",
+            "job_title",
+            "company_name",
             # "visibility_status",
             # "visibility_choice",
         ]
@@ -2276,6 +2278,8 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
             "phone_number",
             "selected_role",
             "profile_completion_percentage",
+            "company_name",
+            "job_title",
         ]
 
     def get_selected_role(self, obj) -> str:

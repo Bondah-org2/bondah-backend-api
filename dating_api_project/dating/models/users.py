@@ -472,6 +472,8 @@ class User(AbstractUser):
     preferred_language = models.CharField(
         max_length=10, default="en", help_text="User's preferred app language"
     )
+    job_title = models.CharField(max_length=50, blank=True, null=True)
+    company_name = models.CharField(max_length=50, blank=True, null=True)
 
     # Bondcoin Wallet (From Figma Design)
     # bondcoin_balance = models.PositiveIntegerField(
