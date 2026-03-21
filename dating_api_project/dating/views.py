@@ -1137,7 +1137,7 @@ class AdminTeamView(generics.ListAPIView):
             - Filter by role
             - Filter by status
         """
-        qs = User.objects.filter(created_by=self.request.user, is_staff=True).select_related("role")
+        qs = User.objects.filter(is_staff=True).select_related("role")
 
         # ----- Search -----
         search_query = self.request.query_params.get("search", None)
