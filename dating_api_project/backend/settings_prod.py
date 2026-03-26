@@ -329,7 +329,7 @@ SIMPLE_JWT = {
 # CORS settings for production
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:8081,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org,https://bondah-website-fe-production.up.railway.app",
+    "http://localhost:8081,http://localhost:5173,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org,https://bondah-website-fe-production.up.railway.app",
 ).split(",")
 CORS_ALLOW_CREDENTIALS = True
 

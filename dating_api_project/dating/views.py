@@ -5661,7 +5661,6 @@ class AdminBondmakerReviewView(GenericAPIView):
             })
 
 
-
 # View for admin to check pending bondamker Application
 class AdminPendingBondmakersView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
