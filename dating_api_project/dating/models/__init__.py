@@ -37,6 +37,7 @@ from .feed import (
     UserSocialHandle,
     UserSecurityQuestion,
     DocumentVerification,
+    SelfieVerification,
 )
 from .gifts import GiftCategory, VirtualGift, GiftTransaction
 from .live import (
@@ -123,6 +124,7 @@ __all__ = [
     "UserSecurityQuestion",
     "DocumentVerification",
     "BondmakerTaskCompletion",
+    "SelfieVerification",
     # Gifts
     "GiftCategory",
     "VirtualGift",

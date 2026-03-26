@@ -204,10 +204,10 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # Email Configuration
 # For development (console output):
-# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # For production (Gmail SMTP):
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_HOST")  # Use your server from the screenshot
 EMAIL_PORT = 587  # Port from the screenshot
 EMAIL_USE_TLS = True  # Keep TLS enabled

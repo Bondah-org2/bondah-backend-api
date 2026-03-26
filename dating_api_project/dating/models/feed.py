@@ -586,3 +586,34 @@ class BondmakerTaskCompletion(models.Model):
         indexes = [
             models.Index(fields=["bondmaker", "completed_at"]),
         ]
+
+
+class SelfieVerification(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="selfie_verifications"
+    )
+
+    document_verification = models.ForeignKey(
+        DocumentVerification,
+        on_delete=models.CASCADE,
+        related_name="selfie_checks"
+    )
+
+    # Selfie image / video
+    selfie_image_url = models.URLField(blank=True, null=True)
+
+    is_match = models.BooleanField(default=False)
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ("pending", "Pending"),
+            ("processing", "Processing"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        default="pending",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    verified_at = models.DateTimeField(blank=True, null=True)

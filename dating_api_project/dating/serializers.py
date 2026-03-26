@@ -91,6 +91,7 @@ from .models import (
     BondCirclePostLike,
     BondCircle,
     BondCircleMember,
+    SelfieVerification,
 )
 
 from drf_spectacular.utils import extend_schema_field
@@ -549,7 +550,7 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentVerification
-        fields = ["document_type", "front_image_url", "back_image_url"]
+        fields = ["id", "document_type", "front_image_url", "back_image_url"]
 
     def validate_front_image_url(self, value):
         """Validate front image URL for security"""
@@ -1756,36 +1757,6 @@ class UserVerificationStatusSerializer(serializers.ModelSerializer):
         return badges
 
 
-# Email and Phone Verification Serializers
-# class RequestEmailOTPSerializer(serializers.Serializer):
-#     email = serializers.EmailField()
-
-#     def validate_email(self, value):
-#         if User.objects.filter(email=value).exists():
-#             raise serializers.ValidationError("User already exists.")
-#         if not EmailVerification.can_resend_for_email(value):
-#             raise serializers.ValidationError(
-#                 "Too many OTP requests. Please try again in a minute."
-#             )
-#         return value
-
-#     def create(self, validated_data):
-#         email = validated_data["email"]
-
-#         # Create OTP record
-#         verification = EmailVerification.create_verification(user=None, email=email)
-
-#         # Send OTP email
-#         send_mail(
-#             subject="Your Verification OTP",
-#             message=f"Your OTP is {verification.otp_code}",
-#             from_email=settings.DEFAULT_FROM_EMAIL,
-#             recipient_list=[email],
-#         )
-
-#         return {"message": "OTP sent successfully"}
-
-
 class RegisterRequestOTPSerializer(serializers.Serializer):
     email = serializers.EmailField(
         validators=[
@@ -1946,39 +1917,6 @@ class ResendEmailOTPSerializer(serializers.Serializer):
             "message": "OTP resent successfully",
             "registration_token": str(verification.registration_token),
         }
-
-
-# class PhoneOTPRequestSerializer(serializers.Serializer):
-#     phone_number = serializers.CharField(max_length=15)
-#     country_code = serializers.CharField(max_length=5, default="+1")
-#     user_id = serializers.IntegerField(required=False)
-
-#     def validate_phone_number(self, value):
-#         import re
-
-#         # Remove all non-digit characters
-#         cleaned = re.sub(r"\D", "", value)
-#         if len(cleaned) < 10:
-#             raise serializers.ValidationError("Phone number must be at least 10 digits")
-#         return cleaned
-
-#     def validate_country_code(self, value):
-#         if not value.startswith("+"):
-#             value = "+" + value
-#         return value
-
-
-# class PhoneOTPVerifySerializer(serializers.Serializer):
-#     phone_number = serializers.CharField(max_length=15)
-#     country_code = serializers.CharField(max_length=5, default="+1")
-#     otp_code = serializers.CharField(max_length=4, min_length=4)
-
-#     def validate_otp_code(self, value):
-#         if not value.isdigit():
-#             raise serializers.ValidationError("OTP code must contain only digits")
-#         if len(value) != 4:
-#             raise serializers.ValidationError("OTP code must be 4 digits")
-#         return value
 
 
 class UserRoleSelectionSerializer(serializers.ModelSerializer):
@@ -4936,3 +4874,44 @@ class UpdateAdminMemberSerializer(serializers.ModelSerializer):
 
 class RemoveAdminMemberSerializer(serializers.Serializer):
     id = serializers.IntegerField()
+
+
+class SelfieSubmissionSerializer(serializers.ModelSerializer):
+    document_verification_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = SelfieVerification
+        fields = ["id", "document_verification_id", "selfie_image_url", "status"]
+        read_only_fields = ["status"]
+
+    def validate_document_verification_id(self, value):
+        user = self.context["request"].user
+
+        try:
+            document = DocumentVerification.objects.get(id=value, user=user)
+        except DocumentVerification.DoesNotExist:
+            raise serializers.ValidationError("Invalid document verification")
+
+        return document  # Return the document object itself
+
+    def create(self, validated_data):
+        user = self.context["request"].user
+        document = validated_data.pop("document_verification_id")
+
+        # Use transaction.atomic to prevent race conditions
+        with transaction.atomic():
+            # Check again inside transaction to prevent duplicates
+            if SelfieVerification.objects.select_for_update().filter(
+                user=user, document_verification=document
+            ).exists():
+                raise serializers.ValidationError(
+                    "Selfie already submitted for this document"
+                )
+
+            selfie = SelfieVerification.objects.create(
+                user=user,
+                document_verification=document,
+                status="pending",
+                **validated_data
+            )
+        return selfie

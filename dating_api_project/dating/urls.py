@@ -192,6 +192,8 @@ from .views import (
     AdminOverviewView,
     CloudinarySignatureView,
     ChatMessagesView,
+    SelfieSubmissionView,
+    UserSelfieListView,
 )
 from .liveness_views import (
     StartLivenessCheckView,
@@ -890,5 +892,8 @@ urlpatterns = [
 
     # Cloudinary Signature request view
     path("cloudinary-signature/", CloudinarySignatureView.as_view(), name="cloudinary"),
+
+    path("selfie/submit/", SelfieSubmissionView.as_view()),
+    path("selfie/", UserSelfieListView.as_view()),
 
 ]

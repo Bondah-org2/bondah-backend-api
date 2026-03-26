@@ -103,6 +103,7 @@ from .models import (
     BondCirclePost,
     BondCircle,
     BondCirclePostLike,
+    SelfieVerification,
 )
 from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
@@ -275,6 +276,7 @@ from .serializers import (
     UpdateAdminMemberSerializer,
     TeamMemberSerializer,
     RemoveAdminMemberSerializer,
+    SelfieSubmissionSerializer,
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -2593,213 +2595,6 @@ class LocationStatisticsView(GenericAPIView):
             )
 
 
-# =============================================================================
-# EMAIL AND PHONE VERIFICATION VIEWS
-# =============================================================================
-
-
-# class EmailOTPRequestView(GenericAPIView):
-#     permission_classes = [AllowAny]
-#     serializer_class = EmailOTPRequestSerializer
-
-#     @extend_schema(
-#         request=EmailOTPRequestSerializer, responses={200: OTPResponseSerializer}
-#     )
-#     def post(self, request):
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-#         email = serializer.validated_data["email"]
-
-#         User = get_user_model()
-#         user, created = User.objects.get_or_create(
-#             email=email, defaults={"username": email, "is_active": False}
-#         )
-
-#         if not EmailVerification.can_resend_for_email(email):
-#             return Response(
-#                 {"message": "Too many OTP requests. Wait 1 minute", "status": "error"},
-#                 status=status.HTTP_429_TOO_MANY_REQUESTS,
-#             )
-
-#         verification = EmailVerification.create_verification(user, email)
-#         subject = "Verify Your Email - Bondah Dating"
-#         message = f"Your OTP is: {verification.otp_code} (expires in 10 minutes)"
-#         send_mail(
-#             subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False
-#         )
-
-#         return Response(
-#             {
-#                 "message": "OTP sent to your email",
-#                 "status": "success",
-#                 "email": email,
-#                 "expires_in": 600,
-#             },
-#             status=status.HTTP_200_OK,
-#         )
-
-
-# class EmailOTPVerifyView(GenericAPIView):
-#     permission_classes = [AllowAny]
-#     serializer_class = EmailOTPVerifySerializer
-
-#     @extend_schema(
-#         request=EmailOTPVerifySerializer, responses={200: OTPResponseSerializer}
-#     )
-#     def post(self, request):
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-
-#         email = serializer.validated_data["email"]
-#         otp_code = serializer.validated_data["otp_code"]
-
-#         try:
-#             verification = EmailVerification.objects.filter(
-#                 email=email, otp_code=otp_code, is_used=False
-#             ).latest("created_at")
-
-#             if verification.is_expired():
-#                 return Response(
-#                     {"message": "OTP expired", "status": "error"},
-#                     status=status.HTTP_400_BAD_REQUEST,
-#                 )
-
-#             verification.is_verified = True
-#             verification.is_used = True
-#             verification.verified_at = timezone.now()
-#             verification.save()
-
-#             user = verification.user
-#             user.is_active = True
-#             user.save()
-
-#             user_status, _ = UserVerificationStatus.objects.get_or_create(user=user)
-#             user_status.email_verified = True
-#             user_status.email_verified_at = timezone.now()
-#             user_status.update_verification_level()
-
-#             return Response(
-#                 {
-#                     "message": "Email verified successfully",
-#                     "status": "success",
-#                     "user": {
-#                         "id": user.id,
-#                         "email": user.email,
-#                         "is_active": user.is_active,
-#                     },
-#                 },
-#                 status=status.HTTP_200_OK,
-#             )
-
-#         except EmailVerification.DoesNotExist:
-#             return Response(
-#                 {"message": "Invalid OTP", "status": "error"},
-#                 status=status.HTTP_400_BAD_REQUEST,
-#             )
-
-
-# class PhoneOTPRequestView(GenericAPIView):
-#     permission_classes = [AllowAny]
-#     serializer_class = PhoneOTPRequestSerializer
-
-#     @extend_schema(
-#         request=PhoneOTPRequestSerializer, responses={200: OTPResponseSerializer}
-#     )
-#     def post(self, request):
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-
-#         phone_number = serializer.validated_data["phone_number"]
-#         country_code = serializer.validated_data.get("country_code", "+1")
-#         user_id = serializer.validated_data["user_id"]
-
-#         User = get_user_model()
-#         try:
-#             user = User.objects.get(id=user_id)
-#         except User.DoesNotExist:
-#             return Response(
-#                 {"message": "User not found", "status": "error"}, status=404
-#             )
-
-#         if not PhoneVerification.can_resend_for_phone(phone_number, country_code):
-#             return Response(
-#                 {"message": "Too many OTP requests. Wait 1 minute", "status": "error"},
-#                 status=status.HTTP_429_TOO_MANY_REQUESTS,
-#             )
-
-#         verification = PhoneVerification.create_verification(
-#             user, phone_number, country_code
-#         )
-#         print(f"SMS OTP for {country_code}{phone_number}: {verification.otp_code}")
-
-#         return Response(
-#             {
-#                 "message": "OTP sent to your phone",
-#                 "status": "success",
-#                 "phone_number": f"{country_code}{phone_number}",
-#                 "expires_in": 600,
-#             },
-#             status=status.HTTP_200_OK,
-#         )
-
-
-# class PhoneOTPVerifyView(GenericAPIView):
-#     permission_classes = [AllowAny]
-#     serializer_class = PhoneOTPVerifySerializer
-
-#     @extend_schema(
-#         request=PhoneOTPVerifySerializer, responses={200: OTPResponseSerializer}
-#     )
-#     def post(self, request):
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-
-#         phone_number = serializer.validated_data["phone_number"]
-#         country_code = serializer.validated_data.get("country_code", "+1")
-#         otp_code = serializer.validated_data["otp_code"]
-
-#         try:
-#             verification = PhoneVerification.objects.filter(
-#                 phone_number=phone_number,
-#                 country_code=country_code,
-#                 otp_code=otp_code,
-#                 is_used=False,
-#             ).latest("created_at")
-
-#             if verification.is_expired():
-#                 return Response(
-#                     {"message": "OTP expired", "status": "error"}, status=400
-#                 )
-
-#             verification.is_verified = True
-#             verification.is_used = True
-#             verification.verified_at = timezone.now()
-#             verification.save()
-
-#             user_status, _ = UserVerificationStatus.objects.get_or_create(
-#                 user=verification.user
-#             )
-#             user_status.phone_verified = True
-#             user_status.phone_verified_at = timezone.now()
-#             user_status.update_verification_level()
-
-#             return Response(
-#                 {
-#                     "message": "Phone verified successfully",
-#                     "status": "success",
-#                     "user": {
-#                         "id": verification.user.id,
-#                         "email": verification.user.email,
-#                         "phone_verified": True,
-#                     },
-#                 },
-#                 status=status.HTTP_200_OK,
-#             )
-
-#         except PhoneVerification.DoesNotExist:
-#             return Response({"message": "Invalid OTP", "status": "error"}, status=400)
-
-
 class UserRoleSelectionView(GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = UserRoleSelectionSerializer
@@ -2957,26 +2752,6 @@ class UserRoleStatusView(GenericAPIView):
 #         )
 
 #         return queryset
-
-
-# class UserProfileDetailView(generics.RetrieveAPIView):
-#     permission_classes = [IsAuthenticated]
-#     serializer_class = UserProfileDetailSerializer
-#     lookup_field = "id"
-#     lookup_url_kwarg = "user_id"
-
-#     def get_queryset(self):
-#         return User.objects.filter(is_active=True)
-
-#     def retrieve(self, request, *args, **kwargs):
-#         response = super().retrieve(request, *args, **kwargs)
-#         # Track profile view
-#         UserProfileView.objects.get_or_create(
-#             viewer=request.user,
-#             viewed_user=self.get_object(),
-#             defaults={"source": "direct"},
-#         )
-#         return response
 
 
 class UserProfileDetailView(generics.RetrieveAPIView):
@@ -5767,6 +5542,48 @@ class AdminNewsletterListView(GenericAPIView):
 
 
 # Bondmaker Application Review View
+# class AdminBondmakerReviewView(GenericAPIView):
+#     permission_classes = [IsAdminUser]
+
+#     class InputSerializer(serializers.Serializer):
+#         action = serializers.ChoiceField(choices=["approve", "reject"])
+#         reason = serializers.CharField(required=False, allow_blank=True)
+
+#     serializer_class = InputSerializer
+
+#     def post(self, request, verification_id):
+#         serializer = self.get_serializer(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+
+#         action = serializer.validated_data["action"]
+#         reason = serializer.validated_data.get("reason", "")
+
+#         verification = get_object_or_404(DocumentVerification, id=verification_id)
+
+#         user = verification.user
+
+#         if action == "approve":
+#             verification.status = "approved"
+#             verification.is_authentic = True
+#             verification.verified_at = timezone.now()
+#             verification.save()
+
+#             user.is_matchmaker = True
+#             user.save(update_fields=["is_matchmaker"])
+
+#             return Response({"message": "User approved as bondmaker"})
+
+#         if action == "reject":
+#             verification.status = "rejected"
+#             verification.rejection_reason = reason or "Rejected by admin"
+#             verification.save()
+
+#             user.is_matchmaker = False
+#             user.save(update_fields=["is_matchmaker"])
+
+#             return Response({"message": "Bondmaker request rejected"})
+
+
 class AdminBondmakerReviewView(GenericAPIView):
     permission_classes = [IsAdminUser]
 
@@ -5783,30 +5600,66 @@ class AdminBondmakerReviewView(GenericAPIView):
         action = serializer.validated_data["action"]
         reason = serializer.validated_data.get("reason", "")
 
-        verification = get_object_or_404(DocumentVerification, id=verification_id)
+        # ✅ Get document
+        document = get_object_or_404(DocumentVerification, id=verification_id)
+        user = document.user
 
-        user = verification.user
+        # ✅ Get related selfie
+        selfie = user.selfie_verifications.filter(
+            document_verification=document
+        ).last()
 
+        if not selfie:
+            return Response(
+                {"error": "Selfie verification not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ❗ Prevent double review
+        if document.status != "pending" or selfie.status != "pending":
+            return Response(
+                {"error": "KYC already reviewed"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ✅ APPROVE FLOW
         if action == "approve":
-            verification.status = "approved"
-            verification.is_authentic = True
-            verification.verified_at = timezone.now()
-            verification.save()
+            document.status = "approved"
+            document.is_authentic = True
+            document.verified_at = timezone.now()
+            document.save()
+
+            selfie.status = "approved"
+            selfie.is_match = True
+            selfie.verified_at = timezone.now()
+            selfie.save()
 
             user.is_matchmaker = True
             user.save(update_fields=["is_matchmaker"])
 
-            return Response({"message": "User approved as bondmaker"})
+            return Response({
+                "message": "KYC approved successfully",
+                "user_id": user.id
+            })
 
+        # ❌ REJECT FLOW
         if action == "reject":
-            verification.status = "rejected"
-            verification.rejection_reason = reason or "Rejected by admin"
-            verification.save()
+            document.status = "rejected"
+            document.rejection_reason = reason or "Rejected by admin"
+            document.save()
+
+            selfie.status = "rejected"
+            selfie.is_match = False
+            selfie.save()
 
             user.is_matchmaker = False
             user.save(update_fields=["is_matchmaker"])
 
-            return Response({"message": "Bondmaker request rejected"})
+            return Response({
+                "message": "KYC rejected",
+                "reason": reason
+            })
+
 
 
 # View for admin to check pending bondamker Application
@@ -6996,3 +6849,34 @@ class CloudinarySignatureView(GenericAPIView):
 
         serializer = self.get_serializer(data)
         return Response(serializer.data)
+
+
+class SelfieSubmissionView(GenericAPIView):
+    serializer_class = SelfieSubmissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        selfie = serializer.save()
+
+        return Response(
+            {
+                "message": "Selfie submitted successfully",
+                "data": {
+                    "id": selfie.id,
+                    "status": selfie.status,
+                    "selfie_image_url": selfie.selfie_image_url,
+                    "document_verification_id": selfie.document_verification.id
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class UserSelfieListView(generics.ListAPIView):
+    serializer_class = SelfieSubmissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return SelfieVerification.objects.filter(user=self.request.user)
