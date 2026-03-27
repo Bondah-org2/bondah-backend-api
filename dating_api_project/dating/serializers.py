@@ -4758,26 +4758,22 @@ class AdminLoginSerializer(serializers.Serializer):
 
 
 class AdminLogoutSerializer(serializers.Serializer):
-
     refresh = serializers.CharField()
 
     def validate(self, attrs):
-
         self.token = attrs["refresh"]
-
         return attrs
 
     def save(self):
-
         try:
-
             token = RefreshToken(self.token)
-
             token.blacklist()
-
         except Exception:
-
             raise serializers.ValidationError("Invalid refresh token")
+
+
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
 
 
 class TeamMemberSerializer(serializers.ModelSerializer):

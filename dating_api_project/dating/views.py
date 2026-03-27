@@ -280,6 +280,7 @@ from .serializers import (
     RemoveAdminMemberSerializer,
     SelfieSubmissionSerializer,
     GoogleCallbackSerializer,
+    MessageResponseSerializer,
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -1045,7 +1046,7 @@ class AdminLoginView(APIView):
     permission_classes = [AllowAny]
     @extend_schema(
         request=AdminLoginSerializer,
-        responses=200
+        responses=AdminLoginResponseSerializer
     )
     def post(self, request):
 
@@ -1081,7 +1082,7 @@ class AdminLogoutView(APIView):
 
     @extend_schema(
         request=AdminLogoutSerializer,
-        responses=200
+        responses=MessageResponseSerializer
     )
     def post(self, request):
 
@@ -1819,34 +1820,36 @@ class GoogleOAuthView(generics.GenericAPIView):
                 OAuthTokenGenerator,
             )
 
-            oauth_data, error = GoogleOAuthVerifier.verify_id_token(id_token)
+            # Wrap token creation and user creation in a transaction
+            with transaction.atomic():
+                oauth_data, error = GoogleOAuthVerifier.verify_id_token(id_token)
 
-            if error:
-                return Response(
-                    {
-                        "message": f"Google OAuth verification failed: {error}",
-                        "status": "error",
-                    },
-                    status=400,
+                if error:
+                    return Response(
+                        {
+                            "message": f"Google OAuth verification failed: {error}",
+                            "status": "error",
+                        },
+                        status=400,
+                    )
+
+                user, error = OAuthUserManager.get_or_create_user_from_oauth(
+                    oauth_data, "google"
                 )
 
-            user, error = OAuthUserManager.get_or_create_user_from_oauth(
-                oauth_data, "google"
-            )
+                if error:
+                    return Response(
+                        {"message": f"User creation failed: {error}", "status": "error"},
+                        status=400,
+                    )
 
-            if error:
-                return Response(
-                    {"message": f"User creation failed: {error}", "status": "error"},
-                    status=400,
-                )
+                tokens, error = OAuthTokenGenerator.generate_tokens(user)
 
-            tokens, error = OAuthTokenGenerator.generate_tokens(user)
-
-            if error:
-                return Response(
-                    {"message": f"Token generation failed: {error}", "status": "error"},
-                    status=500,
-                )
+                if error:
+                    return Response(
+                        {"message": f"Token generation failed: {error}", "status": "error"},
+                        status=500,
+                    )
 
             return Response(
                 {
@@ -1865,6 +1868,9 @@ class GoogleOAuthView(generics.GenericAPIView):
             )
 
 
+@method_decorator(
+    ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
+)
 class AppleOAuthView(generics.GenericAPIView):
     """Apple Sign-In for mobile app"""
 
@@ -1877,6 +1883,13 @@ class AppleOAuthView(generics.GenericAPIView):
         description="Login or register user using Apple identity token.",
     )
     def post(self, request):
+
+        if getattr(request, "limited", False):
+            return Response(
+                {"error": "Too many requests. Please try again in a minute."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -1889,34 +1902,36 @@ class AppleOAuthView(generics.GenericAPIView):
                 OAuthTokenGenerator,
             )
 
-            oauth_data, error = AppleOAuthVerifier.verify_identity_token(identity_token)
+            # Wrap verification, user creation, and token generation in a transaction
+            with transaction.atomic():
+                oauth_data, error = AppleOAuthVerifier.verify_identity_token(identity_token)
 
-            if error:
-                return Response(
-                    {
-                        "message": f"Apple OAuth verification failed: {error}",
-                        "status": "error",
-                    },
-                    status=400,
+                if error:
+                    return Response(
+                        {
+                            "message": f"Apple OAuth verification failed: {error}",
+                            "status": "error",
+                        },
+                        status=400,
+                    )
+
+                user, error = OAuthUserManager.get_or_create_user_from_oauth(
+                    oauth_data, "apple"
                 )
 
-            user, error = OAuthUserManager.get_or_create_user_from_oauth(
-                oauth_data, "apple"
-            )
+                if error:
+                    return Response(
+                        {"message": f"User creation failed: {error}", "status": "error"},
+                        status=400,
+                    )
 
-            if error:
-                return Response(
-                    {"message": f"User creation failed: {error}", "status": "error"},
-                    status=400,
-                )
+                tokens, error = OAuthTokenGenerator.generate_tokens(user)
 
-            tokens, error = OAuthTokenGenerator.generate_tokens(user)
-
-            if error:
-                return Response(
-                    {"message": f"Token generation failed: {error}", "status": "error"},
-                    status=500,
-                )
+                if error:
+                    return Response(
+                        {"message": f"Token generation failed: {error}", "status": "error"},
+                        status=500,
+                    )
 
             return Response(
                 {
