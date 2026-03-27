@@ -79,7 +79,7 @@ class AppleOAuthVerifier:
         if (
             cls._cached_keys
             and cls._last_fetch_time
-            and timezone.now() - cls._last_fetch_time < cls._cache_duration
+            and datetime.now(timezone.utc) - cls._last_fetch_time < cls._cache_duration
         ):
             return cls._cached_keys
 
@@ -89,7 +89,7 @@ class AppleOAuthVerifier:
 
             keys = response.json().get("keys", [])
             cls._cached_keys = keys
-            cls._last_fetch_time = timezone.now()
+            cls._last_fetch_time = datetime.now(timezone.utc)
 
             return keys
 
@@ -242,10 +242,10 @@ class OAuthTokenGenerator:
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "access_token_expires": (
-                    timezone.now() + timedelta(hours=1)
+                    datetime.now(timezone.utc) + timedelta(hours=1)
                 ).isoformat(),
                 "refresh_token_expires": (
-                    timezone.now() + timedelta(days=7)
+                    datetime.now(timezone.utc) + timedelta(days=7)
                 ).isoformat(),
             }, None
 

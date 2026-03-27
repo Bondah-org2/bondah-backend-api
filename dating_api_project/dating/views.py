@@ -1054,7 +1054,7 @@ class AdminLoginView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = serializer.validated_data["user"]
-        user.last_used = timezone.now()
+        user.last_used = datetime.now(timezone.utc)
         user.save()
 
         refresh = RefreshToken.for_user(user)
@@ -2988,7 +2988,7 @@ class ChatMessagesView(generics.ListAPIView):
             sender=request.user
         ).update(
             is_read=True,
-            read_at=timezone.now()
+            read_at=datetime.now(timezone.utc)
         )
 
         return super().list(request, *args, **kwargs)
