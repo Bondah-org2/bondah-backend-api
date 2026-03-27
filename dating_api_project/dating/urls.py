@@ -194,6 +194,7 @@ from .views import (
     ChatMessagesView,
     SelfieSubmissionView,
     UserSelfieListView,
+    GoogleOAuthCallbackView,
 )
 from .liveness_views import (
     StartLivenessCheckView,
@@ -372,6 +373,7 @@ urlpatterns = [
     ),
     # OAuth Authentication Endpoints
     path("oauth/google/", GoogleOAuthView.as_view(), name="google-oauth"),
+    path("oauth/google/callback/", GoogleOAuthCallbackView.as_view(), name="google-callback"),
     path("oauth/apple/", AppleOAuthView.as_view(), name="apple-oauth"),
     path("oauth/social-login/", SocialLoginView.as_view(), name="social-login"),
     path(

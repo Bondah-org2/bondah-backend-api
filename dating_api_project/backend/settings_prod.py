@@ -622,6 +622,15 @@ SPECTACULAR_SETTINGS = {
     ],
 }
 
+APPLE_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt"
+APPLE_SANDBOX_URL = "https://sandbox.itunes.apple.com/verifyReceipt"
+
+APPLE_SHARED_SECRET = "xxxx"
+APPLE_BUNDLE_ID = "com.bondah.app"
+
+GOOGLE_PACKAGE_NAME = "com.bondah.app"
+GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
+
 REDIS_URL = os.environ.get("REDIS_URL")
 if not REDIS_URL:
     raise RuntimeError(

@@ -944,6 +944,7 @@ class DeviceRegistration(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        unique_together = ["user", "device_id"]
 
 
 class LocationHistory(models.Model):

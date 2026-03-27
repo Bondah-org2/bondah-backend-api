@@ -5,127 +5,157 @@ OAuth utility functions for Google and Apple authentication
 import json
 import jwt
 import requests
-from datetime import datetime, timedelta
-from django.conf import settings
+from datetime import datetime, timedelta, timezone
 from django.contrib.auth import get_user_model
 from .models import SocialAccount
+from jwt.algorithms import RSAAlgorithm
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+import os
 
 User = get_user_model()
 
 
-class GoogleOAuthVerifier:
-    """Google OAuth token verification"""
+def get_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing environment variable: {name}")
+    return value
 
-    GOOGLE_TOKEN_INFO_URL = "https://oauth2.googleapis.com/tokeninfo"
-    GOOGLE_USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+
+class GoogleOAuthVerifier:
+    """Google OAuth verification"""
 
     @staticmethod
-    def verify_access_token(access_token):
-        """Verify Google access token and get user info"""
+    def verify_id_token(token: str):
         try:
-            # Verify token with Google
-            params = {"access_token": access_token}
-            response = requests.get(
-                GoogleOAuthVerifier.GOOGLE_TOKEN_INFO_URL, params=params
+            google_client_id = get_env("GOOGLE_CLIENT_ID")
+
+            idinfo = id_token.verify_oauth2_token(
+                token,
+                google_requests.Request(),
+                google_client_id,
             )
 
-            if response.status_code != 200:
-                return None, "Invalid access token"
-
-            token_info = response.json()
-
-            # Get user info
-            headers = {"Authorization": f"Bearer {access_token}"}
-            user_response = requests.get(
-                GoogleOAuthVerifier.GOOGLE_USER_INFO_URL, headers=headers
-            )
-
-            if user_response.status_code != 200:
-                return None, "Failed to get user info"
-
-            user_info = user_response.json()
+            if idinfo.get("iss") not in [
+                "accounts.google.com",
+                "https://accounts.google.com",
+            ]:
+                return None, "Invalid issuer"
 
             return {
-                "id": user_info.get("id"),
-                "email": user_info.get("email"),
-                "name": user_info.get("name"),
-                "first_name": user_info.get("given_name"),
-                "last_name": user_info.get("family_name"),
-                "picture": user_info.get("picture"),
-                "verified_email": user_info.get("verified_email", False),
+                "id": idinfo.get("sub"),
+                "email": idinfo.get("email"),
+                "name": idinfo.get("name"),
+                "first_name": idinfo.get("given_name"),
+                "last_name": idinfo.get("family_name"),
+                "picture": idinfo.get("picture"),
+                "verified_email": idinfo.get("email_verified", False),
                 "provider": "google",
             }, None
 
-        except Exception as e:
+        except ValueError:
+            return None, "Invalid token"
+
+        except RuntimeError as e:
             return None, str(e)
+
+        except Exception:
+            return None, "Google authentication failed"
 
 
 class AppleOAuthVerifier:
-    """Apple Sign-In token verification"""
+    """Production-grade Apple Sign-In verification"""
 
     APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
 
-    @staticmethod
-    def verify_identity_token(identity_token):
-        """Verify Apple identity token and get user info"""
+    _cached_keys = None
+    _last_fetch_time = None
+    _cache_duration = timedelta(hours=6)
+
+    @classmethod
+    def _get_apple_keys(cls):
+        """Fetch and cache Apple public keys"""
+        if (
+            cls._cached_keys
+            and cls._last_fetch_time
+            and timezone.now() - cls._last_fetch_time < cls._cache_duration
+        ):
+            return cls._cached_keys
+
         try:
-            # Decode token header to get key ID
-            unverified_header = jwt.get_unverified_header(identity_token)
-            kid = unverified_header.get("kid")
+            response = requests.get(cls.APPLE_KEYS_URL, timeout=5)
+            response.raise_for_status()
+
+            keys = response.json().get("keys", [])
+            cls._cached_keys = keys
+            cls._last_fetch_time = timezone.now()
+
+            return keys
+
+        except requests.RequestException:
+            return None
+
+    @classmethod
+    def _get_public_key(cls, kid):
+        keys = cls._get_apple_keys()
+        if not keys:
+            return None
+
+        for key in keys:
+            if key.get("kid") == kid:
+                return RSAAlgorithm.from_jwk(key)
+
+        return None
+
+    @staticmethod
+    def verify_identity_token(identity_token: str):
+        try:
+            apple_client_id = get_env("APPLE_CLIENT_ID")
+
+            header = jwt.get_unverified_header(identity_token)
+            kid = header.get("kid")
 
             if not kid:
-                return None, "Missing key ID in token header"
+                return None, "Missing key ID"
 
-            # Get Apple's public keys
-            response = requests.get(AppleOAuthVerifier.APPLE_KEYS_URL)
-            if response.status_code != 200:
-                return None, "Failed to get Apple public keys"
+            public_key = AppleOAuthVerifier._get_public_key(kid)
 
-            keys = response.json()
+            if not public_key:
+                return None, "Unable to fetch Apple public key"
 
-            # Find the correct key
-            key = None
-            for key_data in keys.get("keys", []):
-                if key_data.get("kid") == kid:
-                    key = key_data
-                    break
+            payload = jwt.decode(
+                identity_token,
+                public_key,
+                algorithms=["RS256"],
+                audience=apple_client_id,
+                issuer="https://appleid.apple.com",
+            )
 
-            if not key:
-                return None, "Key not found"
+            return {
+                "id": payload.get("sub"),
+                "email": payload.get("email"),
+                "email_verified": payload.get("email_verified") == "true",
+                "provider": "apple",
+            }, None
 
-            # Verify and decode token
-            try:
-                # In production, you would use the Apple client ID from settings
-                apple_client_id = getattr(settings, "APPLE_CLIENT_ID", "")
+        except jwt.ExpiredSignatureError:
+            return None, "Token expired"
 
-                # Decode without verification first to get claims
-                unverified_payload = jwt.decode(
-                    identity_token, options={"verify_signature": False}
-                )
+        except jwt.InvalidAudienceError:
+            return None, "Invalid audience (check APPLE_CLIENT_ID)"
 
-                # For production, implement proper JWT verification with Apple's public key
-                # This is a simplified version
-                user_info = {
-                    "id": unverified_payload.get("sub"),
-                    "email": unverified_payload.get("email"),
-                    "email_verified": unverified_payload.get("email_verified", False),
-                    "provider": "apple",
-                    "name": (
-                        unverified_payload.get("name", {})
-                        .get("fullName", {})
-                        .get("formatted")
-                        if unverified_payload.get("name")
-                        else None
-                    ),
-                }
+        except jwt.InvalidIssuerError:
+            return None, "Invalid issuer"
 
-                return user_info, None
+        except jwt.InvalidTokenError as e:
+            return None, f"Invalid token: {str(e)}"
 
-            except jwt.InvalidTokenError as e:
-                return None, f"Invalid token: {str(e)}"
-
-        except Exception as e:
+        except RuntimeError as e:
             return None, str(e)
+
+        except Exception:
+            return None, "Apple authentication failed"
 
 
 class OAuthUserManager:
@@ -212,10 +242,10 @@ class OAuthTokenGenerator:
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "access_token_expires": (
-                    datetime.utcnow() + timedelta(hours=1)
+                    timezone.now() + timedelta(hours=1)
                 ).isoformat(),
                 "refresh_token_expires": (
-                    datetime.utcnow() + timedelta(days=7)
+                    timezone.now() + timedelta(days=7)
                 ).isoformat(),
             }, None
 

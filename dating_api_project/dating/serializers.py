@@ -1327,9 +1327,11 @@ class SocialLoginSerializer(serializers.Serializer):
 
 
 class DeviceRegistrationSerializer(serializers.ModelSerializer):
+    device_id = serializers.CharField()
+
     class Meta:
         model = DeviceRegistration
-        fields = ["device_type", "push_token"]
+        fields = ["device_id", "device_type", "push_token"]
 
     def validate_device_type(self, value):
         if value not in ["ios", "android"]:
@@ -1338,25 +1340,34 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = self.context["request"].user
-        DeviceRegistration.objects.update_or_create(
-            push_token=validated_data["push_token"],
+
+        device_id = validated_data["device_id"]
+
+        # deactivate old tokens
+        DeviceRegistration.objects.filter(
+            user=user, device_id=device_id
+        ).update(is_active=False)
+
+        device, created = DeviceRegistration.objects.update_or_create(
+            device_id=device_id,
+            user=user,
             defaults={
-                "user": user,
-                "device_type": validated_data.get("device_type"),
+                "device_type": validated_data["device_type"],
+                "push_token": validated_data["push_token"],
                 "is_active": True,
             },
         )
-        return validated_data
+
+        return device
 
 
 # OAuth Serializers
 class GoogleOAuthSerializer(serializers.Serializer):
-    access_token = serializers.CharField()
-    id_token = serializers.CharField(required=False)
+    id_token = serializers.CharField()
 
-    def validate_access_token(self, value):
-        if not value or len(value) < 10:
-            raise serializers.ValidationError("Invalid access token format.")
+    def validate_id_token(self, value):
+        if not value:
+            raise serializers.ValidationError("ID token is required.")
         return value
 
 
@@ -4915,3 +4926,11 @@ class SelfieSubmissionSerializer(serializers.ModelSerializer):
                 **validated_data
             )
         return selfie
+
+
+class GoogleCallbackSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        required=True,
+        help_text="Authorization code returned by Google OAuth"
+    )
+

@@ -15,6 +15,7 @@ from django.core.files.storage import default_storage
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 import uuid
+import requests
 from django.core.files.base import ContentFile
 from rest_framework import serializers
 from .pagination import (
@@ -36,6 +37,7 @@ from .utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
 from .firebase_utils import ensure_firestore_user_document
 from .permissions import IsBondmakerOrReadOnly
+import os
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
@@ -277,6 +279,7 @@ from .serializers import (
     TeamMemberSerializer,
     RemoveAdminMemberSerializer,
     SelfieSubmissionSerializer,
+    GoogleCallbackSerializer,
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -1803,11 +1806,11 @@ class GoogleOAuthView(generics.GenericAPIView):
                 {"error": "Too many requests. Please try again in a minute."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
-        
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        access_token = serializer.validated_data["access_token"]
+        id_token = serializer.validated_data["id_token"]
 
         try:
             from .oauth_utils import (
@@ -1816,7 +1819,7 @@ class GoogleOAuthView(generics.GenericAPIView):
                 OAuthTokenGenerator,
             )
 
-            oauth_data, error = GoogleOAuthVerifier.verify_access_token(access_token)
+            oauth_data, error = GoogleOAuthVerifier.verify_id_token(id_token)
 
             if error:
                 return Response(
@@ -1932,6 +1935,42 @@ class AppleOAuthView(generics.GenericAPIView):
             )
 
 
+class GoogleOAuthCallbackView(generics.GenericAPIView):
+    serializer_class = GoogleCallbackSerializer
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        # Extract only the 'code' from the URL
+        code = request.GET.get("code")
+        if not code:
+            return Response({"error": "No code provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data={"code": code})
+        serializer.is_valid(raise_exception=True)
+
+        token_url = "https://oauth2.googleapis.com/token"
+        data = {
+            "code": serializer.validated_data["code"],
+            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI"),
+            "grant_type": "authorization_code",
+        }
+
+        try:
+            response = requests.post(token_url, data=data, timeout=10)
+            response.raise_for_status()
+            token_data = response.json()
+        except requests.RequestException as e:
+            return Response(
+                {"error": "Failed to exchange code for token", "details": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(token_data, status=status.HTTP_200_OK)
+
+
 class SocialLoginView(generics.GenericAPIView):
     """Unified social login endpoint (Google/Apple)"""
 
@@ -2023,51 +2062,22 @@ class SocialLoginView(generics.GenericAPIView):
 
 
 class DeviceRegistrationView(generics.CreateAPIView):
-    """
-    Register a device for push notifications.
-    Automatically deactivates old tokens for the same user/device combination.
-    """
-
     serializer_class = DeviceRegistrationSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        response = super().create(request, *args, **kwargs)
 
-        device_id = serializer.validated_data["device_id"]
-        device_type = serializer.validated_data["device_type"]
-        push_token = serializer.validated_data["push_token"]
-        user = request.user
+        active_tokens = DeviceRegistration.objects.filter(
+            user=request.user, is_active=True
+        ).count()
 
-        # Deactivate previous tokens for this device ID and user
-        DeviceRegistration.objects.filter(user=user, device_id=device_id).update(
-            is_active=False
-        )
-
-        # Create or update the device
-        device, created = DeviceRegistration.objects.update_or_create(
-            device_id=device_id,
-            user=user,
-            defaults={
-                "device_type": device_type,
-                "push_token": push_token,
-                "is_active": True,
-            },
-        )
-
-        return Response(
-            {
-                "message": "Device registered successfully",
-                "status": "success",
-                "device_id": device.device_id,
-                "created": created,
-                "active_tokens": DeviceRegistration.objects.filter(
-                    user=user, is_active=True
-                ).count(),
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response({
+            "message": "Device registered successfully",
+            "status": "success",
+            "data": response.data,
+            "active_tokens": active_tokens,
+        })
 
 
 class OAuthLinkAccountView(generics.GenericAPIView):
@@ -6142,7 +6152,7 @@ class MatchRequestCreateView(generics.GenericAPIView):
         # Update Notification Table
         # Send push notification to bondmaker
         notify_user(
-            match_request.bondmaker,
+            user=match_request.bondmaker,
             title="New Match Request",
             message=f"{request.user.name} liked {user_match.user2.name}.",
             data={"match_request_id": match_request.id},
@@ -6346,7 +6356,7 @@ class UserInteractionView(generics.CreateAPIView):
                 raise ValidationError({"detail": str(e)})
 
             notify_user(
-                bondmaker,
+                user=bondmaker,
                 title="New Match Request",
                 message=f"{user.name} liked {target_user.name}. Review request.",
                 data={

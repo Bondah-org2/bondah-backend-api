@@ -95,6 +95,7 @@ def create_match_request(
 
     return match_request, user_match
 
+
 def accept_match_request(match_request_id: int):
     with transaction.atomic():
         # Lock only MatchRequest

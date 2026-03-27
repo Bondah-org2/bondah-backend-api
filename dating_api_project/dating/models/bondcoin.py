@@ -50,7 +50,7 @@ class WalletTransaction(models.Model):
         return f"{self.user.email} | {self.tx_type} {self.amount} | {self.payment_method}"
 
 
-# --- Bondcoin Packages (Optional) ---
+# --- Bondcoin Packages ---
 class BondcoinPackage(models.Model):
     name = models.CharField(max_length=100)
     apple_product_id = models.CharField(max_length=120, null=True, blank=True)
@@ -125,15 +125,3 @@ class ProductRevenueRecord(models.Model):
             models.Index(fields=["product_type"]),
         ]
 
-
-# class MatchRevenueSplit(models.Model):
-#     match = models.ForeignKey("UserMatch", on_delete=models.CASCADE)
-#     bondmaker = models.ForeignKey(User, on_delete=models.CASCADE)
-
-#     coins_used = models.IntegerField(default=5)
-
-#     real_revenue_usd = models.DecimalField(max_digits=10, decimal_places=2)
-#     platform_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
-#     bondmaker_share_usd = models.DecimalField(max_digits=10, decimal_places=2)
-
-#     created_at = models.DateTimeField(auto_now_add=True)

@@ -10,6 +10,13 @@ APPLE_VERIFY_URL = "https://buy.itunes.apple.com/verifyReceipt"
 GOOGLE_VERIFY_URL = (
     "https://androidpublisher.googleapis.com/androidpublisher/v3/applications"
 )
+APPLE_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt"
+APPLE_SANDBOX_URL = "https://sandbox.itunes.apple.com/verifyReceipt"
+
+APPLE_SHARED_SECRET = "xxxx"
+APPLE_BUNDLE_ID = "com.bondah.app"
+
+GOOGLE_PACKAGE_NAME = "com.bondah.app"
 
 
 def process_apple_purchase(user, receipt_data, package: BondcoinPackage):

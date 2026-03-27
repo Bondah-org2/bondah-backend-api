@@ -10,6 +10,8 @@ from .models.users import User  # Import your User model
 import logging
 from firebase_admin import credentials
 from typing import Optional, Dict
+from .models import DeviceRegistration
+from firebase_admin.exceptions import FirebaseError
 
 logger = logging.getLogger(__name__)
 
@@ -128,65 +130,29 @@ def update_user_profile_in_firestore(uid, data):
         return False
 
 
-def create_match_in_firestore(user_uid, matched_uid):
-    """
-    Create a match document in Firestore.
-    Assumes a 'matches' collection.
-    """
-    try:
-        db = get_firestore_client()
-        match_id = f"{user_uid}_{matched_uid}"
-        doc_ref = db.collection("matches").document(match_id)
-        doc_ref.set(
-            {
-                "user1": user_uid,
-                "user2": matched_uid,
-                "timestamp": firestore.SERVER_TIMESTAMP,
-                "status": "pending",  # Or 'matched'
-            }
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Error creating match in Firestore: {e}")
-        return False
-
-
-def send_push_notification(
-    token: str, title: str, body: str, data: Optional[Dict[str, str]] = None
-) -> Optional[str]:
-    """
-    Send a push notification via Firebase Cloud Messaging (FCM) to a single device.
-
-    Args:
-        token (str): FCM device token.
-        title (str): Notification title.
-        body (str): Notification body.
-        data (dict[str, str], optional): Additional key-value payload (all values must be strings).
-
-    Returns:
-        str | None: FCM message ID if sent successfully, otherwise None.
-    """
+def send_push_notification(token, title, body, data=None):
     if not token:
-        logger.warning("No FCM token provided. Skipping push notification.")
         return None
 
     try:
-        # Ensure all data values are strings
-        if data:
-            data = {k: str(v) for k, v in data.items()}
-
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
-            data=data or {},
+            data={k: str(v) for k, v in (data or {}).items()},
             token=token,
         )
 
-        response = messaging.send(message)
-        logger.info(f"Successfully sent FCM message: {response}")
-        return response
+        return messaging.send(message)
 
-    except Exception as e:
-        logger.error(f"Error sending push notification to token {token}: {e}")
+    except FirebaseError as e:
+        error_str = str(e)
+
+        # 🚨 Handle invalid tokens
+        if "registration-token-not-registered" in error_str:
+            DeviceRegistration.objects.filter(push_token=token).update(
+                is_active=False
+            )
+
+        logger.error(f"FCM error: {e}")
         return None
 
 
