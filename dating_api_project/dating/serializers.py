@@ -2057,6 +2057,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "preferred_gender",
             "job_title",
             "company_name",
+            "deal_breaker",
             # "visibility_status",
             # "visibility_choice",
         ]
@@ -2229,6 +2230,7 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
             "profile_completion_percentage",
             "company_name",
             "job_title",
+            "deal_breaker",
         ]
 
     def get_selected_role(self, obj) -> str:
@@ -4929,4 +4931,3 @@ class GoogleCallbackSerializer(serializers.Serializer):
         required=True,
         help_text="Authorization code returned by Google OAuth"
     )
-

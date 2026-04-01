@@ -146,7 +146,7 @@ def send_push_notification(token, title, body, data=None):
     except FirebaseError as e:
         error_str = str(e)
 
-        # 🚨 Handle invalid tokens
+        #  Handle invalid tokens
         if "registration-token-not-registered" in error_str:
             DeviceRegistration.objects.filter(push_token=token).update(
                 is_active=False

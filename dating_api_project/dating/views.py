@@ -36,7 +36,12 @@ from django.utils.decorators import method_decorator
 from .utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
 from .firebase_utils import ensure_firestore_user_document
-from .permissions import IsBondmakerOrReadOnly
+from .permissions import (IsBondmakerOrReadOnly,
+                          CanViewApplications,
+                          CanManageTeam,
+                          CanViewOverview,
+                          CanViewReports,
+                          CanViewWithdrawals)
 import os
 
 # from .location_utils import find_nearby_users, get_location_statistics
@@ -5610,7 +5615,7 @@ class AdminNewsletterListView(GenericAPIView):
 
 
 class AdminBondmakerReviewView(GenericAPIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [CanViewApplications]
 
     class InputSerializer(serializers.Serializer):
         action = serializers.ChoiceField(choices=["approve", "reject"])
@@ -6833,7 +6838,7 @@ class AdminOverviewView(GenericAPIView):
     """
 
     serializer_class = AdminOverviewSerializer
-    permission_classes = [IsAdminUser, IsAuthenticated]
+    permission_classes = [CanViewOverview]
 
     def get(self, request, *args, **kwargs):
         # Admin-only protection

@@ -63,3 +63,62 @@ class IsPrincipalAdmin(BasePermission):
             request.user.is_authenticated
             and request.user.is_principal_admin
         )
+
+
+class IsAdminForListElseAuthenticated(BasePermission):
+    def has_permission(self, request, view):
+        # Allow all authenticated users to create
+        if request.method == "POST":
+            return request.user and request.user.is_authenticated
+
+        # Only admin can view list
+        if request.method in SAFE_METHODS:
+            return request.user and request.user.is_staff
+
+        return False
+
+
+class HasAdminPermission(BasePermission):
+    """
+    Base permission class to check AdminPermission flags
+    """
+
+    permission_field = None  # override in child classes
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        # Must be authenticated
+        if not user or not user.is_authenticated:
+            return False
+
+        # Must be staff/admin
+        if not user.is_staff:
+            return False
+
+        # Must have admin_permissions object
+        if not hasattr(user, "admin_permissions"):
+            return False
+
+        # Check specific permission
+        return getattr(user.admin_permissions, self.permission_field, False)
+
+
+class CanViewApplications(HasAdminPermission):
+    permission_field = "can_view_applications"
+
+
+class CanViewReports(HasAdminPermission):
+    permission_field = "can_view_reports"
+
+
+class CanManageTeam(HasAdminPermission):
+    permission_field = "can_manage_team"
+
+
+class CanViewWithdrawals(HasAdminPermission):
+    permission_field = "can_view_withdrawals"
+
+
+class CanViewOverview(HasAdminPermission):
+    permission_field = "can_view_overview"
