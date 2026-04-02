@@ -613,6 +613,19 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
 
         return url
 
+    def validate(self, attrs):
+        user = self.context["request"].user
+
+        if DocumentVerification.objects.filter(
+            user=user,
+            status__in=["pending", "approved"]
+        ).exists():
+            raise serializers.ValidationError(
+                "You already have an active verification request"
+            )
+
+        return attrs
+
     def create(self, validated_data):
         """Create document verification with current user"""
         request = self.context.get("request")
@@ -3781,9 +3794,7 @@ class PushNotificationSerializer(serializers.Serializer):
 
 
 class BondmakerListSerializer(serializers.ModelSerializer):
-    verification_status = serializers.CharField(
-        source="documentverification.status", read_only=True
-    )
+    verification_status = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -3795,6 +3806,10 @@ class BondmakerListSerializer(serializers.ModelSerializer):
             "location",
             "verification_status",
         )
+
+    def get_verification_status(self, obj) -> str:
+        latest = obj.document_verifications.order_by("-uploaded_at").first()
+        return latest.status if latest else None
 
 
 class PublicBondmakerProfileSerializer(serializers.ModelSerializer):

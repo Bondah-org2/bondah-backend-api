@@ -365,7 +365,7 @@ from .story_query import StoryQueryMixin
 from rest_framework.decorators import action
 import cloudinary
 import cloudinary.utils
-import datetime
+from django.db.models import Prefetch
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -5630,11 +5630,11 @@ class AdminBondmakerReviewView(GenericAPIView):
         action = serializer.validated_data["action"]
         reason = serializer.validated_data.get("reason", "")
 
-        # ✅ Get document
+        #  Get document
         document = get_object_or_404(DocumentVerification, id=verification_id)
         user = document.user
 
-        # ✅ Get related selfie
+        # Get related selfie
         selfie = user.selfie_verifications.filter(
             document_verification=document
         ).last()
@@ -5645,14 +5645,14 @@ class AdminBondmakerReviewView(GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ❗ Prevent double review
+        # Prevent double review
         if document.status != "pending" or selfie.status != "pending":
             return Response(
                 {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ✅ APPROVE FLOW
+        # APPROVE FLOW
         if action == "approve":
             document.status = "approved"
             document.is_authentic = True
@@ -5672,7 +5672,7 @@ class AdminBondmakerReviewView(GenericAPIView):
                 "user_id": user.id
             })
 
-        # ❌ REJECT FLOW
+        # REJECT FLOW
         if action == "reject":
             document.status = "rejected"
             document.rejection_reason = reason or "Rejected by admin"
@@ -5707,7 +5707,10 @@ class AdminBondmakerListView(generics.ListAPIView):
     pagination_class = BondmakerPagination
 
     def get_queryset(self):
-        queryset = User.objects.select_related("documentverification").all()
+        queryset = User.objects.prefetch_related(Prefetch(
+            "document_verifications",
+            queryset=DocumentVerification.objects.order_by("-uploaded_at"),
+        ))
 
         #  Search
         search = self.request.query_params.get("search")
