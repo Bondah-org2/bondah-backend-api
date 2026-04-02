@@ -5707,10 +5707,9 @@ class AdminBondmakerListView(generics.ListAPIView):
     pagination_class = BondmakerPagination
 
     def get_queryset(self):
-        queryset = User.objects.prefetch_related(Prefetch(
-            "document_verifications",
-            queryset=DocumentVerification.objects.order_by("-uploaded_at"),
-        ))
+        queryset = User.objects.filter(
+            document_verifications__isnull=False
+        ).distinct()
 
         #  Search
         search = self.request.query_params.get("search")

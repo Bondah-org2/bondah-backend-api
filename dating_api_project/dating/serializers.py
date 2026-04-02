@@ -3807,7 +3807,7 @@ class BondmakerListSerializer(serializers.ModelSerializer):
             "verification_status",
         )
 
-    def get_verification_status(self, obj) -> str:
+    def get_verification_status(self, obj):
         latest = obj.document_verifications.order_by("-uploaded_at").first()
         return latest.status if latest else None
 
