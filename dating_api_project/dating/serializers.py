@@ -2060,7 +2060,6 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "email_notifications_enabled",
             "preferred_language",
             "profile_completion_percentage",
-            "phone_number",
             "selected_role",
             "traits",
             "genotype",
@@ -2083,6 +2082,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "profile_completion_percentage",
             "location",
             "age",
+            "bio"
             # "visibility_status",
             # "visibility_choice",
         ]
@@ -2238,7 +2238,6 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
             "genotype",
             "location",
             "date_of_birth",
-            "phone_number",
             "selected_role",
             "profile_completion_percentage",
             "company_name",
