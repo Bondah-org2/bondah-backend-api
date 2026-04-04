@@ -474,6 +474,8 @@ class User(AbstractUser):
     )
     job_title = models.CharField(max_length=50, blank=True, null=True)
     company_name = models.CharField(max_length=50, blank=True, null=True)
+    bondmaker_profile_picture = models.URLField(null=True, blank=True)
+    bondmaker_cover_picture = models.URLField(null=True, blank=True)
 
     # Bondcoin Wallet (From Figma Design)
     # bondcoin_balance = models.PositiveIntegerField(

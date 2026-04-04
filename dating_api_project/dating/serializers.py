@@ -2012,6 +2012,12 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
     interests = serializers.ListField(child=serializers.CharField())
     traits = serializers.ListField(child=serializers.CharField())
     profile_gallery = serializers.ListField(child=serializers.URLField())
+    speciality = serializers.SlugRelatedField(
+        slug_field="category",
+        queryset=Specialisation.objects.all(),
+        many=True,
+        source="specialisations",
+    )
     # visibility_status = serializers.SerializerMethodField()
     # visibility_choice = serializers.SerializerMethodField()
 
@@ -2025,6 +2031,8 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "username",
             "bio",
             "profile_picture",
+            "bondmaker_profile_picture",
+            "bondmaker_cover_picture",
             "profile_gallery",
             "education_level",
             "height",
@@ -2071,6 +2079,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "job_title",
             "company_name",
             "deal_breaker",
+            "speciality",
             # "visibility_status",
             # "visibility_choice",
         ]
@@ -2084,6 +2093,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "location",
             "age",
             "username",
+            "speciality"
             # "visibility_status",
             # "visibility_choice",
         ]
@@ -2197,6 +2207,12 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
     interests = serializers.ListField(child=serializers.CharField())
     traits = serializers.ListField(child=serializers.CharField())
     profile_gallery = serializers.ListField(child=serializers.URLField())
+    speciality = serializers.SlugRelatedField(
+        slug_field="category",
+        queryset=Specialisation.objects.all(),
+        many=True,
+        source="specialisations",
+    )
 
     class Meta:
         model = User
@@ -2244,7 +2260,10 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
             "company_name",
             "job_title",
             "deal_breaker",
+            "speciality"
         ]
+
+        read_only_fields = ["speciality"]
 
     def get_selected_role(self, obj) -> str:
         role_selection = getattr(obj, "role_selection", None)
