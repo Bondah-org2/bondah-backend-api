@@ -105,7 +105,7 @@ from .views import (
     DocumentVerificationListView,
     DocumentVerificationDetailView,
     # DocumentUploadView,
-    CreateUsernameView,
+    # CreateUsernameView,
     UsernameUpdateView,
     # Subscription Plans Views (NEW FROM FIGMA)
     SubscriptionPlanListView,
@@ -557,7 +557,7 @@ urlpatterns = [
     ),
 
     # Username Validation Endpoints (NEW FROM FIGMA)
-    path("username/create/", CreateUsernameView.as_view(), name="username-validate"),
+    # path("username/create/", CreateUsernameView.as_view(), name="username-validate"),
     path("username/update/", UsernameUpdateView.as_view(), name="username-update"),
     # Subscription Plans Endpoints (NEW FROM FIGMA)
     path(

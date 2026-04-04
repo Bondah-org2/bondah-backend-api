@@ -639,59 +639,59 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 
-class CreateUsernameSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=30)
+# class CreateUsernameSerializer(serializers.Serializer):
+#     username = serializers.CharField(max_length=30)
 
-    def validate_username(self, value):
-        user = self.context["request"].user
+#     def validate_username(self, value):
+#         user = self.context["request"].user
 
-        # User already has username
-        if user.username:
-            raise serializers.ValidationError(
-                "Username is already set. You cannot change it here."
-            )
+#         # User already has username
+#         if user.username:
+#             raise serializers.ValidationError(
+#                 "Username is already set. You cannot change it here."
+#             )
 
-        clean_username = value.strip().lstrip("@")
+#         clean_username = value.strip().lstrip("@")
 
-        # Validate format
-        try:
-            validate_username_format(clean_username)
-        except ValidationError as e:
-            raise serializers.ValidationError(str(e))
+#         # Validate format
+#         try:
+#             validate_username_format(clean_username)
+#         except ValidationError as e:
+#             raise serializers.ValidationError(str(e))
 
-        # Check availability
-        is_valid, message, suggestions = UsernameValidation.validate_username(
-            clean_username
-        )
+#         # Check availability
+#         is_valid, message, suggestions = UsernameValidation.validate_username(
+#             clean_username
+#         )
 
-        # Attach result for use in create()
-        self._username_check = {
-            "is_valid": is_valid,
-            "message": message,
-            "suggestions": suggestions,
-            "clean_username": clean_username,
-        }
+#         # Attach result for use in create()
+#         self._username_check = {
+#             "is_valid": is_valid,
+#             "message": message,
+#             "suggestions": suggestions,
+#             "clean_username": clean_username,
+#         }
 
-        return clean_username
+#         return clean_username
 
-    def create(self, validated_data):
-        check = self._username_check
-        user = self.context["request"].user
+#     def create(self, validated_data):
+#         check = self._username_check
+#         user = self.context["request"].user
 
-        # If username is taken → DO NOT create
-        if not check["is_valid"]:
-            raise serializers.ValidationError(
-                {
-                    "message": check["message"],
-                    "suggestions": check["suggestions"],
-                }
-            )
+#         # If username is taken → DO NOT create
+#         if not check["is_valid"]:
+#             raise serializers.ValidationError(
+#                 {
+#                     "message": check["message"],
+#                     "suggestions": check["suggestions"],
+#                 }
+#             )
 
-        # Create username
-        user.username = check["clean_username"]
-        user.save(update_fields=["username"])
+#         # Create username
+#         user.username = check["clean_username"]
+#         user.save(update_fields=["username"])
 
-        return user
+#         return user
 
 
 class UsernameUpdateSerializer(serializers.ModelSerializer):

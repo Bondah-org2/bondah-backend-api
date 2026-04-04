@@ -166,7 +166,7 @@ from .serializers import (
     UserProfileWithLocationSerializer,
     NearbyUserSerializer,
     MatchPreferencesSerializer,
-    CreateUsernameSerializer,
+    # CreateUsernameSerializer,
     PaymentWebhookCreateSerializer,
     PaymentTransactionSerializer,
     PaymentTransactionCreateSerializer,
@@ -4360,36 +4360,36 @@ class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
 # =============================================================================
 
 
-class CreateUsernameView(generics.CreateAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = CreateUsernameSerializer
+# class CreateUsernameView(generics.CreateAPIView):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = CreateUsernameSerializer
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+#     def create(self, request, *args, **kwargs):
+#         serializer = self.get_serializer(data=request.data)
 
-        try:
-            serializer.is_valid(raise_exception=True)
-            user = serializer.save()
+#         try:
+#             serializer.is_valid(raise_exception=True)
+#             user = serializer.save()
 
-            return Response(
-                {
-                    "message": "Username created successfully",
-                    "status": "success",
-                    "username": user.username,
-                },
-                status=status.HTTP_201_CREATED,
-            )
+#             return Response(
+#                 {
+#                     "message": "Username created successfully",
+#                     "status": "success",
+#                     "username": user.username,
+#                 },
+#                 status=status.HTTP_201_CREATED,
+#             )
 
-        except serializers.ValidationError as e:
-            # This is where suggestions come back
-            return Response(
-                {
-                    "message": "Username unavailable",
-                    "status": "error",
-                    **e.detail,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+#         except serializers.ValidationError as e:
+#             # This is where suggestions come back
+#             return Response(
+#                 {
+#                     "message": "Username unavailable",
+#                     "status": "error",
+#                     **e.detail,
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
 
 
 class UsernameUpdateView(generics.UpdateAPIView):
