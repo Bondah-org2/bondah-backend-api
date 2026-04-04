@@ -3912,6 +3912,8 @@ class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "username",
             "name",
+            "bondamker_bio",
+            "email",
             "gender",
             "date_of_birth",
             "relationship_status",
@@ -3919,6 +3921,8 @@ class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
             "profile_picture",
             "security_questions",
             "security_questions_update",
+            "bondmaker_profile_picture",
+            "bondmaker_cover_picture",
         ]
 
     def validate_username(self, value):
