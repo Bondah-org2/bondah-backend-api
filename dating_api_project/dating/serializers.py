@@ -2022,6 +2022,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "name",
             "age",
             "gender",
+            "username",
             "bio",
             "profile_picture",
             "profile_gallery",
@@ -2082,7 +2083,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "profile_completion_percentage",
             "location",
             "age",
-            "bio"
+            "username",
             # "visibility_status",
             # "visibility_choice",
         ]
