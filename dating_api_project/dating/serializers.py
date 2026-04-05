@@ -2030,6 +2030,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "gender",
             "username",
             "bio",
+            "bondamker_bio",
             "profile_picture",
             "bondmaker_profile_picture",
             "bondmaker_cover_picture",
@@ -3826,7 +3827,7 @@ class BondmakerListSerializer(serializers.ModelSerializer):
             "verification_status",
         )
 
-    def get_verification_status(self, obj):
+    def get_verification_status(self, obj) -> str:
         latest = obj.document_verifications.order_by("-uploaded_at").first()
         return latest.status if latest else None
 
