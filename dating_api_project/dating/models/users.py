@@ -476,7 +476,7 @@ class User(AbstractUser):
     company_name = models.CharField(max_length=50, blank=True, null=True)
     bondmaker_profile_picture = models.URLField(null=True, blank=True)
     bondmaker_cover_picture = models.URLField(null=True, blank=True)
-    bondamker_bio = models.TextField(blank=True, null=True)
+    bondmaker_bio = models.TextField(blank=True, null=True)
 
     # Bondcoin Wallet (From Figma Design)
     # bondcoin_balance = models.PositiveIntegerField(

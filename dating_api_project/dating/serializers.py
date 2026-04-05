@@ -2030,7 +2030,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "gender",
             "username",
             "bio",
-            "bondamker_bio",
+            "bondmaker_bio",
             "profile_picture",
             "bondmaker_profile_picture",
             "bondmaker_cover_picture",
@@ -3913,7 +3913,7 @@ class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "username",
             "name",
-            "bondamker_bio",
+            "bondmaker_bio",
             "email",
             "gender",
             "date_of_birth",
