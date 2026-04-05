@@ -5755,23 +5755,42 @@ class BondmakerProfileDetailView(generics.RetrieveAPIView):
 
 
 # Bondmaker List view
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="category",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            description="Filter by category. Can be repeated (?category=lgbtq&category=career) or comma-separated (?category=lgbtq,career)",
+        ),
+        OpenApiParameter(
+            name="search",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            description="Search by username, location, city or state",
+        ),
+    ]
+)
 class PublicBondmakerListView(generics.ListAPIView):
     serializer_class = PublicBondmakerProfileSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = BondmakerPublicPagination
 
     def get_queryset(self):
+        user = self.request.user
+
         qs = (
             User.objects.filter(
                 is_matchmaker=True,
                 document_verifications__status="approved",
                 document_verifications__is_authentic=True,
             )
+            .exclude(id=user.id)
             .distinct()
-            .prefetch_related("document_verifications")
+            .prefetch_related("document_verifications", "specialisations")
         )
 
-        # Annotate number of accepted match requests
+        # Accepted matches (popularity)
         qs = qs.annotate(
             accepted_match_count=Count(
                 "received_requests",
@@ -5779,22 +5798,57 @@ class PublicBondmakerListView(generics.ListAPIView):
             )
         )
 
-        # Filter by requesting user's location
-        # if user.location:
-        #     qs = qs.filter(location=user.location)
+        # =========================
+        # CATEGORY FILTER
+        # =========================
+        categories = self.request.query_params.getlist("category")
 
-        # Filter by availability
-        # availability = self.request.query_params.get("availability")  # online / offline
-        # if availability in ["online", "offline"]:
-        #     qs = qs.filter(availability_status=availability)
+        if not categories:
+            category_param = self.request.query_params.get("category")
+            if category_param:
+                categories = [c.strip() for c in category_param.split(",")]
 
-        # Search by username or location query param
+        if categories:
+            # User explicitly filtering
+            qs = qs.filter(
+                specialisations__category__in=categories
+            ).distinct()
+
+            # Optional: still rank by popularity
+            return qs.order_by("-accepted_match_count", "-id")
+
+        # =========================
+        # RECOMMENDATION LOGIC
+        # =========================
+        user_categories = list(
+            user.specialisations.values_list("category", flat=True)
+        )
+
+        if user_categories:
+            qs = qs.annotate(
+                match_score=Count(
+                    "specialisations",
+                    filter=Q(specialisations__category__in=user_categories),
+                    distinct=True,
+                )
+            ).order_by("-match_score", "-accepted_match_count", "-id")
+        else:
+            # Cold start (no categories)
+            qs = qs.order_by("-accepted_match_count", "-id")
+
+        # =========================
+        # SEARCH (applies to both cases)
+        # =========================
         search = self.request.query_params.get("search")
         if search:
-            qs = qs.filter(Q(username__icontains=search) | Q(location__icontains=search))
+            qs = qs.filter(
+                Q(username__icontains=search) |
+                Q(location__icontains=search) |
+                Q(city__icontains=search) |
+                Q(state__icontains=search)
+            )
 
-        # Order by most accepted requests
-        return qs.order_by("-accepted_match_count", "-id")
+        return qs
 
 
 class BondmakerProfileUpdateView(generics.UpdateAPIView):

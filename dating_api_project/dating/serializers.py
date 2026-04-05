@@ -3836,6 +3836,12 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
     verification_status = serializers.SerializerMethodField()
     age = serializers.ReadOnlyField()
     accepted_match_count = serializers.IntegerField(read_only=True)
+    speciality = serializers.SlugRelatedField(
+        slug_field="category",
+        queryset=Specialisation.objects.all(),
+        many=True,
+        source="specialisations",
+    )
 
     class Meta:
         model = User
@@ -3846,10 +3852,10 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
             "location",
             "gender",
             "age",
-            "availability_status",
             "verification_status",
             "age",
             "accepted_match_count",
+            "speciality",
         ]
 
         read_only_fields = [
