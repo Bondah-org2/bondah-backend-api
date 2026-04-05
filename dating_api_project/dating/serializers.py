@@ -2027,6 +2027,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "age",
+            "email",
             "gender",
             "username",
             "bio",
@@ -2220,6 +2221,7 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "email",
             "age",
             "gender",
             "bio",
