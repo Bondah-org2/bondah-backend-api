@@ -3744,66 +3744,22 @@ class PostViewSet(viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"])
     def interact(self, request, pk=None):
-        """
-        Handle like, share, bond interactions.
-        Ensures a user can only like a post once.
-        """
         post = self.get_object()
+
         serializer = PostInteractionSerializer(
-            data=request.data, context={"request": request, "post": post}
+            data=request.data,
+            context={"request": request, "post": post},
         )
         serializer.is_valid(raise_exception=True)
-        interaction_type = serializer.validated_data["interaction_type"]
 
-        # -------- SAFE LIKE LOGIC --------
-        if interaction_type == "like":
-            with transaction.atomic():
-                obj, created = PostInteraction.objects.get_or_create(
-                    user=request.user, post=post, interaction_type="like"
-                )
+        interaction = serializer.save()
 
-                if not created:
-                    # User already liked → toggle OFF
-                    obj.delete()
-                    Post.objects.filter(id=post.id).update(
-                        likes_count=F("likes_count") - 1
-                    )
-                    post.refresh_from_db()
-                    return Response({"liked": False, "likes_count": post.likes_count})
+        post.refresh_from_db()
 
-                # New like → increment counter
-                Post.objects.filter(id=post.id).update(likes_count=F("likes_count") + 1)
-                post.refresh_from_db()
-                return Response(
-                    {"liked": True, "likes_count": post.likes_count},
-                    status=status.HTTP_201_CREATED,
-                )
-
-        # -------- EXISTING SHARE / BOND LOGIC  --------
-        obj, created = PostInteraction.objects.get_or_create(
-            user=request.user, post=post, interaction_type=interaction_type
-        )
-
-        if not created:
-            # Toggle OFF
-            obj.delete()
-            if interaction_type == "share":
-                Post.objects.filter(id=post.id).update(
-                    shares_count=F("shares_count") - 1
-                )
-            elif interaction_type == "bond":
-                Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") - 1)
-            return Response({"message": "Interaction removed"})
-
-        # Toggle ON
-        if interaction_type == "share":
-            Post.objects.filter(id=post.id).update(shares_count=F("shares_count") + 1)
-        elif interaction_type == "bond":
-            Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") + 1)
-
-        return Response(
-            {"message": "Interaction added"}, status=status.HTTP_201_CREATED
-        )
+        return Response({
+            "message": "Interaction processed",
+            "likes_count": post.likes_count,
+        }, status=status.HTTP_200_OK)
 
 
 @extend_schema_view(
@@ -3990,84 +3946,84 @@ class PostCommentViewSet(viewsets.ModelViewSet):
         ]
     ),
 )
-class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated]
-    lookup_field = "pk"
+# class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
+#     permission_classes = [permissions.IsAuthenticated]
+#     lookup_field = "pk"
 
-    def get_queryset(self):
-        return self.base_queryset()
+#     def get_queryset(self):
+#         return self.base_queryset()
 
-    def get_serializer_class(self):
-        if self.action == "create":
-            return StoryCreateSerializer
-        return StorySerializer
+#     def get_serializer_class(self):
+#         if self.action == "create":
+#             return StoryCreateSerializer
+#         return StorySerializer
 
-    def perform_create(self, serializer):
-        """Automatically set author and 24-hour expiration"""
-        serializer.save(
-            author=self.request.user, expires_at=timezone.now() + timedelta(hours=24)
-        )
+#     def perform_create(self, serializer):
+#         """Automatically set author and 24-hour expiration"""
+#         serializer.save(
+#             author=self.request.user, expires_at=timezone.now() + timedelta(hours=24)
+#         )
 
-    def retrieve(self, request, pk=None):
-        """Retrieve story and track a view for the current user."""
-        story = get_object_or_404(self.get_queryset(), pk=pk)
-        StoryView.objects.get_or_create(story=story, viewer=request.user)
-        serializer = self.get_serializer(story)
-        return Response(serializer.data)
+#     def retrieve(self, request, pk=None):
+#         """Retrieve story and track a view for the current user."""
+#         story = get_object_or_404(self.get_queryset(), pk=pk)
+#         StoryView.objects.get_or_create(story=story, viewer=request.user)
+#         serializer = self.get_serializer(story)
+#         return Response(serializer.data)
 
-    @action(detail=True, methods=["post"])
-    def like(self, request, pk=None):
-        """Toggle like on a story"""
-        story = self.get_object()
-        interaction, created = StoryInteraction.objects.get_or_create(
-            story=story, user=request.user, interaction_type="like"
-        )
+#     @action(detail=True, methods=["post"])
+#     def like(self, request, pk=None):
+#         """Toggle like on a story"""
+#         story = self.get_object()
+#         interaction, created = StoryInteraction.objects.get_or_create(
+#             story=story, user=request.user, interaction_type="like"
+#         )
 
-        if not created:
-            # Toggle off if already liked
-            interaction.delete()
-            liked = False
-        else:
-            liked = True
+#         if not created:
+#             # Toggle off if already liked
+#             interaction.delete()
+#             liked = False
+#         else:
+#             liked = True
 
-        # Update reactions_count
-        story.reactions_count = story.interactions.count()
-        story.save(update_fields=["reactions_count"])
+#         # Update reactions_count
+#         story.reactions_count = story.interactions.count()
+#         story.save(update_fields=["reactions_count"])
 
-        return Response({"liked": liked, "reactions_count": story.reactions_count})
+#         return Response({"liked": liked, "reactions_count": story.reactions_count})
 
-    @action(detail=True, methods=["post"])
-    def share(self, request, pk=None):
-        """Share a story once"""
-        story = self.get_object()
-        interaction, created = StoryInteraction.objects.get_or_create(
-            story=story, user=request.user, interaction_type="share"
-        )
+#     @action(detail=True, methods=["post"])
+#     def share(self, request, pk=None):
+#         """Share a story once"""
+#         story = self.get_object()
+#         interaction, created = StoryInteraction.objects.get_or_create(
+#             story=story, user=request.user, interaction_type="share"
+#         )
 
-        if not created:
-            return Response(
-                {"shared": False, "detail": "Already shared"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+#         if not created:
+#             return Response(
+#                 {"shared": False, "detail": "Already shared"},
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
 
-        # Update reactions_count
-        story.reactions_count = story.interactions.count()
-        story.save(update_fields=["reactions_count"])
+#         # Update reactions_count
+#         story.reactions_count = story.interactions.count()
+#         story.save(update_fields=["reactions_count"])
 
-        return Response({"shared": True})
+#         return Response({"shared": True})
 
 
-class StoryViewersListView(generics.ListAPIView):
-    serializer_class = StoryViewerSerializer
-    permission_classes = [permissions.IsAuthenticated]
+# class StoryViewersListView(generics.ListAPIView):
+#     serializer_class = StoryViewerSerializer
+#     permission_classes = [permissions.IsAuthenticated]
 
-    def get_queryset(self):
-        story = get_object_or_404(Story, pk=self.kwargs["pk"])
+#     def get_queryset(self):
+#         story = get_object_or_404(Story, pk=self.kwargs["pk"])
 
-        if story.author != self.request.user:
-            return StoryView.objects.none()
+#         if story.author != self.request.user:
+#             return StoryView.objects.none()
 
-        return story.views.select_related("viewer")
+#         return story.views.select_related("viewer")
 
 
 # class FeedSearchView(generics.ListAPIView):

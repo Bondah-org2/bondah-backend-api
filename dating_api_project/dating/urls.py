@@ -89,7 +89,7 @@ from .views import (
     # PostCommentListView,
     # PostReportView,
     # PostShareView,
-    StoryViewSet,
+    # StoryViewSet,
     # FeedSearchView,
     # FeedSuggestionsView,
     # Live Session Views (NEW)
@@ -207,7 +207,7 @@ from .liveness_views import (
 
 router = DefaultRouter()
 router.register(r"bondstory/posts", PostViewSet, basename="bondstory-posts")
-router.register(r"stories", StoryViewSet, basename="stories")
+# router.register(r"stories", StoryViewSet, basename="stories")
 
 # Nested router for comments under posts
 posts_router = NestedDefaultRouter(router, r"bondstory/posts", lookup="post")  # lookup='post' ensures post_pk

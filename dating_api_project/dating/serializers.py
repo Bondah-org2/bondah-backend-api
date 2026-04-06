@@ -101,6 +101,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction as db_transaction
 from .services.visibility_services import VisibilityService
 from .notification import notify_user
+from django.db.models import F
 from .models.username import (
     UsernameValidation,
     clean_and_validate_username,
@@ -2806,7 +2807,7 @@ class PostDetailSerializer(serializers.ModelSerializer):
     author_name = serializers.CharField(source="author.name", read_only=True)
     comments = PostCommentNestedSerializer(many=True, read_only=True)
     has_liked = serializers.SerializerMethodField()
-    has_bonded = serializers.SerializerMethodField()
+    # has_bonded = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
@@ -2816,9 +2817,9 @@ class PostDetailSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         return obj.interactions.filter(user=user, interaction_type="like").exists()
 
-    def get_has_bonded(self, obj) -> bool:
-        user = self.context["request"].user
-        return obj.interactions.filter(user=user, interaction_type="bond").exists()
+    # def get_has_bonded(self, obj) -> bool:
+    #     user = self.context["request"].user
+    #     return obj.interactions.filter(user=user, interaction_type="bond").exists()
 
 
 class PostCommentCreateSerializer(serializers.ModelSerializer):
@@ -2850,7 +2851,7 @@ class PostSerializer(serializers.ModelSerializer):
         child=serializers.CharField(), required=False, allow_empty=True
     )
     has_liked = serializers.SerializerMethodField(default=False)
-    has_bonded = serializers.SerializerMethodField(default=False)
+    # has_bonded = serializers.SerializerMethodField(default=False)
     is_featured = serializers.BooleanField(default=False)
     is_reported = serializers.BooleanField(default=False)
     video_thumbnail = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
@@ -2862,7 +2863,6 @@ class PostSerializer(serializers.ModelSerializer):
             "id",
             "author",
             "author_name",
-            "post_type",
             "content",
             "image_urls",
             "video_url",
@@ -2873,20 +2873,21 @@ class PostSerializer(serializers.ModelSerializer):
             "mentions",
             "likes_count",
             "comments_count",
-            "shares_count",
-            "bonds_count",
+            # "shares_count",
+            # "bonds_count",
             "has_liked",
-            "has_bonded",
+            # "has_bonded",
             "created_at",
             "updated_at",
             "is_reported",
             "is_featured",
         ]
         read_only_fields = [
+            "id",
             "likes_count",
             "comments_count",
-            "shares_count",
-            "bonds_count",
+            # "shares_count",
+            # "bonds_count",
             "author",
         ]
 
@@ -2894,9 +2895,9 @@ class PostSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         return obj.interactions.filter(user=user, interaction_type="like").exists()
 
-    def get_has_bonded(self, obj) -> bool:
-        user = self.context["request"].user
-        return obj.interactions.filter(user=user, interaction_type="bond").exists()
+    # def get_has_bonded(self, obj) -> bool:
+    #     user = self.context["request"].user
+    #     return obj.interactions.filter(user=user, interaction_type="bond").exists()
 
 
 # class PostCreateSerializer(serializers.ModelSerializer):
@@ -3060,7 +3061,7 @@ class PostInteractionSerializer(serializers.ModelSerializer):
         fields = ["interaction_type"]
 
     def validate_interaction_type(self, value):
-        allowed = ["like", "share", "bond", "save"]
+        allowed = ["like", "save"]
         if value not in allowed:
             raise serializers.ValidationError("Invalid interaction type")
         return value
@@ -3076,29 +3077,17 @@ class PostInteractionSerializer(serializers.ModelSerializer):
             interaction_type=interaction_type,
         )
 
-        # LIKE (Toggle)
+        # LIKE (Toggle with counter)
         if interaction_type == "like":
             if created:
-                Post.objects.filter(id=post.id).update(likes_count=F("likes_count") + 1)
-            else:
-                interaction.delete()
-                Post.objects.filter(id=post.id).update(likes_count=F("likes_count") - 1)
-
-        # BOND (Toggle)
-        elif interaction_type == "bond":
-            if created:
-                Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") + 1)
-            else:
-                interaction.delete()
-                Post.objects.filter(id=post.id).update(bonds_count=F("bonds_count") - 1)
-
-        # SHARE (Not Toggle)
-        elif interaction_type == "share":
-            if created:
                 Post.objects.filter(id=post.id).update(
-                    shares_count=F("shares_count") + 1
+                    likes_count=F("likes_count") + 1
                 )
-            # if not created → do nothing (already shared)
+            else:
+                interaction.delete()
+                Post.objects.filter(id=post.id).update(
+                    likes_count=F("likes_count") - 1
+                )
 
         # SAVE (Toggle without counter)
         elif interaction_type == "save":

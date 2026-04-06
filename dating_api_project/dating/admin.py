@@ -684,14 +684,14 @@ class PostAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "author",
-        "post_type",
+        # "post_type",
         "content_preview",
         "likes_count",
         "comments_count",
         "is_active",
         "created_at",
     )
-    list_filter = ("post_type", "visibility", "is_active", "is_featured", "created_at")
+    list_filter = ("visibility", "is_active", "is_featured", "created_at")
     search_fields = ("content", "author__email", "location", "hashtags")
     ordering = ("-created_at",)
     readonly_fields = (
@@ -699,8 +699,8 @@ class PostAdmin(admin.ModelAdmin):
         "updated_at",
         "likes_count",
         "comments_count",
-        "shares_count",
-        "bonds_count",
+        # "shares_count",
+        # "bonds_count",
     )
 
     def content_preview(self, obj):

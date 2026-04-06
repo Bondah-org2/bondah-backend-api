@@ -7,11 +7,11 @@ from .users import User
 class Post(models.Model):
     """Represents user posts in the Bond Story feed"""
 
-    POST_TYPES = [
-        ("story", "Story"),
-        ("post", "Regular Post"),
-        ("announcement", "Announcement"),
-    ]
+    # POST_TYPES = [
+    #     ("story", "Story"),
+    #     ("post", "Regular Post"),
+    #     ("announcement", "Announcement"),
+    # ]
 
     VISIBILITY_CHOICES = [
         ("public", "Public"),
@@ -20,7 +20,7 @@ class Post(models.Model):
     ]
 
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="posts")
-    post_type = models.CharField(max_length=20, choices=POST_TYPES, default="post")
+    # post_type = models.CharField(max_length=20, choices=POST_TYPES, default="post")
     content = models.TextField(help_text="Post content/text")
 
     # Media attachments
@@ -43,10 +43,10 @@ class Post(models.Model):
     # Engagement metrics
     likes_count = models.PositiveIntegerField(default=0)
     comments_count = models.PositiveIntegerField(default=0)
-    shares_count = models.PositiveIntegerField(default=0)
-    bonds_count = models.PositiveIntegerField(
-        default=0, help_text="Handshake/bond reactions"
-    )
+    # shares_count = models.PositiveIntegerField(default=0)
+    # bonds_count = models.PositiveIntegerField(
+    #     default=0, help_text="Handshake/bond reactions"
+    # )
 
     # Status and moderation
     is_active = models.BooleanField(default=True)
@@ -65,15 +65,13 @@ class Post(models.Model):
         return (
             self.likes_count
             + self.comments_count
-            + self.shares_count
-            + self.bonds_count
         )
 
     class Meta:
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["author", "created_at"]),
-            models.Index(fields=["post_type", "is_active"]),
+            # models.Index(fields=["post_type", "is_active"]),
             models.Index(fields=["visibility", "created_at"]),
             models.Index(fields=["is_featured", "created_at"]),
         ]
