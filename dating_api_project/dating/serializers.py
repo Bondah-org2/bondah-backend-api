@@ -3835,9 +3835,9 @@ class BondmakerListSerializer(serializers.ModelSerializer):
 
 
 class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
-    verification_status = serializers.SerializerMethodField()
+    # verification_status = serializers.SerializerMethodField()
     age = serializers.ReadOnlyField()
-    accepted_match_count = serializers.IntegerField(read_only=True)
+    # accepted_match_count = serializers.IntegerField(read_only=True)
     speciality = serializers.SlugRelatedField(
         slug_field="category",
         queryset=Specialisation.objects.all(),
@@ -3850,13 +3850,12 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "profile_picture",
-            "location",
-            "gender",
+            "username",
+            "bondmaker_profile_picture",
+            "bondmaker_cover_picture",
             "age",
-            "verification_status",
-            "age",
-            "accepted_match_count",
+            "is_matchmaker",
+            # "accepted_match_count",
             "speciality",
         ]
 

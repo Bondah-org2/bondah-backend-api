@@ -116,7 +116,7 @@ from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
-from .notification import notify_user
+from .notification import notify_user, send_kyc_email
 from django.conf import settings
 import logging
 from rest_framework import filters
@@ -5630,11 +5630,9 @@ class AdminBondmakerReviewView(GenericAPIView):
         action = serializer.validated_data["action"]
         reason = serializer.validated_data.get("reason", "")
 
-        #  Get document
         document = get_object_or_404(DocumentVerification, id=verification_id)
         user = document.user
 
-        # Get related selfie
         selfie = user.selfie_verifications.filter(
             document_verification=document
         ).last()
@@ -5645,14 +5643,13 @@ class AdminBondmakerReviewView(GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Prevent double review
         if document.status != "pending" or selfie.status != "pending":
             return Response(
                 {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # APPROVE FLOW
+        # APPROVE
         if action == "approve":
             document.status = "approved"
             document.is_authentic = True
@@ -5667,12 +5664,26 @@ class AdminBondmakerReviewView(GenericAPIView):
             user.is_matchmaker = True
             user.save(update_fields=["is_matchmaker"])
 
+            #  Notify user
+            notify_user(
+                user=user,
+                title="Bondmaker Application Approved 🎉",
+                message="Congratulations! Your bondmaker application has been approved.",
+                data={
+                    "type": "kyc_update",
+                    "status": "approved"
+                },
+            )
+
+            # Eend Email
+            send_kyc_email(user, status="approved")
+
             return Response({
                 "message": "KYC approved successfully",
                 "user_id": user.id
             })
 
-        # REJECT FLOW
+        # REJECT
         if action == "reject":
             document.status = "rejected"
             document.rejection_reason = reason or "Rejected by admin"
@@ -5684,6 +5695,20 @@ class AdminBondmakerReviewView(GenericAPIView):
 
             user.is_matchmaker = False
             user.save(update_fields=["is_matchmaker"])
+
+            # Notify user
+            notify_user(
+                user=user,
+                title="Bondmaker Application Rejected",
+                message=f"Your application was rejected. Reason: {reason or 'Not specified'}",
+                data={
+                    "type": "kyc_update",
+                    "status": "rejected"
+                },
+            )
+
+            # 📧 Email
+            send_kyc_email(user, status="rejected", reason=reason)
 
             return Response({
                 "message": "KYC rejected",
@@ -5800,7 +5825,7 @@ class PublicBondmakerListView(generics.ListAPIView):
 
         # =========================
         # CATEGORY FILTER
-        # =========================
+
         categories = self.request.query_params.getlist("category")
 
         if not categories:
@@ -5817,9 +5842,7 @@ class PublicBondmakerListView(generics.ListAPIView):
             # Optional: still rank by popularity
             return qs.order_by("-accepted_match_count", "-id")
 
-        # =========================
         # RECOMMENDATION LOGIC
-        # =========================
         user_categories = list(
             user.specialisations.values_list("category", flat=True)
         )
