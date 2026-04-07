@@ -5613,24 +5613,6 @@ class AdminPendingBondmakersView(generics.ListAPIView):
 
 
 # Bondmaker List View (Admin, Filterable, Searchable)
-
-class AdminBondmakerListView(generics.ListAPIView):
-    serializer_class = DocumentVerificationListSerializer
-    permission_classes = [IsAdminUser]
-    pagination_class = BondmakerPagination
-
-    queryset = DocumentVerification.objects.select_related("user")
-
-    filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_class = BondmakerFilter
-
-    search_fields = ["user__name", "user__email", "user__phone_number"]
-
-    def get_queryset(self):
-        return super().get_queryset().order_by("-uploaded_at")
-
-
-# Bondmaker Pending detail View
 @extend_schema(
     parameters=[
         OpenApiParameter(
@@ -5648,6 +5630,24 @@ class AdminBondmakerListView(generics.ListAPIView):
         ),
     ]
 )
+class AdminBondmakerListView(generics.ListAPIView):
+    serializer_class = DocumentVerificationListSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = BondmakerPagination
+
+    queryset = DocumentVerification.objects.select_related("user")
+
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_class = BondmakerFilter
+
+    search_fields = ["user__name", "user__email", "user__phone_number"]
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("-uploaded_at")
+
+
+# Bondmaker Pending detail View
+
 class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAdminUser]
     serializer_class = AdminBondmakerDetailSerializer
