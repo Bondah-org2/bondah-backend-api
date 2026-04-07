@@ -588,8 +588,6 @@ class SelfieVerificationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "selfie_image_url",
-            "is_match",
-            "status",
             "created_at",
         ]
 
