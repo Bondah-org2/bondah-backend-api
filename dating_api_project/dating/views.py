@@ -286,6 +286,9 @@ from .serializers import (
     SelfieSubmissionSerializer,
     GoogleCallbackSerializer,
     MessageResponseSerializer,
+    DocumentVerificationListSerializer,
+    AdminBondmakerDetailSerializer,
+    AdminBondmakerStatsSerializer,
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -366,6 +369,9 @@ from rest_framework.decorators import action
 import cloudinary
 import cloudinary.utils
 from django.db.models import Prefetch
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter
+from .filters import BondmakerFilter
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -3907,45 +3913,44 @@ class PostCommentViewSet(viewsets.ModelViewSet):
 #         serializer.save(reporter=self.request.user)
 
 
-
-@extend_schema_view(
-    retrieve=extend_schema(
-        parameters=[
-            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    update=extend_schema(
-        parameters=[
-            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    partial_update=extend_schema(
-        parameters=[
-            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    destroy=extend_schema(
-        parameters=[
-            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    like=extend_schema(
-        parameters=[
-            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    share=extend_schema(
-        parameters=[
-            OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-)
+# @extend_schema_view(
+#     retrieve=extend_schema(
+#         parameters=[
+#             OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#             OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#         ]
+#     ),
+#     update=extend_schema(
+#         parameters=[
+#             OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#             OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#         ]
+#     ),
+#     partial_update=extend_schema(
+#         parameters=[
+#             OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#             OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#         ]
+#     ),
+#     destroy=extend_schema(
+#         parameters=[
+#             OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#             OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#         ]
+#     ),
+#     like=extend_schema(
+#         parameters=[
+#             OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#             OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#         ]
+#     ),
+#     share=extend_schema(
+#         parameters=[
+#             OpenApiParameter(name="pk", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#             OpenApiParameter(name="id", description="Story ID", location=OpenApiParameter.PATH, type=int),
+#         ]
+#     ),
+# )
 # class StoryViewSet(StoryQueryMixin, viewsets.ModelViewSet):
 #     permission_classes = [permissions.IsAuthenticated]
 #     lookup_field = "pk"
@@ -4243,7 +4248,6 @@ class PostCommentViewSet(viewsets.ModelViewSet):
 # DOCUMENT VERIFICATION VIEWS (NEW FROM FIGMA)
 # =============================================================================
 
-
 class DocumentVerificationListView(generics.ListCreateAPIView):
     """
     List and create document verification requests
@@ -4256,7 +4260,7 @@ class DocumentVerificationListView(generics.ListCreateAPIView):
 
             return DocumentVerificationCreateSerializer
 
-        return DocumentVerificationSerializer
+        return DocumentVerificationListSerializer
 
     def get_queryset(self):
 
@@ -4271,44 +4275,12 @@ class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from .serializers import DocumentVerificationSerializer
-
         return DocumentVerificationSerializer
 
     def get_queryset(self):
         from .models import DocumentVerification
 
         return DocumentVerification.objects.filter(user=self.request.user)
-
-
-# class DocumentUploadView(GenericAPIView):
-#     permission_classes = [IsAuthenticated]
-#     serializer_class = DocumentVerificationCreateSerializer
-
-#     def post(self, request):
-#         serializer = self.get_serializer(
-#             data=request.data, context={"request": request}
-#         )
-#         serializer.is_valid(raise_exception=True)
-
-#         verification, _ = DocumentVerification.objects.get_or_create(
-#             user=request.user,
-#             status="pending",
-#         )
-
-#         for field, value in serializer.validated_data.items():
-#             setattr(verification, field, value)
-
-#         verification.save()
-
-#         return Response(
-#             {
-#                 "message": "Document uploaded. Awaiting admin review.",
-#                 "status": "success",
-#                 "verification_id": verification.id,
-#             },
-#             status=201,
-#         )
 
 
 # =============================================================================
@@ -5528,47 +5500,6 @@ class AdminNewsletterListView(GenericAPIView):
 
 
 # Bondmaker Application Review View
-# class AdminBondmakerReviewView(GenericAPIView):
-#     permission_classes = [IsAdminUser]
-
-#     class InputSerializer(serializers.Serializer):
-#         action = serializers.ChoiceField(choices=["approve", "reject"])
-#         reason = serializers.CharField(required=False, allow_blank=True)
-
-#     serializer_class = InputSerializer
-
-#     def post(self, request, verification_id):
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-
-#         action = serializer.validated_data["action"]
-#         reason = serializer.validated_data.get("reason", "")
-
-#         verification = get_object_or_404(DocumentVerification, id=verification_id)
-
-#         user = verification.user
-
-#         if action == "approve":
-#             verification.status = "approved"
-#             verification.is_authentic = True
-#             verification.verified_at = timezone.now()
-#             verification.save()
-
-#             user.is_matchmaker = True
-#             user.save(update_fields=["is_matchmaker"])
-
-#             return Response({"message": "User approved as bondmaker"})
-
-#         if action == "reject":
-#             verification.status = "rejected"
-#             verification.rejection_reason = reason or "Rejected by admin"
-#             verification.save()
-
-#             user.is_matchmaker = False
-#             user.save(update_fields=["is_matchmaker"])
-
-#             return Response({"message": "Bondmaker request rejected"})
-
 
 class AdminBondmakerReviewView(GenericAPIView):
     permission_classes = [CanViewApplications]
@@ -5675,47 +5606,92 @@ class AdminBondmakerReviewView(GenericAPIView):
 # View for admin to check pending bondamker Application
 class AdminPendingBondmakersView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
-    serializer_class = DocumentVerificationSerializer
+    serializer_class = DocumentVerificationListSerializer
 
     def get_queryset(self):
         return DocumentVerification.objects.filter(status="pending")
 
 
 # Bondmaker List View (Admin, Filterable, Searchable)
+
 class AdminBondmakerListView(generics.ListAPIView):
-    serializer_class = BondmakerListSerializer
+    serializer_class = DocumentVerificationListSerializer
     permission_classes = [IsAdminUser]
     pagination_class = BondmakerPagination
 
+    queryset = DocumentVerification.objects.select_related("user")
+
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_class = BondmakerFilter
+
+    search_fields = ["user__name", "user__email", "user__phone_number"]
+
     def get_queryset(self):
-        queryset = User.objects.filter(
-            document_verifications__isnull=False
-        ).distinct()
+        return super().get_queryset().order_by("-uploaded_at")
 
-        #  Search
-        search = self.request.query_params.get("search")
-        if search:
-            queryset = queryset.filter(
-                Q(name__icontains=search)
-                | Q(email__icontains=search)
-                | Q(phone_number__icontains=search)
+
+# Bondmaker Pending detail View
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="status",
+            description="Filter by status",
+            required=False,
+            type=str,
+            enum=["all", "pending", "approved", "rejected"]
+        ),
+        OpenApiParameter(
+            name="search",
+            description="Search by name, email or phone",
+            required=False,
+            type=str
+        ),
+    ]
+)
+class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
+    permission_classes = [IsAdminUser]
+    serializer_class = AdminBondmakerDetailSerializer
+    lookup_field = "id"
+
+    def get_queryset(self):
+        return (
+            DocumentVerification.objects
+            .filter(status="pending")
+            .select_related("user")
+            .prefetch_related(
+                "selfie_checks",
+                "user__security_questions"
             )
+        )
 
-        #  Filter by status
-        status = self.request.query_params.get(
-            "status"
-        )  # pending / approved / rejected
-        if status:
-            queryset = queryset.filter(documentverification__status=status)
 
-        #  Optional: only bondmakers or applicants
-        role = self.request.query_params.get("role")
-        if role == "bondmaker":
-            queryset = queryset.filter(is_matchmaker=True)
-        elif role == "looking_for_love":
-            queryset = queryset.filter(is_matchmaker=False)
+@extend_schema(
+    responses=AdminBondmakerStatsSerializer
+)
+class AdminBondmakerStatsView(APIView):
+    permission_classes = [IsAdminUser]
 
-        return queryset.order_by("-id")
+    def get(self, request):
+        stats = (
+            DocumentVerification.objects
+            .values("status")
+            .annotate(count=Count("id"))
+        )
+
+        # Default values
+        data = {
+            "pending": 0,
+            "approved": 0,
+            "rejected": 0,
+        }
+
+        # Fill dynamically
+        for item in stats:
+            data[item["status"]] = item["count"]
+
+        # Serialize response
+        serializer = AdminBondmakerStatsSerializer(data)
+        return Response(serializer.data)
 
 
 # bondmaker profile Detail view

@@ -195,6 +195,8 @@ from .views import (
     SelfieSubmissionView,
     UserSelfieListView,
     GoogleOAuthCallbackView,
+    AdminPendingBondmakerDetailView,
+    AdminBondmakerStatsView,
 )
 from .liveness_views import (
     StartLivenessCheckView,
@@ -684,6 +686,14 @@ urlpatterns = [
         AdminBondmakerListView.as_view(),
         name="admin-bondmaker-list",
     ),
+
+    # admin Bondmaker detail view
+    path(
+        "admin/bondmakers/pending/<int:id>/",
+        AdminPendingBondmakerDetailView.as_view(),
+    ),
+    # bondmaker Stats
+    path("admin/bondmakers/stats/", AdminBondmakerStatsView.as_view()),
     # List all public bondmakers
     path(
         "bondmaker/list/",

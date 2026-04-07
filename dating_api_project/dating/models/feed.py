@@ -543,6 +543,7 @@ class DocumentVerification(models.Model):
     processed_at = models.DateTimeField(blank=True, null=True)
     verified_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
+    experience_years = models.CharField(max_length=20, blank=True, null=True)
 
     def __str__(self):
         return f"{self.user.name}'s {self.get_document_type_display()} verification ({self.status})"

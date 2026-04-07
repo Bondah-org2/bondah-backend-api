@@ -543,6 +543,136 @@ class DocumentVerificationSerializer(serializers.ModelSerializer):
         ]
 
 
+class DocumentVerificationListSerializer(serializers.ModelSerializer):
+    """Serializer for document verification"""
+
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    date_of_birth = serializers.DateField(source="user.date_of_birth", read_only=True)
+    relationship_status = serializers.CharField(
+        source="user.relationship_status", read_only=True)
+    qualification = serializers.CharField(
+        source="user.education_level", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+
+    class Meta:
+        model = DocumentVerification
+        fields = [
+            "id",
+            "user",
+            "user_name",
+            "email",
+            "date_of_birth",
+            "status",
+            "uploaded_at",
+            "experience_years",
+            "relationship_status",
+            "qualification",
+        ]
+        read_only_fields = [
+            "id",
+            "user",
+            "user_name",
+            "email",
+            "date_of_birth",
+            "status",
+            "uploaded_at",
+            "experience",
+            "relationship_status",
+            "qualification",
+        ]
+
+
+class SelfieVerificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SelfieVerification
+        fields = [
+            "id",
+            "selfie_image_url",
+            "is_match",
+            "status",
+            "created_at",
+        ]
+
+
+class SecurityQuestionSerializer(serializers.ModelSerializer):
+    question = serializers.CharField(source="get_question_type_display")
+
+    class Meta:
+        model = UserSecurityQuestion
+        fields = [
+            "id",
+            "question_type",
+            "question",
+            "response_text",
+            "response_choice",
+        ]
+
+
+class AdminBondmakerDetailSerializer(serializers.ModelSerializer):
+    # User fields
+    name = serializers.CharField(source="user.name")
+    username = serializers.CharField(source="user.username")
+    email = serializers.EmailField(source="user.email")
+    gender = serializers.CharField(source="user.gender")
+    location = serializers.CharField(source="user.location")
+    bio = serializers.CharField(source="user.bio")
+    bondmaker_bio = serializers.CharField(source="user.bondmaker_bio")
+    profile_picture = serializers.CharField(source="user.profile_picture")
+    date_of_birth = serializers.DateField(
+        source="user.date_of_birth", read_only=True)
+    relationship_status = serializers.CharField(
+        source="user.relationship_status", read_only=True)
+    qualification = serializers.CharField(
+        source="user.education_level", read_only=True)
+
+    date_of_birth = serializers.DateField(source="user.date_of_birth")
+    relationship_status = serializers.CharField(source="user.relationship_status")
+    qualification = serializers.CharField(source="user.education_level")
+
+    # Document images
+    front_image = serializers.CharField(source="front_image_url")
+    back_image = serializers.CharField(source="back_image_url")
+
+    # Selfie
+    selfie = serializers.SerializerMethodField()
+    # security
+    security_questions = SecurityQuestionSerializer(
+        source="user.security_questions",
+        many=True
+    )
+
+    class Meta:
+        model = DocumentVerification
+        fields = [
+            "id",
+            "user",
+            "name",
+            "username",
+            "email",
+            "gender",
+            "location",
+            "bio",
+            "bondmaker_bio",
+            "profile_picture",
+            "date_of_birth",
+            "relationship_status",
+            "qualification",
+            "uploaded_at",
+
+            # document
+            "document_type",
+            "front_image",
+            "back_image",
+            # selfie
+            "selfie",
+            "security_questions",
+        ]
+
+    def get_selfie(self, obj):
+        selfie = obj.selfie_checks.first()
+        return SelfieVerificationSerializer(selfie).data if selfie else None
+
+
 class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating document verification requests"""
 
@@ -635,6 +765,11 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class AdminBondmakerStatsSerializer(serializers.Serializer):
+    pending = serializers.IntegerField()
+    approved = serializers.IntegerField()
+    rejected = serializers.IntegerField()
+    
 # =============================================================================
 # USERNAME VALIDATION SERIALIZERS (NEW FROM FIGMA)
 # =============================================================================
@@ -3812,6 +3947,8 @@ class BondmakerListSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "username",
+            "profile_picture"
             "email",
             "phone_number",
             "location",
@@ -3844,6 +3981,7 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
             "bondmaker_cover_picture",
             "age",
             "is_matchmaker",
+            "bondmaker_bio",
             # "accepted_match_count",
             "speciality",
         ]
