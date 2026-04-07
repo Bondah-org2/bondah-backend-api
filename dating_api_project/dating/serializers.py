@@ -487,59 +487,37 @@ class UserSecurityQuestionCreateSerializer(serializers.ModelSerializer):
 class DocumentVerificationSerializer(serializers.ModelSerializer):
     """Serializer for document verification"""
 
-    user_name = serializers.CharField(source="user.name", read_only=True)
-    is_verified = serializers.BooleanField(read_only=True)
-    extracted_name = serializers.CharField(source="get_extracted_name", read_only=True)
-    extracted_date_of_birth = serializers.CharField(
-        source="get_extracted_date_of_birth", read_only=True
-    )
-    extracted_document_number = serializers.CharField(
-        source="get_extracted_document_number", read_only=True
-    )
+    name = serializers.CharField(source="user.name", read_only=True)
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    date_of_birth = serializers.DateField(source="user.date_of_birth", read_only=True)
 
     class Meta:
         model = DocumentVerification
         fields = [
             "id",
             "user",
-            "user_name",
+            "name",
+            "username",
             "document_type",
+            "email",
+            "date_of_birth",
             "status",
             "front_image_url",
             "back_image_url",
-            "extracted_data",
-            "verification_score",
-            "is_authentic",
-            "rejection_reason",
-            "verification_service",
-            "service_response",
             "uploaded_at",
             "processed_at",
             "verified_at",
             "updated_at",
-            "is_verified",
-            "extracted_name",
-            "extracted_date_of_birth",
-            "extracted_document_number",
         ]
         read_only_fields = [
             "id",
             "user",
             "user_name",
             "status",
-            "extracted_data",
-            "verification_score",
-            "is_authentic",
-            "rejection_reason",
-            "service_response",
             "uploaded_at",
-            "processed_at",
             "verified_at",
             "updated_at",
-            "is_verified",
-            "extracted_name",
-            "extracted_date_of_birth",
-            "extracted_document_number",
         ]
 
 
@@ -666,7 +644,7 @@ class AdminBondmakerDetailSerializer(serializers.ModelSerializer):
             "security_questions",
         ]
 
-    def get_selfie(self, obj):
+    def get_selfie(self, obj) -> str:
         selfie = obj.selfie_checks.first()
         return SelfieVerificationSerializer(selfie).data if selfie else None
 
@@ -679,7 +657,12 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentVerification
-        fields = ["id", "document_type", "front_image_url", "back_image_url"]
+        fields = ["id",
+                  "document_type",
+                  "front_image_url",
+                  "back_image_url",
+                  "experience_years",
+                  ]
 
     def validate_front_image_url(self, value):
         """Validate front image URL for security"""

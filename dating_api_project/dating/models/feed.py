@@ -557,7 +557,7 @@ class DocumentVerification(models.Model):
 
     def is_verified(self):
         """Check if document is verified"""
-        return self.status == "approved" and self.is_authentic
+        return self.status == "approved"
 
     def get_extracted_name(self):
         """Get extracted name from document"""
