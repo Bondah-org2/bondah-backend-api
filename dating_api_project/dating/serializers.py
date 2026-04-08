@@ -531,18 +531,20 @@ class DocumentVerificationListSerializer(serializers.ModelSerializer):
     qualification = serializers.CharField(
         source="user.education_level", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
+    profile_picture = serializers.URLField(
+        source="user.profile_picture", read_only=True)
 
     class Meta:
         model = DocumentVerification
         fields = [
             "id",
             "user",
+            "profile_picture",
             "user_name",
             "email",
             "date_of_birth",
             "status",
             "uploaded_at",
-            "experience_years",
             "relationship_status",
             "qualification",
         ]
@@ -664,7 +666,6 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
                   "document_type",
                   "front_image_url",
                   "back_image_url",
-                  "experience_years",
                   ]
 
     def validate_front_image_url(self, value):

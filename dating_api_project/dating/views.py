@@ -5605,11 +5605,15 @@ class AdminBondmakerReviewView(GenericAPIView):
 
 # View for admin to check pending bondamker Application
 class AdminPendingBondmakersView(generics.ListAPIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [CanViewApplications]
     serializer_class = DocumentVerificationListSerializer
 
     def get_queryset(self):
-        return DocumentVerification.objects.filter(status="pending")
+        return (
+            DocumentVerification.objects
+            .filter(status="pending")
+            .select_related("user")
+            )
 
 
 # Bondmaker List View (Admin, Filterable, Searchable)
@@ -5632,7 +5636,7 @@ class AdminPendingBondmakersView(generics.ListAPIView):
 )
 class AdminBondmakerListView(generics.ListAPIView):
     serializer_class = DocumentVerificationListSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [CanViewApplications]
     pagination_class = BondmakerPagination
 
     queryset = DocumentVerification.objects.select_related("user")
@@ -5649,7 +5653,7 @@ class AdminBondmakerListView(generics.ListAPIView):
 # Bondmaker Pending detail View
 
 class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [CanViewApplications]
     serializer_class = AdminBondmakerDetailSerializer
     lookup_field = "id"
 
@@ -5670,7 +5674,7 @@ class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
     responses=AdminBondmakerStatsSerializer
 )
 class AdminBondmakerStatsView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [CanViewApplications]
 
     def get(self, request):
         stats = (
