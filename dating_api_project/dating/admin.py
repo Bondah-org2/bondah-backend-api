@@ -968,9 +968,9 @@ class LiveParticipantAdmin(admin.ModelAdmin):
 
 @admin.register(UserSocialHandle)
 class UserSocialHandleAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "platform", "handle", "created_at")
+    list_display = ("id", "user", "platform", "created_at")
     list_filter = ("platform", "created_at")
-    search_fields = ("user__email", "handle", "platform")
+    search_fields = ("user__email", "platform")
     ordering = ("-created_at",)
     readonly_fields = ("created_at", "updated_at")
 

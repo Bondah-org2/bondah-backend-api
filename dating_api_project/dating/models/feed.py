@@ -409,9 +409,9 @@ class UserSocialHandle(models.Model):
     platform = models.CharField(
         max_length=50, choices=PLATFORM_CHOICES, help_text="Social media platform"
     )
-    handle = models.CharField(
-        max_length=100, help_text="User's handle or username on the platform"
-    )
+    # handle = models.CharField(
+    #     max_length=100, help_text="User's handle or username on the platform"
+    # )
     url = models.URLField(
         blank=True, null=True, help_text="Optional direct URL to the profile"
     )

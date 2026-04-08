@@ -98,10 +98,10 @@ from .views import (
     # LiveSessionJoinView,
     # LiveSessionLeaveView,
     # New Figma Features
-    # UserSocialHandleListView,
-    # UserSocialHandleDetailView,
-    # UserSecurityQuestionListView,
-    # UserSecurityQuestionDetailView,
+    UserSocialHandleListView,
+    UserSocialHandleDetailView,
+    UserSecurityQuestionListView,
+    UserSecurityQuestionDetailView,
     DocumentVerificationListView,
     DocumentVerificationDetailView,
     # DocumentUploadView,
@@ -527,25 +527,25 @@ urlpatterns = [
     #     name="live-session-leave",
     # ),
     # Social Media Handles Endpoints (NEW FROM FIGMA)
-    # path(
-    #     "social-handles/", UserSocialHandleListView.as_view(), name="social-handle-list"
-    # ),
-    # path(
-    #     "social-handles/<int:pk>/",
-    #     UserSocialHandleDetailView.as_view(),
-    #     name="social-handle-detail",
-    # ),
+    path(
+        "social-handles/", UserSocialHandleListView.as_view(), name="social-handle-list"
+    ),
+    path(
+        "social-handles/<int:pk>/",
+        UserSocialHandleDetailView.as_view(),
+        name="social-handle-detail",
+    ),
     # # Security Questions Endpoints (NEW FROM FIGMA)
-    # path(
-    #     "security-questions/",
-    #     UserSecurityQuestionListView.as_view(),
-    #     name="security-question-list",
-    # ),
-    # path(
-    #     "security-questions/<int:pk>/",
-    #     UserSecurityQuestionDetailView.as_view(),
-    #     name="security-question-detail",
-    # ),
+    path(
+        "security-questions/",
+        UserSecurityQuestionListView.as_view(),
+        name="security-question-list",
+    ),
+    path(
+        "security-questions/<int:pk>/",
+        UserSecurityQuestionDetailView.as_view(),
+        name="security-question-detail",
+    ),
     # Document Verification Endpoints (NEW FROM FIGMA)
     path(
         "document-verification/",

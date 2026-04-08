@@ -180,11 +180,11 @@ from .serializers import (
     DocumentVerificationCreateSerializer,
     DocumentVerificationSerializer,
     # LiveParticipantSerializer,
-    # UserSecurityQuestionSerializer,
-    # UserSecurityQuestionSerializer,
-    # UserSecurityQuestionCreateSerializer,
-    # UserSocialHandleSerializer,
-    # UserSocialHandleCreateSerializer,
+    UserSecurityQuestionSerializer,
+    UserSecurityQuestionSerializer,
+    UserSecurityQuestionCreateSerializer,
+    UserSocialHandleSerializer,
+    UserSocialHandleCreateSerializer,
     ChatDetailSerializer,
     # ChatSerializer,
     # ChatCreateSerializer,
@@ -4169,39 +4169,39 @@ class PostCommentViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 
-# class UserSocialHandleListView(generics.ListCreateAPIView):
-#     """
-#     List and create user social media handles
-#     """
+class UserSocialHandleListView(generics.ListCreateAPIView):
+    """
+    List and create user social media handles
+    """
 
-#     permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
-#     def get_serializer_class(self):
-#         if self.request.method == "POST":
+    def get_serializer_class(self):
+        if self.request.method == "POST":
 
-#             return UserSocialHandleCreateSerializer
+            return UserSocialHandleCreateSerializer
 
-#         return UserSocialHandleSerializer
+        return UserSocialHandleSerializer
 
-#     def get_queryset(self):
+    def get_queryset(self):
 
-#         return UserSocialHandle.objects.filter(user=self.request.user)
+        return UserSocialHandle.objects.filter(user=self.request.user)
 
 
-# class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
-#     """
-#     Retrieve, update, or delete a specific social media handle
-#     """
+class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific social media handle
+    """
 
-#     permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
-#     def get_serializer_class(self):
+    def get_serializer_class(self):
 
-#         return UserSocialHandleSerializer
+        return UserSocialHandleSerializer
 
-#     def get_queryset(self):
+    def get_queryset(self):
 
-#         return UserSocialHandle.objects.filter(user=self.request.user)
+        return UserSocialHandle.objects.filter(user=self.request.user)
 
 
 # =============================================================================
@@ -4209,39 +4209,39 @@ class PostCommentViewSet(viewsets.ModelViewSet):
 # =============================================================================
 
 
-# class UserSecurityQuestionListView(generics.ListCreateAPIView):
-#     """
-#     List and create user security question responses
-#     """
+class UserSecurityQuestionListView(generics.ListCreateAPIView):
+    """
+    List and create user security question responses
+    """
 
-#     permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
-#     def get_serializer_class(self):
-#         if self.request.method == "POST":
+    def get_serializer_class(self):
+        if self.request.method == "POST":
 
-#             return UserSecurityQuestionCreateSerializer
+            return UserSecurityQuestionCreateSerializer
 
-#         return UserSecurityQuestionSerializer
+        return UserSecurityQuestionSerializer
 
-#     def get_queryset(self):
+    def get_queryset(self):
 
-#         return UserSecurityQuestion.objects.filter(user=self.request.user)
+        return UserSecurityQuestion.objects.filter(user=self.request.user)
 
 
-# class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
-#     """
-#     Retrieve, update, or delete a specific security question response
-#     """
+class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update, or delete a specific security question response
+    """
 
-#     permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
-#     def get_serializer_class(self):
-#         return UserSecurityQuestionSerializer
+    def get_serializer_class(self):
+        return UserSecurityQuestionSerializer
 
-#     def get_queryset(self):
-#         from .models import UserSecurityQuestion
+    def get_queryset(self):
+        from .models import UserSecurityQuestion
 
-#         return UserSecurityQuestion.objects.filter(user=self.request.user)
+        return UserSecurityQuestion.objects.filter(user=self.request.user)
 
 
 # =============================================================================
@@ -5660,7 +5660,8 @@ class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
             .select_related("user")
             .prefetch_related(
                 "selfie_checks",
-                "user__security_questions"
+                "user__security_questions",
+                "user__social_handles"
             )
         )
 

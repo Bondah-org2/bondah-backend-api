@@ -423,7 +423,7 @@ class UserSocialHandleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserSocialHandle
-        fields = ["id", "platform", "handle", "url", "created_at", "updated_at"]
+        fields = ["id", "platform", "url", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
@@ -432,7 +432,7 @@ class UserSocialHandleCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserSocialHandle
-        fields = ["platform", "handle", "url"]
+        fields = ["platform", "url"]
 
     def create(self, validated_data):
         """Create social handle with current user"""
@@ -616,6 +616,8 @@ class AdminBondmakerDetailSerializer(serializers.ModelSerializer):
         source="user.security_questions",
         many=True
     )
+    social_handles = UserSocialHandleCreateSerializer(
+        source="user.social_handles", read_only=True, many=True)
 
     class Meta:
         model = DocumentVerification
@@ -642,6 +644,7 @@ class AdminBondmakerDetailSerializer(serializers.ModelSerializer):
             # selfie
             "selfie",
             "security_questions",
+            "social_handles"
         ]
 
     def get_selfie(self, obj) -> str:
