@@ -14,12 +14,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-k^_77t0rf_n!*ganny4dai5zri9^38*-7g^kdsh6ww@%2dv^)k'
+DEBUG = False
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = ['*']
-
+ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    "bondah-backend-api-production-881c.up.railway.app",
+]
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
