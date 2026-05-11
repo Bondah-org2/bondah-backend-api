@@ -17,7 +17,6 @@ load_dotenv()
 
 JWT_SECRET_KEY = config("JWT_SECRET_KEY") 
 # Firebase Configuration
-# 1️⃣ For deployment: full JSON content in environment variable
 FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
 # 2️⃣ For local development: path to JSON file (relative to BASE_DIR)
@@ -26,26 +25,22 @@ FIREBASE_CREDENTIALS_PATH = os.getenv(
     "FIREBASE_CREDENTIALS_PATH",
     os.path.join(BASE_DIR, "firebase-service-account.json")
 )
+if not firebase_admin._apps:
+    if FIREBASE_CREDENTIALS_JSON:
+        cred_dict = json.loads(FIREBASE_CREDENTIALS_JSON)
+        cred = credentials.Certificate(cred_dict)
 
-# Initialize Firebase Admin SDK (only once)
-#if not firebase_admin._apps:
-  #  if FIREBASE_CREDENTIALS_JSON:
-        # Load credentials from JSON string (deployment)
-   #     cred_dict = json.loads(FIREBASE_CREDENTIALS_JSON)
-   #     cred = credentials.Certificate(cred_dict)
-  #  elif os.path.exists(FIREBASE_CREDENTIALS_PATH):
-        # Load credentials from local file (WSL or Windows)
-      #  cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
-   # else:
-     #   raise FileNotFoundError(
-       #     f"Firebase credentials not found. "
-       #     f"Set FIREBASE_CREDENTIALS_JSON or place the file at {FIREBASE_CREDENTIALS_PATH}"
-       
-       # )
+    elif os.path.exists(FIREBASE_CREDENTIALS_PATH):
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
 
-   # firebase_admin.initialize_app(cred)
+    else:
+        raise FileNotFoundError(
+            f"Firebase credentials not found. "
+            f"Set FIREBASE_CREDENTIALS_JSON or place the file at {FIREBASE_CREDENTIALS_PATH}"
+        )
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+    firebase_admin.initialize_app(cred)
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -126,20 +121,14 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-#DATABASES = {
-   # "default": {
-    #    "ENGINE": "django.db.backends.postgresql",
-      #  "NAME": "bondah_db2",
-      #  "USER": "bondah_user2",
-       # "PASSWORD": "bondahpassorg",
-       # 'HOST': 'localhost',
-        #"PORT": "5432",
-   # }
-#}
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+       "ENGINE": "django.db.backends.postgresql",
+        "NAME": "bondah_db2",
+        "USER": "bondah_user2",
+        "PASSWORD": "bondahpassorg",
+        'HOST': 'localhost',
+    "PORT": "5432",
     }
 }
 
