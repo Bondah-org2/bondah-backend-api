@@ -8,6 +8,7 @@ import sys
 import django
 from django.db import connection
 
+
 def fix_all_database_issues():
     """Fix all database schema issues"""
     print("🔧 FIXING ALL DATABASE ISSUES")

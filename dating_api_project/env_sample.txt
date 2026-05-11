@@ -9,6 +9,6 @@ SECRET_KEY=your-secret-key-here
 # Database Configuration
 DB_NAME=bondah_db2
 DB_USER=bondah_user2
-DB_PASSWORD=bondahpassorg
+DB_PASSWORD=b0aeVQmJAQLgdY9PXDRguh00muYs8khO
 DB_HOST=localhost
 DB_PORT=5432

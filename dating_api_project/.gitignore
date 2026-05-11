@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+.env
 
 # Distribution / packaging
 .Python
@@ -144,3 +145,14 @@ media/
 # OS
 .DS_Store
 Thumbs.db
+
+
+bvenv
+
+firebase-service-account.json
+
+apple.md
+
+__pycache__/
+*.pyc"
+ovenv/

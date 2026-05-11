@@ -2,7 +2,7 @@
 
 echo "🚀 Starting Bondah Dating API deployment..."
 
-# Run database fixes
+Run database fixes
 echo "📋 Running database fixes..."
 python fix_all_database_issues.py
 python fix_auth_tables.py

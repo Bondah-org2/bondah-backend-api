@@ -14,7 +14,7 @@ from django.conf import settings
 class LivenessVerifier:
     """
     Handle liveness detection and facial verification
-    
+
     This can integrate with:
     - AWS Rekognition
     - Azure Face API
@@ -22,16 +22,16 @@ class LivenessVerifier:
     - Face++ API
     - Custom ML model
     """
-    
+
     @staticmethod
     def verify_liveness_from_video(video_data, actions_required):
         """
         Verify liveness from video frames
-        
+
         Args:
             video_data: Base64 encoded video or list of frames
             actions_required: List of actions ['turn_left', 'turn_right', 'open_mouth', 'smile']
-        
+
         Returns:
             dict: {
                 'is_live': True/False,
@@ -44,7 +44,7 @@ class LivenessVerifier:
         try:
             # In production, this would call actual face detection API
             # For now, we'll return a mock response structure
-            
+
             result = {
                 'is_live': True,
                 'confidence': 95.5,
@@ -54,38 +54,38 @@ class LivenessVerifier:
                 'spoof_detected': False,
                 'message': 'Liveness verification successful'
             }
-            
+
             return result, None
-            
+
         except Exception as e:
             return None, str(e)
-    
+
     @staticmethod
     def verify_face_from_images(images_data, actions_required):
         """
         Verify liveness from multiple images (one per action)
-        
+
         Args:
             images_data: List of base64 encoded images
             actions_required: List of corresponding actions
-        
+
         Returns:
             dict: Verification result
         """
         try:
             if len(images_data) != len(actions_required):
                 return None, "Number of images must match number of actions"
-            
+
             # Decode and validate images
             faces_detected = []
             for img_data in images_data:
                 face_data = LivenessVerifier._process_image(img_data)
                 if face_data:
                     faces_detected.append(face_data)
-            
+
             if len(faces_detected) < len(actions_required):
                 return None, "Could not detect face in all images"
-            
+
             result = {
                 'is_live': True,
                 'confidence': 93.0,
@@ -95,12 +95,12 @@ class LivenessVerifier:
                 'spoof_detected': False,
                 'message': 'All liveness checks passed'
             }
-            
+
             return result, None
-            
+
         except Exception as e:
             return None, str(e)
-    
+
     @staticmethod
     def _process_image(base64_image):
         """Process and validate a single image"""
@@ -108,15 +108,15 @@ class LivenessVerifier:
             # Remove data URL prefix if present
             if ',' in base64_image:
                 base64_image = base64_image.split(',')[1]
-            
+
             # Decode base64
             image_data = base64.b64decode(base64_image)
             image = Image.open(io.BytesIO(image_data))
-            
+
             # Basic validations
             if image.size[0] < 300 or image.size[1] < 300:
                 return None  # Image too small
-            
+
             # In production, run face detection here
             face_detected = {
                 'width': image.size[0],
@@ -124,18 +124,18 @@ class LivenessVerifier:
                 'face_found': True,
                 'quality': 'good'
             }
-            
+
             return face_detected
-            
+
         except Exception:
             return None
-    
+
     @staticmethod
     def compare_faces(reference_image, comparison_image):
         """
         Compare two face images for matching
         Used to verify if the same person across multiple checks
-        
+
         Returns:
             dict: {
                 'match': True/False,
@@ -151,17 +151,17 @@ class LivenessVerifier:
                 'confidence': 98.0,
                 'message': 'Faces match'
             }
-            
+
             return result, None
-            
+
         except Exception as e:
             return None, str(e)
-    
+
     @staticmethod
     def detect_spoof(image_data):
         """
         Detect if image is from a real person or spoofed (photo/video)
-        
+
         Returns:
             dict: {
                 'is_real': True/False,
@@ -177,9 +177,9 @@ class LivenessVerifier:
                 'confidence': 97.5,
                 'message': 'Real person detected'
             }
-            
+
             return result, None
-            
+
         except Exception as e:
             return None, str(e)
 
@@ -189,12 +189,12 @@ class AWSRekognitionVerifier:
     AWS Rekognition integration for production use
     Requires: boto3, AWS credentials
     """
-    
+
     @staticmethod
     def verify_liveness_session(session_id, video_data):
         """
         Use AWS Rekognition Face Liveness
-        
+
         This requires:
         1. AWS account with Rekognition enabled
         2. boto3 installed
@@ -202,26 +202,26 @@ class AWSRekognitionVerifier:
         """
         try:
             # import boto3  # Uncomment when ready
-            
-            # client = boto3.client('rekognition', 
+
+            # client = boto3.client('rekognition',
             #                      region_name='us-east-1',
             #                      aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             #                      aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY)
-            
+
             # response = client.detect_faces(
             #     Image={'Bytes': video_data},
             #     Attributes=['ALL']
             # )
-            
+
             # For now, return mock
             result = {
                 'liveness_check': 'PASSED',
                 'confidence': 99.5,
                 'session_id': session_id
             }
-            
+
             return result, None
-            
+
         except Exception as e:
             return None, str(e)
 

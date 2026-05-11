@@ -8,39 +8,43 @@ import sys
 import django
 from django.db import connection
 
+
 def create_all_tables():
     """Create all missing tables"""
     print("🏗️  CREATING ALL MISSING TABLES")
     print("=" * 50)
-    
+
     # Set Django settings
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings_prod')
-    
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings_prod")
+
     try:
         django.setup()
         print("✅ Django setup successful")
     except Exception as e:
         print(f"❌ Django setup failed: {str(e)}")
         return False
-    
+
     print("\n🏗️  Creating all missing tables...")
-    
+
     try:
         with connection.cursor() as cursor:
             # Create all missing tables based on Django models
-            
+
             # 1. NewsletterSubscriber table
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS dating_newslettersubscriber (
                     id SERIAL PRIMARY KEY,
                     email VARCHAR(254) UNIQUE NOT NULL,
                     date_subscribed TIMESTAMP WITH TIME ZONE NOT NULL
                 );
-            """)
+            """
+            )
             print("✅ Created dating_newslettersubscriber table")
-            
+
             # 2. PuzzleVerification table
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS dating_puzzleverification (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER REFERENCES dating_user(id),
@@ -50,11 +54,13 @@ def create_all_tables():
                     is_correct BOOLEAN NOT NULL,
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
-            """)
+            """
+            )
             print("✅ Created dating_puzzleverification table")
-            
+
             # 3. CoinTransaction table
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS dating_cointransaction (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER REFERENCES dating_user(id),
@@ -62,11 +68,13 @@ def create_all_tables():
                     amount INTEGER NOT NULL,
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
-            """)
+            """
+            )
             print("✅ Created dating_cointransaction table")
-            
+
             # 4. AdminUser table (this was missing!)
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS dating_adminuser (
                     id SERIAL PRIMARY KEY,
                     email VARCHAR(254) UNIQUE NOT NULL,
@@ -75,11 +83,13 @@ def create_all_tables():
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
                     last_login TIMESTAMP WITH TIME ZONE
                 );
-            """)
+            """
+            )
             print("✅ Created dating_adminuser table")
-            
+
             # 5. AdminOTP table
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS dating_adminotp (
                     id SERIAL PRIMARY KEY,
                     admin_user_id INTEGER REFERENCES dating_adminuser(id),
@@ -88,11 +98,13 @@ def create_all_tables():
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
                     expires_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
-            """)
+            """
+            )
             print("✅ Created dating_adminotp table")
-            
+
             # 6. TranslationLog table
-            cursor.execute("""
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS dating_translationlog (
                     id SERIAL PRIMARY KEY,
                     source_text TEXT NOT NULL,
@@ -105,11 +117,13 @@ def create_all_tables():
                     ip_address INET,
                     user_agent TEXT NOT NULL
                 );
-            """)
+            """
+            )
             print("✅ Created dating_translationlog table")
-            
+
             # 7. Update Job table with missing columns
-            cursor.execute("""
+            cursor.execute(
+                """
                 DO $$ 
                 BEGIN 
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
@@ -141,11 +155,13 @@ def create_all_tables():
                         ALTER TABLE dating_job ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();
                     END IF;
                 END $$;
-            """)
+            """
+            )
             print("✅ Updated dating_job table with missing columns")
-            
+
             # 8. Update JobApplication table with missing columns
-            cursor.execute("""
+            cursor.execute(
+                """
                 DO $$ 
                 BEGIN 
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
@@ -181,30 +197,35 @@ def create_all_tables():
                         ALTER TABLE dating_jobapplication ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();
                     END IF;
                 END $$;
-            """)
+            """
+            )
             print("✅ Updated dating_jobapplication table with missing columns")
-            
+
             # Verify all tables exist
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT table_name 
                 FROM information_schema.tables 
                 WHERE table_schema = 'public' 
                 AND table_name LIKE 'dating_%'
                 ORDER BY table_name;
-            """)
+            """
+            )
             tables = cursor.fetchall()
             print(f"\n📋 All dating tables ({len(tables)} total):")
             for table in tables:
                 print(f"   - {table[0]}")
-        
+
         print("\n🎉 All tables created successfully!")
         return True
-        
+
     except Exception as e:
         print(f"❌ Table creation failed: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 if __name__ == "__main__":
     success = create_all_tables()
