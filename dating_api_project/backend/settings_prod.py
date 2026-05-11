@@ -22,9 +22,9 @@ JWT_SECRET_KEY = config("JWT_SECRET_KEY")
 # Load environment variables
 load_dotenv()
 print("🔥 USING PRODUCTION SETTINGS 🔥")
-# Firebase Configuration
-# For Railway deployment - JSON content from environment variable
-#FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
+ Firebase Configuration
+ For Railway deployment - JSON content from environment variable
+FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
 # For local development - path to JSON file
 #FIREBASE_CREDENTIALS_PATH = os.getenv(
@@ -636,11 +636,11 @@ APPLE_BUNDLE_ID = "com.bondah.app"
 GOOGLE_PACKAGE_NAME = "com.bondah.app"
 GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
 
-#REDIS_URL = os.environ.get("REDIS_URL")
-#if not REDIS_URL:
-   # raise RuntimeError(
-     #   "REDIS_URL env variable not set! Redis will not work in production."
-    #)
+REDIS_URL = os.environ.get("REDIS_URL")
+if not REDIS_URL:
+    raise RuntimeError(
+       "REDIS_URL env variable not set! Redis will not work in production."
+    )
 
 CACHES = {
     "default": {
@@ -653,8 +653,8 @@ CACHES = {
     }
 }
 
-#CELERY_BROKER_URL = REDIS_URL  # Redis broker
-#CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_BROKER_URL = REDIS_URL  # Redis broker
+CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
