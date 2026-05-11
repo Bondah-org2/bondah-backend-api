@@ -10,39 +10,38 @@ from urllib.parse import urlparse
 import dj_database_url
 
 # Firebase Configuration
-import firebase_admin
-from firebase_admin import credentials
+#import firebase_admin
+#from firebase_admin import credentials
 import json
 from decouple import config
 from celery.schedules import crontab
 from celery.schedules import crontab
 import cloudinary
 
-
+JWT_SECRET_KEY = config("JWT_SECRET_KEY")
 # Load environment variables
 load_dotenv()
 print("🔥 USING PRODUCTION SETTINGS 🔥")
 # Firebase Configuration
 # For Railway deployment - JSON content from environment variable
-FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
+#FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
 # For local development - path to JSON file
-FIREBASE_CREDENTIALS_PATH = os.getenv(
-    "FIREBASE_CREDENTIALS_PATH", "firebase-service-account.json"
-)
+#FIREBASE_CREDENTIALS_PATH = os.getenv(
+ #   "FIREBASE_CREDENTIALS_PATH", "firebase-service-account.json")
 
 # Initialize Firebase Admin SDK
-if not firebase_admin._apps:  # Prevent re-initialization
-    if FIREBASE_CREDENTIALS_JSON:
+#if not firebase_admin._apps:  # Prevent re-initialization
+    #if FIREBASE_CREDENTIALS_JSON:
         # Use JSON content from environment variable (Railway)
 
-        cred_dict = json.loads(FIREBASE_CREDENTIALS_JSON)
-        cred = credentials.Certificate(cred_dict)
-    else:
+       # cred_dict = json.loads(FIREBASE_CREDENTIALS_JSON)
+       # cred = credentials.Certificate(cred_dict)
+    #else:
         # Use file path (local development)
-        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+       # cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
 
-    firebase_admin.initialize_app(cred)
+   # firebase_admin.initialize_app(cred)
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -55,12 +54,13 @@ SECRET_KEY = os.getenv(
 
 # JWT Settings
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "jwt-secret-key-change-in-production")
+DEBUG = True
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG", "False").lower() == "true"
-
-ALLOWED_HOSTS = ["*"]
-
+ALLOWED_HOSTS=[
+    "127.0.0.1",
+    "localhost",
+    "bondah-backend-api-production-881c.up.railway.app",
+]
 # Application definition
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -636,16 +636,16 @@ APPLE_BUNDLE_ID = "com.bondah.app"
 GOOGLE_PACKAGE_NAME = "com.bondah.app"
 GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
 
-REDIS_URL = os.environ.get("REDIS_URL")
-if not REDIS_URL:
-    raise RuntimeError(
-        "REDIS_URL env variable not set! Redis will not work in production."
-    )
+#REDIS_URL = os.environ.get("REDIS_URL")
+#if not REDIS_URL:
+   # raise RuntimeError(
+     #   "REDIS_URL env variable not set! Redis will not work in production."
+    #)
 
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
+        #"LOCATION": REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
@@ -653,8 +653,8 @@ CACHES = {
     }
 }
 
-CELERY_BROKER_URL = REDIS_URL  # Redis broker
-CELERY_RESULT_BACKEND = REDIS_URL
+#CELERY_BROKER_URL = REDIS_URL  # Redis broker
+#CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
