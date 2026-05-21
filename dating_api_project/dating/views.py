@@ -1733,15 +1733,17 @@ class AccountDeactivationView(generics.GenericAPIView):
             )
 
 
+
+@extend_schema(tags=["Notification"])
 @extend_schema_view(
-    tags = ['Notification'],
     get=extend_schema(
         responses={
             200: NotificationSettingsResponseSerializer,
-            500: CustomErrorResponseSerializer,
+            500: CustomErrorResponseSerializer
         },
         description="Get current notification settings",
     ),
+
     put=extend_schema(
         request=NotificationSettingsSerializer,
         responses={
@@ -1750,8 +1752,9 @@ class AccountDeactivationView(generics.GenericAPIView):
             500: CustomErrorResponseSerializer,
         },
         description="Update notification settings",
-    ),
+    )
 )
+
 class NotificationSettingsView(generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = NotificationSettingsSerializer
@@ -1812,8 +1815,9 @@ class NotificationSettingsView(generics.GenericAPIView):
             )
 
 
+
+@extend_schema(tags=["Language"])
 @extend_schema_view(
-    tags = ['Language'],
     get=extend_schema(
         responses={
             200: LanguageSettingsResponseSerializer,
@@ -1831,12 +1835,14 @@ class NotificationSettingsView(generics.GenericAPIView):
         description="Update language settings",
     ),
 )
+
 class LanguageSettingsView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = LanguageSettingsSerializer
 
 @extend_schema(
-    tags=["OAuth"],
+    tags=["Authentication"],
+    # tags=["OAuth"],
     )
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
@@ -1919,7 +1925,8 @@ class GoogleOAuthView(generics.GenericAPIView):
             )
 
 @extend_schema(
-    tags=["OAuth"],
+    tags=["Authentication"],
+    # tags=["OAuth"],
     )
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
@@ -2003,7 +2010,7 @@ class AppleOAuthView(generics.GenericAPIView):
             )
 
 @extend_schema(
-    tags=["OAuth"],
+    tags=["Authentication"],
     )
 class GoogleOAuthCallbackView(generics.GenericAPIView):
     serializer_class = GoogleCallbackSerializer
@@ -2041,7 +2048,8 @@ class GoogleOAuthCallbackView(generics.GenericAPIView):
         return Response(token_data, status=status.HTTP_200_OK)
 
 @extend_schema(
-    tags=["OAuth"],
+    # tags=["OAuth"],
+    tags=["Authentication"],
     )
 class SocialLoginView(generics.GenericAPIView):
     """Unified social login endpoint (Google/Apple)"""
@@ -2131,8 +2139,9 @@ class SocialLoginView(generics.GenericAPIView):
                 {"message": f"Social login failed: {str(e)}", "status": "error"},
                 status=500,
             )
+
 @extend_schema(
-    tags=["OAuth"],
+    tags=["Authentication"],
     )
 
 class DeviceRegistrationView(generics.CreateAPIView):
@@ -2232,7 +2241,7 @@ class OAuthUnlinkAccountView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-            tags = ['OAuth'],
+            tags = ['Authentication'],
         responses={
             200: OAuthUnlinkAccountResponseSerializer,
             404: CustomErrorResponseSerializer,
@@ -2269,7 +2278,7 @@ class OAuthUnlinkAccountView(generics.GenericAPIView):
             )
 
 @extend_schema(
-    tags=["OAuth"],
+    tags=["Authentication"],
     )
 class SocialAccountsListView(generics.ListAPIView):
     """List user's linked social accounts"""
@@ -5618,7 +5627,8 @@ class SendWaitlistConfirmationEmailView(GenericAPIView):
 # ==========================
 
 @extend_schema(
-    tags=["Waitlist"],
+    tags=["Admin"],
+    # tags=["Waitlist"],
     )
 class AdminWaitlistListView(GenericAPIView):
     permission_classes = [permissions.IsAdminUser]
@@ -5641,7 +5651,8 @@ class AdminWaitlistListView(GenericAPIView):
         )
 
 @extend_schema(
-    tags=["Newsletter"],
+    tags=["Admin"],
+    # tags=["Newsletter"],
     )
 @authentication_required_schema()
 class AdminNewsletterListView(GenericAPIView):
@@ -5664,10 +5675,10 @@ class AdminNewsletterListView(GenericAPIView):
             }
         )
 
-
 # Bondmaker Application Review View
 @extend_schema(
-    tags=["Bondmaker"],
+    tags=["Admin"],
+    # tags=["Bondmaker"],
     )
 class AdminBondmakerReviewView(GenericAPIView):
     permission_classes = [CanViewApplications]
@@ -5771,7 +5782,8 @@ class AdminBondmakerReviewView(GenericAPIView):
             })
 
 @extend_schema(
-    tags=["Bondmaker"],
+    tags=["Admin"],
+    # tags=["Bondmaker"],
     )
 # View for admin to check pending bondamker Application
 class AdminPendingBondmakersView(generics.ListAPIView):
@@ -5788,7 +5800,8 @@ class AdminPendingBondmakersView(generics.ListAPIView):
 
 # Bondmaker List View (Admin, Filterable, Searchable)
 @extend_schema(
-    tags = ['Bondmaker'],
+    tags = ['Admin'],
+    # tags = ['Bondmaker'],
     parameters=[
         OpenApiParameter(
             name="status",
@@ -5823,7 +5836,8 @@ class AdminBondmakerListView(generics.ListAPIView):
 
 # Bondmaker Pending detail View
 @extend_schema(
-    tags=["Bondmaker"],
+    tags=["Admin"],
+    # tags=["Bondmaker"],
     )
 class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
     permission_classes = [CanViewApplications]
@@ -5843,7 +5857,7 @@ class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
         )
 
 @extend_schema(
-    tags=["Bondmaker"],
+    tags=["Admin"],
     )
 @extend_schema(
     responses=AdminBondmakerStatsSerializer
