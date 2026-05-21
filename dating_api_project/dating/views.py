@@ -390,7 +390,9 @@ logger = logging.getLogger(__name__)
 #                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
 #             )
 
-
+@extend_schema(
+    tags=["Newsletter"],
+)
 class NewsletterSignupView(generics.CreateAPIView):
     queryset = NewsletterSubscriber.objects.all()
     serializer_class = NewsletterSubscriberSerializer
@@ -488,7 +490,9 @@ P.S. Follow us on social media for daily dating insights!
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Waitlist"],
+)
 class JoinWaitlistView(generics.CreateAPIView):
     """Join the waitlist"""
 
@@ -540,16 +544,12 @@ class JoinWaitlistView(generics.CreateAPIView):
 
 
 class GetPuzzleView(APIView):
-    @extend_schema(
-        request=GetPuzzleRequestSerializer,
-        responses={
-            201: GetPuzzleResponseSerializer,
-            400: ErrorWithDetailsSerializer,
-            404: ErrorWithDetailsSerializer,
-            500: ErrorWithDetailsSerializer,
-        },
-    )
-    def post(self, request):
+   @extend_schema(
+    tags=["Puzzle"],
+    request=GetPuzzleRequestSerializer,
+    responses={ 201: GetPuzzleResponseSerializer, 400: ErrorWithDetailsSerializer, 404: ErrorWithDetailsSerializer, 500: ErrorWithDetailsSerializer, }, )
+   
+   def post(self, request):
         serializer = GetPuzzleRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -574,7 +574,9 @@ class GetPuzzleView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+@extend_schema(
+    tags=["Puzzle"],
+    )
 class SubmitPuzzleAnswerView(APIView):
     @extend_schema(
         request=SubmitPuzzleAnswerRequestSerializer,
@@ -1051,6 +1053,7 @@ class SubmitPuzzleAnswerView(APIView):
 
 
 @extend_schema(
+    tags=["Admin"],
     responses=AdminLoginResponseSerializer
 )
 class AdminLoginView(APIView):
@@ -1092,6 +1095,7 @@ class AdminLogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        tags=["Admin"],
         request=AdminLogoutSerializer,
         responses=MessageResponseSerializer
     )
@@ -1108,9 +1112,10 @@ class AdminLogoutView(APIView):
             status=status.HTTP_200_OK
         )
 
-
+@extend_schema(
+    tags=["Admin"],
+    )
 class CreateAdminMemberView(generics.CreateAPIView):
-
     serializer_class = CreateTeamMemberSerializer
     permission_classes = [IsPrincipalAdmin]
 
@@ -1119,7 +1124,9 @@ class CreateAdminMemberView(generics.CreateAPIView):
             raise PermissionError("Only Principal Admin can Create members")
         serializer.save()
 
-
+@extend_schema(
+    tags=["Admin"],
+    )
 class UpdateAdminMemberView(generics.UpdateAPIView):
     queryset = User.objects.filter(is_staff=True)
     serializer_class = UpdateAdminMemberSerializer
@@ -1130,7 +1137,9 @@ class UpdateAdminMemberView(generics.UpdateAPIView):
             raise PermissionError("Only Principal Admin can update members")
         serializer.save()
 
-
+@extend_schema(
+    tags=["Admin"],
+    )
 class RemoveAdminMemberView(generics.DestroyAPIView):
     serializer_class = RemoveAdminMemberSerializer
     queryset = User.objects.filter(is_staff=True)
@@ -1141,7 +1150,9 @@ class RemoveAdminMemberView(generics.DestroyAPIView):
             raise PermissionError("Only Principal Admin can remove members")
         instance.delete()
 
-
+@extend_schema(
+    tags=["Admin"],
+    )
 class AdminTeamView(generics.ListAPIView):
     serializer_class = TeamMemberSerializer
     permission_classes = [IsPrincipalAdmin]
@@ -1185,7 +1196,9 @@ class AdminTeamView(generics.ListAPIView):
 # MOBILE APP AUTHENTICATION VIEWS
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 class RegisterRequestOTPView(generics.CreateAPIView):
     serializer_class = RegisterRequestOTPSerializer
     permission_classes = [AllowAny]
@@ -1196,7 +1209,9 @@ class RegisterRequestOTPView(generics.CreateAPIView):
         result = serializer.save()  # calls your serializer's create()
         return Response(result, status=status.HTTP_201_CREATED)
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1216,7 +1231,9 @@ class VerifyOTPView(generics.CreateAPIView):
         data = serializer.save()
         return Response(data, status=status.HTTP_200_OK)
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 class ConfirmRegistrationView(generics.CreateAPIView):
     serializer_class = ConfirmRegistrationSerializer
     permission_classes = [AllowAny]
@@ -1239,7 +1256,9 @@ class ConfirmRegistrationView(generics.CreateAPIView):
         }
         return Response(response_data, status=status.HTTP_201_CREATED)
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 class ResendEmailOTPView(generics.CreateAPIView):
     serializer_class = ResendEmailOTPSerializer
     permission_classes = [AllowAny]
@@ -1255,7 +1274,9 @@ class ResendEmailOTPView(generics.CreateAPIView):
 # User Login
 # -------------------------
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1332,6 +1353,7 @@ class UserLoginView(GenericAPIView):
 
 
 @extend_schema(
+    tags = ['Authentication'],
     request=UserLogoutRequestSerializer,
     responses={
         200: inline_serializer(
@@ -1350,6 +1372,9 @@ class UserLoginView(GenericAPIView):
         ),
     },
 )
+@extend_schema(
+    tags=["Authentication"],
+    )
 class UserLogoutView(GenericAPIView):
     serializer_class = UserLogoutRequestSerializer
     permission_classes = [AllowAny]
@@ -1371,7 +1396,9 @@ class UserLogoutView(GenericAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 @extend_schema(
     request=TokenRefreshRequestSerializer,
     responses={
@@ -1404,6 +1431,7 @@ class TokenRefreshView(generics.GenericAPIView):
 
 
 @extend_schema(
+    tags = ['Authentication'],
     request=PasswordResetSerializer,
     responses={
         200: PasswordResetSerializer,
@@ -1455,14 +1483,16 @@ class PasswordResetView(generics.GenericAPIView):
         return Response(response_msg, status=200)
 
 
-# @extend_schema(
-#     request=PasswordResetConfirmSerializer,
-#     responses={
-#         200: PasswordResetConfirmSerializer,
-#         400: PasswordResetConfirmSerializer,
-#         500: PasswordResetConfirmSerializer,
-#     },
-# )
+@extend_schema(
+    tags = ['Authentication'],
+   request=PasswordResetConfirmSerializer,
+     responses={
+       200: PasswordResetConfirmSerializer,
+        400: PasswordResetConfirmSerializer,
+        500: PasswordResetConfirmSerializer,
+    },
+ )
+
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1507,7 +1537,9 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 class PasswordResetConfirmView(generics.GenericAPIView):
     serializer_class = PasswordResetConfirmSerializer
     permission_classes = [AllowAny]
@@ -1524,6 +1556,7 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 
 
 @extend_schema(
+    tags = ['Authentication'],
     request=PasswordResetResendSerializer,
     responses={200: PasswordResetResendSerializer},
 )
@@ -1573,7 +1606,9 @@ class PasswordResendOTPView(generics.GenericAPIView):
 
         return Response(response_msg, status=200)
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UserProfileViews(generics.RetrieveUpdateAPIView):
     serializer_class = UserProfileDetailSerializer
     permission_classes = [IsAuthenticated]
@@ -1664,6 +1699,7 @@ class UserProfileViews(generics.RetrieveUpdateAPIView):
 
 
 @extend_schema(
+    tags = ['Authentication'],
     request=None,
     responses={
         200: SimpleStatusResponseSerializer,
@@ -1697,14 +1733,17 @@ class AccountDeactivationView(generics.GenericAPIView):
             )
 
 
+
+@extend_schema(tags=["Notification"])
 @extend_schema_view(
     get=extend_schema(
         responses={
             200: NotificationSettingsResponseSerializer,
-            500: CustomErrorResponseSerializer,
+            500: CustomErrorResponseSerializer
         },
         description="Get current notification settings",
     ),
+
     put=extend_schema(
         request=NotificationSettingsSerializer,
         responses={
@@ -1713,8 +1752,9 @@ class AccountDeactivationView(generics.GenericAPIView):
             500: CustomErrorResponseSerializer,
         },
         description="Update notification settings",
-    ),
+    )
 )
+
 class NotificationSettingsView(generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = NotificationSettingsSerializer
@@ -1775,6 +1815,8 @@ class NotificationSettingsView(generics.GenericAPIView):
             )
 
 
+
+@extend_schema(tags=["Language"])
 @extend_schema_view(
     get=extend_schema(
         responses={
@@ -1793,11 +1835,15 @@ class NotificationSettingsView(generics.GenericAPIView):
         description="Update language settings",
     ),
 )
+
 class LanguageSettingsView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = LanguageSettingsSerializer
 
-
+@extend_schema(
+    tags=["Authentication"],
+    # tags=["OAuth"],
+    )
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1878,7 +1924,10 @@ class GoogleOAuthView(generics.GenericAPIView):
                 status=500,
             )
 
-
+@extend_schema(
+    tags=["Authentication"],
+    # tags=["OAuth"],
+    )
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1960,7 +2009,9 @@ class AppleOAuthView(generics.GenericAPIView):
                 status=500,
             )
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 class GoogleOAuthCallbackView(generics.GenericAPIView):
     serializer_class = GoogleCallbackSerializer
     authentication_classes = []
@@ -1996,7 +2047,10 @@ class GoogleOAuthCallbackView(generics.GenericAPIView):
 
         return Response(token_data, status=status.HTTP_200_OK)
 
-
+@extend_schema(
+    # tags=["OAuth"],
+    tags=["Authentication"],
+    )
 class SocialLoginView(generics.GenericAPIView):
     """Unified social login endpoint (Google/Apple)"""
 
@@ -2086,6 +2140,9 @@ class SocialLoginView(generics.GenericAPIView):
                 status=500,
             )
 
+@extend_schema(
+    tags=["Authentication"],
+    )
 
 class DeviceRegistrationView(generics.CreateAPIView):
     serializer_class = DeviceRegistrationSerializer
@@ -2113,6 +2170,7 @@ class OAuthLinkAccountView(generics.GenericAPIView):
     serializer_class = OAuthLinkAccountRequestSerializer
 
     @extend_schema(
+        tags = ['Authentication'],
         responses={
             200: OAuthLinkAccountResponseSerializer,
             400: ValidationErrorResponseSerializer,
@@ -2183,6 +2241,7 @@ class OAuthUnlinkAccountView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+            tags = ['Authentication'],
         responses={
             200: OAuthUnlinkAccountResponseSerializer,
             404: CustomErrorResponseSerializer,
@@ -2218,7 +2277,9 @@ class OAuthUnlinkAccountView(generics.GenericAPIView):
                 status=500,
             )
 
-
+@extend_schema(
+    tags=["Authentication"],
+    )
 class SocialAccountsListView(generics.ListAPIView):
     """List user's linked social accounts"""
 
@@ -2244,7 +2305,9 @@ class SocialAccountsListView(generics.ListAPIView):
         )
 
 
-# Location Management Views
+@extend_schema(
+    tags=["Location"],
+    )
 class LocationUpdateView(generics.UpdateAPIView):
     """
     Update the authenticated user's current GPS location.
@@ -2298,7 +2361,9 @@ class LocationUpdateView(generics.UpdateAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Location"],
+    )
 class AddressGeocodeView(generics.GenericAPIView):
     """
     Convert a user-provided address into GPS coordinates.
@@ -2341,7 +2406,9 @@ class AddressGeocodeView(generics.GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Location"],
+    )
 class LocationPrivacyUpdateView(generics.UpdateAPIView):
     """
     Update the authenticated user's location privacy settings.
@@ -2378,7 +2445,9 @@ class LocationPrivacyUpdateView(generics.UpdateAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Location"],
+    )
 class LocationPermissionsView(generics.RetrieveUpdateAPIView):
     """
     Retrieve or update the authenticated user's location permissions.
@@ -2436,7 +2505,9 @@ class LocationPermissionsView(generics.RetrieveUpdateAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Location"],
+    )
 class LocationHistoryView(generics.ListAPIView):
     """Get user's location history"""
 
@@ -2466,7 +2537,9 @@ class LocationHistoryView(generics.ListAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Location"],
+    )
 # --------------------------
 # 1. Nearby Users
 # --------------------------
@@ -2520,7 +2593,9 @@ class NearbyUsersView(generics.GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Matchmaker"],
+    )
 # --------------------------
 # 2. Match Preferences
 # --------------------------
@@ -2561,7 +2636,9 @@ class MatchPreferencesView(generics.RetrieveUpdateAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["Location"],
+    )
 # --------------------------
 # 3. User Profile with Location
 # --------------------------
@@ -2588,9 +2665,9 @@ class UserLocationProfileView(generics.RetrieveAPIView):
         )
 
 
-# --------------------------
-# 4. Location Statistics (Admin Only)
-# --------------------------
+@extend_schema(
+    tags=["Location"],
+    )
 class LocationStatisticsView(GenericAPIView):
     permission_classes = [IsAdminUser]
     serializer_class = LocationStatisticsSerializer
@@ -2630,7 +2707,9 @@ class LocationStatisticsView(GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UserRoleSelectionView(GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = UserRoleSelectionSerializer
@@ -2663,7 +2742,9 @@ class UserRoleSelectionView(GenericAPIView):
             }
         )
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UserRoleStatusView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UserRoleStatusSerializer
@@ -2789,7 +2870,9 @@ class UserRoleStatusView(GenericAPIView):
 
 #         return queryset
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UserProfileDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = StaticUserProfileSerializer
@@ -2906,7 +2989,9 @@ class UserProfileDetailView(generics.RetrieveAPIView):
 
 #         return queryset.order_by("-date_joined")
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UserInterestsView(generics.ListAPIView, generics.UpdateAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UserInterestSerializer  # Output serializer
@@ -2948,7 +3033,9 @@ class UserInterestsView(generics.ListAPIView, generics.UpdateAPIView):
 # Chat Views
 # --------------------------
 
-
+@extend_schema(
+    tags=["Chat"],
+    )
 class ChatListView(generics.ListAPIView):
     serializer_class = ChatListSerializer
     permission_classes = [IsAuthenticated]
@@ -2964,7 +3051,9 @@ class ChatListView(generics.ListAPIView):
             .order_by("-last_message_at")
         )
 
-
+@extend_schema(
+    tags=["Chat"],
+    )
 class ChatDetailView(generics.RetrieveAPIView):
     serializer_class = ChatDetailSerializer
     permission_classes = [IsAuthenticated]
@@ -2974,7 +3063,9 @@ class ChatDetailView(generics.RetrieveAPIView):
             "messages__sender"
         )
 
-
+@extend_schema(
+    tags=["Chat"],
+    )
 class SendMessageView(generics.CreateAPIView):
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
@@ -2990,7 +3081,9 @@ class SendMessageView(generics.CreateAPIView):
 
         serializer.save(chat=chat, sender=self.request.user, message_type="text")
 
-
+@extend_schema(
+    tags=["Chat"],
+    )
 class ChatMessagesView(generics.ListAPIView):
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
@@ -3655,7 +3748,9 @@ class ChatMessagesView(generics.ListAPIView):
 # SOCIAL FEED AND STORY VIEWS (NEW)
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Post"],
+    )
 @extend_schema_view(
     retrieve=extend_schema(
         parameters=[
@@ -3678,6 +3773,7 @@ class ChatMessagesView(generics.ListAPIView):
         ]
     ),
 )
+
 class PostViewSet(viewsets.ModelViewSet):
     """
     Handles posts:
@@ -3804,6 +3900,9 @@ class PostViewSet(viewsets.ModelViewSet):
         ]
     ),
 )
+@extend_schema(
+    tags=["PostComment"],
+    )
 class PostCommentViewSet(viewsets.ModelViewSet):
     serializer_class = PostCommentCreateSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -4168,7 +4267,9 @@ class PostCommentViewSet(viewsets.ModelViewSet):
 # SOCIAL MEDIA HANDLES VIEWS (NEW FROM FIGMA)
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Bond Circle"],
+    )
 class UserSocialHandleListView(generics.ListCreateAPIView):
     """
     List and create user social media handles
@@ -4187,7 +4288,9 @@ class UserSocialHandleListView(generics.ListCreateAPIView):
 
         return UserSocialHandle.objects.filter(user=self.request.user)
 
-
+@extend_schema(
+    tags=["Social"],
+    )
 class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a specific social media handle
@@ -4208,7 +4311,9 @@ class UserSocialHandleDetailView(generics.RetrieveUpdateDestroyAPIView):
 # SECURITY QUESTIONS VIEWS (NEW FROM FIGMA)
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UserSecurityQuestionListView(generics.ListCreateAPIView):
     """
     List and create user security question responses
@@ -4227,7 +4332,9 @@ class UserSecurityQuestionListView(generics.ListCreateAPIView):
 
         return UserSecurityQuestion.objects.filter(user=self.request.user)
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a specific security question response
@@ -4247,7 +4354,9 @@ class UserSecurityQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
 # =============================================================================
 # DOCUMENT VERIFICATION VIEWS (NEW FROM FIGMA)
 # =============================================================================
-
+@extend_schema(
+    tags=["DocumentVerification"],
+    )
 class DocumentVerificationListView(generics.ListCreateAPIView):
     """
     List and create document verification requests
@@ -4266,7 +4375,9 @@ class DocumentVerificationListView(generics.ListCreateAPIView):
 
         return DocumentVerification.objects.filter(user=self.request.user)
 
-
+@extend_schema(
+    tags=["DocumentVerification"],
+    )
 class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a specific document verification
@@ -4319,7 +4430,9 @@ class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
 #                 status=status.HTTP_400_BAD_REQUEST,
 #             )
 
-
+@extend_schema(
+    tags=["Profile"],
+    )
 class UsernameUpdateView(generics.UpdateAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UsernameUpdateSerializer
@@ -4346,7 +4459,9 @@ class UsernameUpdateView(generics.UpdateAPIView):
 # SUBSCRIPTION PLANS VIEWS (NEW FROM FIGMA)
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Subscription"],
+    )
 class SubscriptionPlanListView(generics.ListAPIView):
     """
     List all available subscription plans
@@ -4362,7 +4477,9 @@ class SubscriptionPlanListView(generics.ListAPIView):
 
         return SubscriptionPlan.objects.filter(is_active=True)
 
-
+@extend_schema(
+    tags=["Subscription"],
+    )
 class UserSubscriptionListView(generics.ListCreateAPIView):
     """
     List and create user subscriptions
@@ -4381,7 +4498,9 @@ class UserSubscriptionListView(generics.ListCreateAPIView):
 
         return UserSubscription.objects.filter(user=self.request.user)
 
-
+@extend_schema(
+    tags=["Subscription"],
+    )
 class UserSubscriptionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a specific user subscription
@@ -4397,7 +4516,9 @@ class UserSubscriptionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
         return UserSubscription.objects.filter(user=self.request.user)
 
-
+@extend_schema(
+    tags=["Subscription"],
+    )
 class UserCurrentSubscriptionView(generics.RetrieveAPIView):
     """
     Get user's current active subscription
@@ -4437,7 +4558,9 @@ class UserCurrentSubscriptionView(generics.RetrieveAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["SubscriptionFeature"],
+    )
 class UserFeatureAccessView(generics.GenericAPIView):
     """
     Check user's access to specific features
@@ -4486,7 +4609,9 @@ class UserFeatureAccessView(generics.GenericAPIView):
 # BONDCOIN WALLET VIEWS (NEW FROM FIGMA)
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Wallets"],
+    )
 class BondcoinPackageListView(generics.ListAPIView):
     """
     List all active Bondcoin packages available for purchase
@@ -4500,7 +4625,9 @@ class BondcoinPackageListView(generics.ListAPIView):
             "bondcoin_amount"
         )
 
-
+@extend_schema(
+    tags=["Wallets"],
+    )
 class BondcoinTransactionListView(generics.ListAPIView):
     """
     List user's Bondcoin transactions
@@ -4521,7 +4648,9 @@ class BondcoinTransactionListView(generics.ListAPIView):
 # VIRTUAL GIFTING VIEWS (NEW FROM FIGMA)
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Gifts"],
+    )
 class GiftCategoryListView(generics.ListAPIView):
     """
     List all gift categories
@@ -4539,7 +4668,9 @@ class GiftCategoryListView(generics.ListAPIView):
 
         return GiftCategory.objects.filter(is_active=True)
 
-
+@extend_schema(
+    tags=["Gifts"],
+    )
 class VirtualGiftListView(generics.ListAPIView):
     """
     List virtual gifts, optionally filtered by category
@@ -4563,7 +4694,9 @@ class VirtualGiftListView(generics.ListAPIView):
 
         return queryset
 
-
+@extend_schema(
+    tags=["Gifts"],
+    )
 class VirtualGiftDetailView(generics.RetrieveAPIView):
     """
     Retrieve a specific virtual gift
@@ -4574,7 +4707,9 @@ class VirtualGiftDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return VirtualGift.objects.filter(is_active=True)
 
-
+@extend_schema(
+    tags=["Gifts"],
+    )
 class SendGiftView(generics.GenericAPIView):
     serializer_class = SendGiftSerializer
     permission_classes = [IsAuthenticated]
@@ -4595,7 +4730,9 @@ class SendGiftView(generics.GenericAPIView):
 
         return Response({"message": "Gift sent successfully"}, status=201)
 
-
+@extend_schema(
+    tags=["Gifts"],
+    )
 # Convert Gift Cards
 class ConvertGiftView(generics.GenericAPIView):
     serializer_class = ConvertGiftSerializer
@@ -4619,7 +4756,9 @@ class ConvertGiftView(generics.GenericAPIView):
 # LIVE STREAMING ENHANCEMENT VIEWS (NEW FROM FIGMA)
 # =============================================================================
 
-
+@extend_schema(
+    tags=["Gifts"],
+    )
 class LiveGiftListView(generics.ListCreateAPIView):
     """
     List and send gifts in live sessions
@@ -4644,7 +4783,9 @@ class LiveGiftListView(generics.ListCreateAPIView):
             return LiveGift.objects.filter(session_id=session_id)
         return LiveGift.objects.none()
 
-
+@extend_schema(
+    tags=["Live"],
+    )
 class LiveJoinRequestListView(generics.ListCreateAPIView):
     """
     List and create live session join requests
@@ -4669,7 +4810,9 @@ class LiveJoinRequestListView(generics.ListCreateAPIView):
             return LiveJoinRequest.objects.filter(session_id=session_id)
         return LiveJoinRequest.objects.filter(requester=self.request.user)
 
-
+@extend_schema(
+    tags=["Live"],
+    )
 class LiveJoinRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     Retrieve, update, or delete a specific live join request
@@ -4687,7 +4830,9 @@ class LiveJoinRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
 
         return LiveJoinRequest.objects.filter(requester=self.request.user)
 
-
+@extend_schema(
+    tags=["Live"],
+    )
 class LiveJoinRequestManageView(generics.UpdateAPIView):
     """
     Manage live session join requests (for hosts to approve/reject)
@@ -4706,7 +4851,9 @@ class LiveJoinRequestManageView(generics.UpdateAPIView):
         # Only allow hosts to manage requests for their sessions
         return LiveJoinRequest.objects.filter(session__user=self.request.user)
 
-
+@extend_schema(
+    tags=["Live"],
+    )
 class LiveSessionGiftersView(generics.ListAPIView):
     """
     Get top gifters for a live session
@@ -4750,7 +4897,9 @@ class LiveSessionGiftersView(generics.ListAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["Payments"],
+    )
 # Payment Processing Views
 class PaymentMethodListView(generics.ListAPIView):
     """List available payment methods"""
@@ -4765,7 +4914,9 @@ class PaymentMethodListView(generics.ListAPIView):
     def get_queryset(self):
         return PaymentMethod.objects.filter(is_active=True)
 
-
+@extend_schema(
+    tags=["Payments"],
+    )
 class PaymentTransactionListView(generics.ListAPIView):
     """List user's payment transactions"""
 
@@ -4781,7 +4932,9 @@ class PaymentTransactionListView(generics.ListAPIView):
 
         return PaymentTransaction.objects.filter(user=self.request.user)
 
-
+@extend_schema(
+    tags=["Payments"],
+    )
 class PaymentTransactionDetailView(generics.RetrieveAPIView):
     """Retrieve a specific payment transaction"""
 
@@ -4797,7 +4950,9 @@ class PaymentTransactionDetailView(generics.RetrieveAPIView):
 
         return PaymentTransaction.objects.filter(user=self.request.user)
 
-
+@extend_schema(
+    tags=["Payments"],
+    )
 class ProcessPaymentView(generics.GenericAPIView):
     """
     Process payment for subscriptions or Bondcoin purchases
@@ -4892,7 +5047,9 @@ class ProcessPaymentView(generics.GenericAPIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+@extend_schema(
+    tags=["Payments"],
+    )
 class PaymentWebhookView(generics.GenericAPIView):
     """
     Handle payment webhooks from external providers
@@ -4939,7 +5096,9 @@ class PaymentWebhookView(generics.GenericAPIView):
         # implement actual logic here
         pass
 
-
+@extend_schema(
+    tags=["Payments"],
+    )
 class RefundPaymentView(generics.GenericAPIView):
     """
     Process refund for a payment transaction
@@ -5175,7 +5334,9 @@ LANGUAGE_NAMES = {
     # ... include all other supported languages here
 }
 
-
+@extend_schema(
+    tags=["Translation"],
+    )
 class TranslationView(generics.GenericAPIView):
     serializer_class = TranslationRequestSerializer
     permission_classes = [IsAuthenticated]
@@ -5250,7 +5411,9 @@ def get(self, request, *args, **kwargs):
         status=status.HTTP_200_OK,
     )
 
-
+@extend_schema(
+    tags=["Translation"],
+    )
 class TranslationHistoryView(generics.ListAPIView):
     """
     Retrieve the latest 50 translation logs.
@@ -5293,7 +5456,9 @@ class TranslationHistoryView(generics.ListAPIView):
             }
         )
 
-
+@extend_schema(
+    tags=["Translation"],
+    )
 class TranslationStatsView(APIView):
     @extend_schema(responses={200: TranslationStatsResponseSerializer})
     def get(self, request):
@@ -5381,7 +5546,9 @@ class TranslationStatsView(APIView):
 # EMAIL
 # ==========================
 
-
+@extend_schema(
+    tags=["Email"],
+    )
 class SendGenericEmailView(GenericAPIView):
     serializer_class = GenericEmailSerializer
 
@@ -5406,7 +5573,9 @@ class SendGenericEmailView(GenericAPIView):
 
         return Response({"message": "Email sent", "status": "success"})
 
-
+@extend_schema(
+    tags=["Newsletter"],
+    )
 class SendNewsletterWelcomeEmailView(generics.GenericAPIView):
     """
     Send a welcome email to new newsletter subscribers.
@@ -5432,7 +5601,9 @@ class SendNewsletterWelcomeEmailView(generics.GenericAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["Waitlist"],
+    )
 class SendWaitlistConfirmationEmailView(GenericAPIView):
     serializer_class = WaitlistConfirmationEmailSerializer
 
@@ -5455,7 +5626,10 @@ class SendWaitlistConfirmationEmailView(GenericAPIView):
 # ADMIN
 # ==========================
 
-
+@extend_schema(
+    tags=["Admin"],
+    # tags=["Waitlist"],
+    )
 class AdminWaitlistListView(GenericAPIView):
     permission_classes = [permissions.IsAdminUser]
     serializer_class = WaitlistEntrySerializer
@@ -5476,7 +5650,10 @@ class AdminWaitlistListView(GenericAPIView):
             }
         )
 
-
+@extend_schema(
+    tags=["Admin"],
+    # tags=["Newsletter"],
+    )
 @authentication_required_schema()
 class AdminNewsletterListView(GenericAPIView):
     permission_classes = [permissions.IsAdminUser]
@@ -5498,9 +5675,11 @@ class AdminNewsletterListView(GenericAPIView):
             }
         )
 
-
 # Bondmaker Application Review View
-
+@extend_schema(
+    tags=["Admin"],
+    # tags=["Bondmaker"],
+    )
 class AdminBondmakerReviewView(GenericAPIView):
     permission_classes = [CanViewApplications]
 
@@ -5602,7 +5781,10 @@ class AdminBondmakerReviewView(GenericAPIView):
                 "reason": reason
             })
 
-
+@extend_schema(
+    tags=["Admin"],
+    # tags=["Bondmaker"],
+    )
 # View for admin to check pending bondamker Application
 class AdminPendingBondmakersView(generics.ListAPIView):
     permission_classes = [CanViewApplications]
@@ -5618,6 +5800,8 @@ class AdminPendingBondmakersView(generics.ListAPIView):
 
 # Bondmaker List View (Admin, Filterable, Searchable)
 @extend_schema(
+    tags = ['Admin'],
+    # tags = ['Bondmaker'],
     parameters=[
         OpenApiParameter(
             name="status",
@@ -5651,7 +5835,10 @@ class AdminBondmakerListView(generics.ListAPIView):
 
 
 # Bondmaker Pending detail View
-
+@extend_schema(
+    tags=["Admin"],
+    # tags=["Bondmaker"],
+    )
 class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
     permission_classes = [CanViewApplications]
     serializer_class = AdminBondmakerDetailSerializer
@@ -5669,7 +5856,9 @@ class AdminPendingBondmakerDetailView(generics.RetrieveAPIView):
             )
         )
 
-
+@extend_schema(
+    tags=["Admin"],
+    )
 @extend_schema(
     responses=AdminBondmakerStatsSerializer
 )
@@ -5698,7 +5887,9 @@ class AdminBondmakerStatsView(APIView):
         serializer = AdminBondmakerStatsSerializer(data)
         return Response(serializer.data)
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 # bondmaker profile Detail view
 class BondmakerProfileDetailView(generics.RetrieveAPIView):
     serializer_class = UserProfileDetailSerializer
@@ -5733,6 +5924,9 @@ class BondmakerProfileDetailView(generics.RetrieveAPIView):
         ),
     ]
 )
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class PublicBondmakerListView(generics.ListAPIView):
     serializer_class = PublicBondmakerProfileSerializer
     permission_classes = [IsAuthenticated]
@@ -5810,7 +6004,9 @@ class PublicBondmakerListView(generics.ListAPIView):
 
         return qs
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class BondmakerProfileUpdateView(generics.UpdateAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = BondmakerProfileUpdateSerializer
@@ -5839,7 +6035,9 @@ class BondmakerProfileUpdateView(generics.UpdateAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 # List View of User Subscribed to a Bondmaker
 class SubscribedUsersForBondmakerView(generics.ListAPIView):
     serializer_class = BondmakerSubscriptionSerializer
@@ -5860,7 +6058,9 @@ class SubscribedUsersForBondmakerView(generics.ListAPIView):
         # Return users who are subscribed to this bondmaker
         return User.objects.filter(id__in=subscribed_user_ids, looking_for_love=True)
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 # Subcription view for Bondmaker
 class SubscribeBondmakerView(generics.CreateAPIView):
     serializer_class = SubscribeBondmakerSerializer
@@ -5903,7 +6103,9 @@ class SubscribeBondmakerView(generics.CreateAPIView):
             }
         )
 
-
+@extend_schema(
+    tags=["Subscription"],
+    )
 class SubscribeToggleView(generics.CreateAPIView):
     serializer_class = SubscribeSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -5921,7 +6123,9 @@ class SubscribeToggleView(generics.CreateAPIView):
 
         return Response({"status": "followed"})
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 # End Bondmaker Subscription
 class EndBondmakerSubscriptionView(generics.UpdateAPIView):
     serializer_class = BondmakerSubscriptionSerializer
@@ -5941,7 +6145,9 @@ class EndBondmakerSubscriptionView(generics.UpdateAPIView):
 
         return Response({"message": "Subscription ended successfully"})
 
-
+@extend_schema(
+    tags=["Subscription"],
+    )
 # All Subscribed User list view
 class AllSubscribedUsersListView(generics.ListAPIView):
     serializer_class = BondmakerSubscriptionSerializer
@@ -5962,7 +6168,9 @@ class AllSubscribedUsersListView(generics.ListAPIView):
 
 
 #           MATCH SUGGESTION VIEW
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class BondmakerSuggestionView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = BondmakerSuggestionSerializer
@@ -5996,7 +6204,9 @@ class BondmakerSuggestionView(generics.GenericAPIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+@extend_schema(
+    tags=["Suggestions"],
+    )
 # suggested matches from bondmaker
 class SuggestedMatchView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
@@ -6012,7 +6222,9 @@ class SuggestedMatchView(generics.ListAPIView):
             .order_by("-created_at")
         )
 
-
+@extend_schema(
+    tags=["Visibility"],
+    )
 class SetVisibilityView(generics.CreateAPIView):
     serializer_class = VisibilitySerializer
     permission_classes = [IsAuthenticated]
@@ -6020,7 +6232,9 @@ class SetVisibilityView(generics.CreateAPIView):
     def get_queryset(self):
         return Visibility.objects.filter(owner=self.request.user)
 
-
+@extend_schema(
+    tags=["Visibility"],
+    )
 class ApproveVisibilityView(generics.UpdateAPIView):
     serializer_class = ApproveVisibilitySerializer
     permission_classes = [IsAuthenticated]
@@ -6031,7 +6245,9 @@ class ApproveVisibilityView(generics.UpdateAPIView):
             status="pending",
         )
 
-
+@extend_schema(
+    tags=["Visibility"],
+    )
 # pending Visibilty list View for bondmaker Review
 class PendingVisibilityListView(generics.ListAPIView):
     serializer_class = VisibilitySerializer
@@ -6053,7 +6269,9 @@ class PendingVisibilityListView(generics.ListAPIView):
             .order_by("-created_at")
         )
 
-
+@extend_schema(
+    tags=["Visibility"],
+    )
 # Visibilty Status View
 class VisibilityStatusView(generics.RetrieveAPIView):
     serializer_class = VisibilityStatusSerializer
@@ -6085,7 +6303,9 @@ class VisibilityStatusView(generics.RetrieveAPIView):
 # a reusable “active visibility” filter
 ACTIVE_VISIBILITY_FILTER = Q(visibility_settings__expires_at__gt=timezone.now())
 
-
+@extend_schema(
+    tags=["Visibility"],
+    )
 # visibility ListView for Public User
 class GlobalPublicUsersListView(generics.ListAPIView):
     serializer_class = UserSerializer
@@ -6103,7 +6323,9 @@ class GlobalPublicUsersListView(generics.ListAPIView):
             .distinct()
         )
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 # private ListView for a Bondmaker
 class PrivateUsersForBondmakerListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
@@ -6118,7 +6340,9 @@ class PrivateUsersForBondmakerListView(generics.ListAPIView):
             visibility_settings__bondmaker=bondmaker,
         ).distinct()
 
-
+@extend_schema(
+    tags=["Visibility"],
+    )
 class EndVisbilityView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
@@ -6148,7 +6372,9 @@ class EndVisbilityView(generics.GenericAPIView):
 
         return Response({"message": "Visibility ended successfully."}, status=200)
 
-
+@extend_schema(
+    tags=["Wallet"],
+    )
 class MyWalletView(generics.RetrieveAPIView):
     serializer_class = WalletSerializer
     permission_classes = [IsAuthenticated]
@@ -6156,7 +6382,9 @@ class MyWalletView(generics.RetrieveAPIView):
     def get_object(self):
         return self.request.user.wallet
 
-
+@extend_schema(
+    tags=["Wallet"],
+    )
 class MyLedgerView(generics.ListAPIView):
     serializer_class = WalletTransactionSerializer
     permission_classes = [IsAuthenticated]
@@ -6164,7 +6392,9 @@ class MyLedgerView(generics.ListAPIView):
     def get_queryset(self):
         return self.request.user.wallet_ledger.all()
 
-
+@extend_schema(
+    tags=["Matchmaker"],
+    )
 class MatchRequestCreateView(generics.GenericAPIView):
     serializer_class = MatchRequestSerializer
     permission_classes = [IsAuthenticated]
@@ -6203,7 +6433,9 @@ class MatchRequestCreateView(generics.GenericAPIView):
             status=201,
         )
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 # Bondmaker Accept/Reject View for match Request
 class BondmakerMatchActionView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
@@ -6249,6 +6481,9 @@ class BondmakerMatchActionView(generics.GenericAPIView):
 
 
 # Purchase Coins
+@extend_schema(
+    tags=["Coin"],
+    )
 class PurchaseCoinView(generics.GenericAPIView):
     serializer_class = PurchaseSerializer
     permission_classes = [IsAuthenticated]
@@ -6323,7 +6558,9 @@ class PurchaseCoinView(generics.GenericAPIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+@extend_schema(
+    tags=["Coin"],
+    )
 class UserInteractionView(generics.CreateAPIView):
     """
     Handles all swipe interactions.
@@ -6448,7 +6685,9 @@ class UserInteractionView(generics.CreateAPIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+@extend_schema(
+    tags=["SwipeDeck"],
+    )
 class UserSwipeDeckView(generics.ListAPIView):
     """
     Returns users for swipe deck:
@@ -6509,7 +6748,9 @@ class UserSwipeDeckView(generics.ListAPIView):
         context["request"] = self.request
         return context
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 # list of pending MatchRequest for a Bondmaker
 class BondmakerPendingMatchListView(generics.ListAPIView):
     serializer_class = PendingMatchUserSerializer
@@ -6535,7 +6776,9 @@ class BondmakerPendingMatchListView(generics.ListAPIView):
             .order_by("-created_at")
         )
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class BondmakerSpecialisationView(generics.RetrieveUpdateAPIView):
     serializer_class = BondmakerSpecialisationSerializer
     permission_classes = [IsAuthenticated]
@@ -6548,7 +6791,9 @@ class BondmakerSpecialisationView(generics.RetrieveUpdateAPIView):
 
         return user
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class BondmakerSearchView(generics.ListAPIView):
     serializer_class = BondmakerSearchListSerializer
     permission_classes = [IsAuthenticated]
@@ -6604,7 +6849,9 @@ class BondmakerSearchView(generics.ListAPIView):
 
         return queryset.distinct()
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class SpecialisationCategoryListView(generics.GenericAPIView):
     serializer_class = SpecialisationCategorySerializer
     permission_classes = [AllowAny]
@@ -6619,7 +6866,9 @@ class SpecialisationCategoryListView(generics.GenericAPIView):
         ]
         return Response(categories)
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class BondmakerDashboardView(generics.GenericAPIView):
     serializer_class = BondmakerDashboardSerializer
     permission_classes = [IsAuthenticated]
@@ -6647,7 +6896,9 @@ class BondmakerDashboardView(generics.GenericAPIView):
 ALLOWED_PERIODS = [30, 60, 90, 120]  # allowed analytics periods in days
 # DEFAULT_PERIOD_DAYS = 30
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class BondmakerAnalyticsView(generics.GenericAPIView):
     serializer_class = BondmakerAnalyticsSerializer
     permission_classes = [IsAuthenticated]
@@ -6690,7 +6941,9 @@ class BondmakerAnalyticsView(generics.GenericAPIView):
         serializer = self.get_serializer(data)
         return Response(serializer.data)
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class UserMatchedListView(generics.ListAPIView):
     serializer_class = MatchedUserSerializer
     permission_classes = [IsAuthenticated]
@@ -6706,7 +6959,9 @@ class UserMatchedListView(generics.ListAPIView):
             .order_by("-updated_at")
         )
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class BondmakerAcceptedMatchesView(generics.ListAPIView):
     serializer_class = MatchedUserSerializer
     permission_classes = [IsAuthenticated]
@@ -6732,7 +6987,9 @@ class BondmakerAcceptedMatchesView(generics.ListAPIView):
             .order_by("-updated_at")
         )
 
-
+@extend_schema(
+    tags=["Bondmaker"],
+    )
 class IncomingPendingMatchListView(generics.ListAPIView):
     serializer_class = IncomingPendingMatchSerializer
     permission_classes = [IsAuthenticated]
@@ -6749,7 +7006,9 @@ class IncomingPendingMatchListView(generics.ListAPIView):
             .order_by("-created_at")
         )
 
-
+@extend_schema(
+    tags=["BondCircle"],
+    )
 class AddBondCircleMembersView(GenericAPIView):
     serializer_class = AddCircleMembersSerializer
     permission_classes = [IsAuthenticated]
@@ -6767,12 +7026,16 @@ class AddBondCircleMembersView(GenericAPIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+@extend_schema(
+    tags=["BondCircle"],
+    )
 class BondCircleCreateView(generics.CreateAPIView):
     serializer_class = BondCircleSerializer
     permission_classes = [IsAuthenticated]
 
-
+@extend_schema(
+    tags=["BondCircle"],
+    )
 class BondCircleFeedView(generics.ListAPIView):
     serializer_class = BondCirclePostSerializer
     permission_classes = [IsAuthenticated]
@@ -6807,7 +7070,9 @@ class BondCircleFeedView(generics.ListAPIView):
             .order_by("-created_at")
         )
 
-
+@extend_schema(
+    tags=["BondCircle"],
+    )
 class BondCirclePostCreateView(generics.CreateAPIView):
     serializer_class = BondCirclePostSerializer
     permission_classes = [IsAuthenticated]
@@ -6825,7 +7090,9 @@ class BondCirclePostCreateView(generics.CreateAPIView):
 
         serializer.save(author=self.request.user, circle=circle)
 
-
+@extend_schema(
+    tags=["Comment"],
+    )
 class CreateCommentView(generics.CreateAPIView):
     serializer_class = BondCircleCommentSerializer
     permission_classes = [IsAuthenticated]
@@ -6834,7 +7101,9 @@ class CreateCommentView(generics.CreateAPIView):
         post = get_object_or_404(BondCirclePost, id=self.kwargs["post_id"])
         serializer.save(user=self.request.user, post=post)
 
-
+@extend_schema(
+    tags=["TogglePost"],
+    )
 class TogglePostLikeView(GenericAPIView):
     serializer_class = TogglePostLikeSerializer
     permission_classes = [IsAuthenticated]
@@ -6846,7 +7115,9 @@ class TogglePostLikeView(GenericAPIView):
 
         return Response(result, status=status.HTTP_200_OK)
 
-
+@extend_schema(
+    tags=["Admin"],
+    )
 class AdminOverviewView(GenericAPIView):
     """
     Admin Overview Dashboard API.
@@ -6872,7 +7143,9 @@ class AdminOverviewView(GenericAPIView):
         serializer = self.get_serializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-
+@extend_schema(
+    tags=["Upload"],
+    )
 class CloudinarySignatureView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CloudinarySignatureSerializer
@@ -6895,7 +7168,9 @@ class CloudinarySignatureView(GenericAPIView):
         serializer = self.get_serializer(data)
         return Response(serializer.data)
 
-
+@extend_schema(
+    tags=["Upload"],
+    )
 class SelfieSubmissionView(GenericAPIView):
     serializer_class = SelfieSubmissionSerializer
     permission_classes = [IsAuthenticated]
@@ -6918,7 +7193,9 @@ class SelfieSubmissionView(GenericAPIView):
             status=status.HTTP_201_CREATED,
         )
 
-
+@extend_schema(
+    tags=["Upload"],
+    )
 class UserSelfieListView(generics.ListAPIView):
     serializer_class = SelfieSubmissionSerializer
     permission_classes = [IsAuthenticated]
