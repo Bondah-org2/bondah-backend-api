@@ -128,14 +128,15 @@ WSGI_APPLICATION = "backend.wsgi.application"
 
 DATABASES = {
     "default": {
-       "ENGINE": "django.db.backends.postgresql",
-        "NAME": "bondah_db2",
-        "USER": "bondah_user2",
-        "PASSWORD": "bondahpassorg",
-        'HOST': 'localhost',
-    "PORT": "5432",
+        "ENGINE": config("DB_ENGINE", default="django.db.backends.postgresql"),
+        "NAME": config("DB_NAME", default="bondah_db2"),
+        "USER": config("DB_USER", default="bondah_user2"),
+        "PASSWORD": config("DB_PASSWORD", default="bondahpassorg"),
+        "HOST": config("DB_HOST", default="localhost"),
+        "PORT": config("DB_PORT", default="5432"),
     }
 }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
