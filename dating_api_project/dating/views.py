@@ -3749,7 +3749,7 @@ class ChatMessagesView(generics.ListAPIView):
 # =============================================================================
 
 @extend_schema(
-    tags=["Post"],
+    tags=["Bond Story"],
     )
 @extend_schema_view(
     retrieve=extend_schema(
@@ -3901,7 +3901,7 @@ class PostViewSet(viewsets.ModelViewSet):
     ),
 )
 @extend_schema(
-    tags=["PostComment"],
+    tags=["Bond Story"],
     )
 class PostCommentViewSet(viewsets.ModelViewSet):
     serializer_class = PostCommentCreateSerializer
@@ -7091,7 +7091,7 @@ class BondCirclePostCreateView(generics.CreateAPIView):
         serializer.save(author=self.request.user, circle=circle)
 
 @extend_schema(
-    tags=["Comment"],
+    tags=["Bond Story"],
     )
 class CreateCommentView(generics.CreateAPIView):
     serializer_class = BondCircleCommentSerializer
