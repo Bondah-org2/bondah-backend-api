@@ -1497,12 +1497,15 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
 
 # OAuth Serializers
 class GoogleOAuthSerializer(serializers.Serializer):
-    id_token = serializers.CharField()
-
-    def validate_id_token(self, value):
-        if not value:
-            raise serializers.ValidationError("ID token is required.")
-        return value
+    id_token = serializers.CharField(required=False)
+    access_token = serializers.CharField(required=False)
+    
+    def validate(self, attrs):
+        if not attrs.get("id_token") and not attrs.get("access_token"):
+            raise serializers.ValidationError(
+                "Either id_token or access_token is required."
+            )
+        return attrs
 
 
 class AppleOAuthSerializer(serializers.Serializer):
@@ -1934,7 +1937,10 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
             recipient_list=[email],
         )
 
-        return {"message": "OTP sent to your email"}
+        return {
+            "message": "OTP sent to your email",
+            "registration_token": str(verification.registration_token),
+        }
 
 
 class VerifyOTPSerializer(serializers.Serializer):
@@ -1964,10 +1970,17 @@ class VerifyOTPSerializer(serializers.Serializer):
         verification.verified_at = timezone.now()
         verification.save()
 
-        return {"registration_token": str(verification.registration_token)}
+        return {
+            "status": "success",
+            "message": "OTP verified successfully.",
+            "registration_token": str(verification.registration_token),
+        }
 
 
 class ConfirmRegistrationSerializer(serializers.Serializer):
+
+    import re
+
     registration_token = serializers.UUIDField()
     password = serializers.CharField(write_only=True)
     password_confirm = serializers.CharField(write_only=True)
@@ -1976,6 +1989,9 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
         token = attrs["registration_token"]
         password = attrs["password"]
         password_confirm = attrs["password_confirm"]
+
+        # Validate password
+        ConfirmRegistrationSerializer.validate_password_strength(password)
 
         if password != password_confirm:
             raise serializers.ValidationError("Passwords do not match.")
@@ -1991,6 +2007,37 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
 
         attrs["verification"] = verification
         return attrs
+    
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        """
+        Validate that the password meets the strength requirements:
+        - At least 8 characters long
+        - Contains at least one uppercase letter
+        - Contains at least one lowercase letter
+        - Contains at least one digit
+        - Contains at least one special character
+        """
+        import re
+
+        if len(v) < 8:
+            raise serializers.ValidationError(
+                "Password must be at least 8 characters long"
+            )
+        
+        if not re.search(r"[A-Z]", v):
+            raise serializers.ValidationError(
+                "Password must contain at least one uppercase letter"
+            )
+        
+        if not re.search(r"[a-z]", v):
+            raise serializers.ValidationError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise serializers.ValidationError("Password must contain at least one digit")
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
+            raise serializers.ValidationError("Password must contain at least one special character")
+        return v
+
 
     def create(self, validated_data):
         verification = validated_data["verification"]
@@ -2042,11 +2089,14 @@ class ResendEmailOTPSerializer(serializers.Serializer):
     def create(self, validated_data):
         verification = self.context["verification"]
 
-        # Generate new OTP
-        from random import randint
+        # Invalidate other OTPs (exclude current one)
+        EmailVerification.objects.filter(
+            email=verification.email,
+            is_used=False
+        ).exclude(pk=verification.pk).update(is_used=True)
 
-        verification.otp_code = f"{randint(100000, 999999)}"
-        verification.expires_at = timezone.now() + timezone.timedelta(minutes=10)
+        verification.otp_code = EmailVerification.generate_otp()
+        verification.expires_at = timezone.now() + timedelta(minutes=10)
         verification.save()
         print(verification.otp_code)
 
