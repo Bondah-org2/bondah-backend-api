@@ -935,7 +935,20 @@ class DeviceRegistration(models.Model):
         ("android", "Android"),
     )
 
+    TOKEN_PROVIDER = (
+        ("fcm", "Firebase Cloud Messaging"),
+        ("expo", "Expo Push Notifications"),
+    )
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="devices")
+
+    # A field to distinguish between choices, i.e fcm, expo
+    token_type = models.CharField(
+        max_length=5,
+        choices=TOKEN_PROVIDER,
+        default="expo"
+    )
+
     device_id = models.CharField(max_length=255, unique=True)
     device_type = models.CharField(max_length=10, choices=DEVICE_TYPE_CHOICES)
     push_token = models.CharField(max_length=500)

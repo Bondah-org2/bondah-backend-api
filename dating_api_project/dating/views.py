@@ -116,7 +116,8 @@ from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
-from .notification import notify_user, send_kyc_email
+from .notification import send_kyc_email
+from dating.tasks import notify_user
 from django.conf import settings
 import logging
 from rest_framework import filters
@@ -5775,8 +5776,8 @@ class AdminBondmakerReviewView(GenericAPIView):
             user.save(update_fields=["is_matchmaker"])
 
             #  Notify user
-            notify_user(
-                user=user,
+            notify_user.delay(
+                user_id=user.id,
                 title="Bondmaker Application Approved 🎉",
                 message="Congratulations! Your bondmaker application has been approved.",
                 data={
@@ -5807,8 +5808,8 @@ class AdminBondmakerReviewView(GenericAPIView):
             user.save(update_fields=["is_matchmaker"])
 
             # Notify user
-            notify_user(
-                user=user,
+            notify_user.delay(
+                user_id=user.id,
                 title="Bondmaker Application Rejected",
                 message=f"Your application was rejected. Reason: {reason or 'Not specified'}",
                 data={
@@ -6461,8 +6462,8 @@ class MatchRequestCreateView(generics.GenericAPIView):
 
         # Update Notification Table
         # Send push notification to bondmaker
-        notify_user(
-            user=match_request.bondmaker,
+        notify_user.delay(
+            user_id=match_request.bondmaker.id,
             title="New Match Request",
             message=f"{request.user.name} liked {user_match.user2.name}.",
             data={"match_request_id": match_request.id},
@@ -6672,8 +6673,8 @@ class UserInteractionView(generics.CreateAPIView):
             except ValidationError as e:
                 raise ValidationError({"detail": str(e)})
 
-            notify_user(
-                user=bondmaker,
+            notify_user.delay(
+                user_id=bondmaker.id,
                 title="New Match Request",
                 message=f"{user.name} liked {target_user.name}. Review request.",
                 data={

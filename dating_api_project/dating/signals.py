@@ -13,7 +13,7 @@ from .models import (
     PostComment,
     Post,
 )
-from .notification import notify_user
+from dating.tasks import notify_user
 from django.core.cache import cache
 from .services.dashboard import BondmakerDashboardService
 from .services.analytics import BondmakerAnalyticsService
@@ -40,8 +40,8 @@ def suggested_match_notification(sender, instance, created, **kwargs):
     suggested_user = instance.suggested_user
 
     # Notify Subscriber
-    notify_user(
-        subscriber,
+    notify_user.delay(
+        subscriber.id,
         title="New Match Suggestion 💌",
         message=f"{bondmaker.name} suggested {suggested_user.name} to you.",
         data={
@@ -51,8 +51,8 @@ def suggested_match_notification(sender, instance, created, **kwargs):
     )
 
     # Notify Suggested User
-    notify_user(
-        suggested_user,
+    notify_user.delay(
+        suggested_user.id,
         title="You’ve Been Suggested 💘",
         message=f"{bondmaker.name} suggested you to {subscriber.name}.",
         data={
@@ -75,8 +75,8 @@ def usermatch_status_notification(sender, instance, **kwargs):
         user_b = instance.user2
 
         # Notify user A
-        notify_user(
-            user_a,
+        notify_user.delay(
+            user_a.id,
             title="It's a Match! 🎉",
             message=f"You have been matched with {user_b.name}",
             data={
@@ -86,8 +86,8 @@ def usermatch_status_notification(sender, instance, **kwargs):
         )
 
         # Notify user B
-        notify_user(
-            user_b,
+        notify_user.delay(
+            user_b.id,
             title="It's a Match! 🎉",
             message=f"You have been matched with {user_a.name}",
             data={
@@ -101,8 +101,8 @@ def usermatch_status_notification(sender, instance, **kwargs):
     if previous.status != "disliked" and instance.status == "disliked":
         requester = instance.user1
 
-        notify_user(
-            requester,
+        notify_user.delay(
+            requester.id,
             title="Match Request Rejected",
             message="Your match request was rejected and coins refunded.",
             data={"type": "match_rejected", "match_id": instance.id},
