@@ -1,3 +1,4 @@
+from dating.tasks import notify_user
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
@@ -100,7 +101,7 @@ from .location_utils import calculate_distance, calculate_match_score
 from django.core.exceptions import ValidationError
 from django.db import transaction as db_transaction
 from .services.visibility_services import VisibilityService
-from .notification import notify_user
+
 from django.db.models import F
 from .models.username import (
     UsernameValidation,
@@ -1465,7 +1466,7 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DeviceRegistration
-        fields = ["device_id", "device_type", "push_token"]
+        fields = ["device_id", "device_type", "push_token", "token_type"]
 
     def validate_device_type(self, value):
         if value not in ["ios", "android"]:
@@ -1486,6 +1487,7 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
             device_id=device_id,
             user=user,
             defaults={
+                "token_type": validated_data.get("token_type", "expo"),
                 "device_type": validated_data["device_type"],
                 "push_token": validated_data["push_token"],
                 "is_active": True,
@@ -4324,8 +4326,8 @@ class VisibilitySerializer(serializers.ModelSerializer):
         )
 
         # Notify Bondmaker
-        notify_user(
-            user=visibility.bondmaker,
+        notify_user.delay(
+            user=visibility.bondmaker.id,
             title="New Public Visibility Request",
             message=f"{visibility.owner.email} requested public visibility.",
             data={
