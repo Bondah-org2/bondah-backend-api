@@ -324,7 +324,7 @@ urlpatterns = [
 
     # Mobile App Authentication Endpoints
     path(
-        "auth/register/request-otp//",
+        "auth/register/request-otp/",
         RegisterRequestOTPView.as_view(),
         name="request-email-otp",
     ),

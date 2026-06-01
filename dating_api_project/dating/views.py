@@ -346,6 +346,15 @@ from response_serializers import (
     UserProfileWithSocialSerializer,
     NotificationSettingsResponseSerializer,
     AdminLoginResponseSerializer,
+    PasswordResetVerifyOTPResponseSerializer,
+    RegisterRequestOTPResponseSerializer,
+    RegisterVerifyOTPResponseSerializer,
+    UserRegisterResponseSerializer,
+    UserRegisterErrorSerializer,
+    UserLoginResponseSerializer,
+    UserLoginValidationErrorSerializer,
+    UserLoginUnauthorizedSerializer,
+    UserLoginErrorSerializer,
 )
 from schema_serializers import (
     GetPuzzleRequestSerializer,
@@ -1198,7 +1207,12 @@ class AdminTeamView(generics.ListAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        201: RegisterRequestOTPResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 class RegisterRequestOTPView(generics.CreateAPIView):
     serializer_class = RegisterRequestOTPSerializer
     permission_classes = [AllowAny]
@@ -1211,7 +1225,12 @@ class RegisterRequestOTPView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: RegisterVerifyOTPResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1233,7 +1252,12 @@ class VerifyOTPView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        201: UserRegisterResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: UserRegisterErrorSerializer,
+    },
+)
 class ConfirmRegistrationView(generics.CreateAPIView):
     serializer_class = ConfirmRegistrationSerializer
     permission_classes = [AllowAny]
@@ -1258,7 +1282,12 @@ class ConfirmRegistrationView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: RegisterRequestOTPResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 class ResendEmailOTPView(generics.CreateAPIView):
     serializer_class = ResendEmailOTPSerializer
     permission_classes = [AllowAny]
@@ -1276,7 +1305,13 @@ class ResendEmailOTPView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: UserLoginResponseSerializer,
+        400: UserLoginValidationErrorSerializer,
+        401: UserLoginUnauthorizedSerializer,
+        500: UserLoginErrorSerializer,
+    },
+)
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1434,9 +1469,9 @@ class TokenRefreshView(generics.GenericAPIView):
     tags = ['Authentication'],
     request=PasswordResetSerializer,
     responses={
-        200: PasswordResetSerializer,
-        400: PasswordResetSerializer,
-        500: PasswordResetSerializer,
+        200: StatusMessageSerializer,
+        400: CustomErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
     },
 )
 class PasswordResetView(generics.GenericAPIView):
@@ -1485,13 +1520,13 @@ class PasswordResetView(generics.GenericAPIView):
 
 @extend_schema(
     tags = ['Authentication'],
-   request=PasswordResetConfirmSerializer,
-     responses={
-       200: PasswordResetConfirmSerializer,
-        400: PasswordResetConfirmSerializer,
-        500: PasswordResetConfirmSerializer,
+    request=OTPSerializer,
+    responses={
+        200: PasswordResetVerifyOTPResponseSerializer,
+        400: CustomErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
     },
- )
+)
 
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
@@ -1539,7 +1574,12 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: StatusMessageSerializer,
+        400: CustomErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 class PasswordResetConfirmView(generics.GenericAPIView):
     serializer_class = PasswordResetConfirmSerializer
     permission_classes = [AllowAny]
@@ -1558,7 +1598,11 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 @extend_schema(
     tags = ['Authentication'],
     request=PasswordResetResendSerializer,
-    responses={200: PasswordResetResendSerializer},
+    responses={
+        200: StatusMessageSerializer,
+        400: CustomErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
 )
 class PasswordResendOTPView(generics.GenericAPIView):
     serializer_class = PasswordResetSerializer
