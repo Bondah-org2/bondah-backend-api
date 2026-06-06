@@ -1,3 +1,4 @@
+from dating.tasks import send_otp_email
 from dating.tasks import notify_user
 from rest_framework import serializers
 from django.contrib.auth import authenticate
@@ -9,7 +10,6 @@ from lang import SUPPORTED_LANGUAGES
 from django.utils.timezone import now
 from datetime import timedelta
 from django.utils import timezone
-from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import make_password
@@ -1931,14 +1931,7 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
         verification = EmailVerification.create_verification(email=email)
         verification.save()
 
-        print(verification.otp_code)
-        send_mail(
-            subject="Your Verification OTP",
-            message=f"Your OTP is {verification.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-        )
-
+        send_otp_email.delay(email, verification.otp_code)
         return {
             "message": "OTP sent to your email",
             "registration_token": str(verification.registration_token),
@@ -2103,11 +2096,9 @@ class ResendEmailOTPSerializer(serializers.Serializer):
         print(verification.otp_code)
 
         # Send OTP email
-        send_mail(
-            subject="Your Verification OTP",
-            message=f"Your new OTP is {verification.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[verification.email],
+        send_otp_email.delay(
+            verification.email,
+            verification.otp_code
         )
 
         return {

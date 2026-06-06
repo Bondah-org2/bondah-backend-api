@@ -26,7 +26,8 @@ A comprehensive dating platform backend built with Django REST Framework, featur
 
 ### Communication & Real-time
 - **WebSockets** - Real-time messaging and calling
-- **Firebase Admin 6.4.0** - Push notifications
+- **Firebase Admin 6.4.0** - Push notifications using FCM
+- **Expo** - Push notifications using Expo
 - **WebRTC** - Voice and video calling
 
 ### Location & Geocoding

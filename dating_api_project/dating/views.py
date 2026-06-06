@@ -1,3 +1,8 @@
+from dating.tasks import send_password_reset_email
+from dating.tasks import send_bondmaker_rejection_email
+import logging
+from dating.tasks import send_bondmaker_approval_email
+from dating.tasks import send_otp_email
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.db.models import Sum
@@ -116,10 +121,8 @@ from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
-from .notification import send_kyc_email
 from dating.tasks import notify_user
 from django.conf import settings
-import logging
 from rest_framework import filters
 from .serializers import (
     UserSerializer,
@@ -427,6 +430,8 @@ class NewsletterSignupView(generics.CreateAPIView):
                 # Save the newsletter subscription
                 subscriber = serializer.save()
 
+
+                #TODO: Ensure it runs in background
                 # Send automatic welcome email
                 subject = f"Welcome to Bondah Dating{f', {name}' if name else ''}! 🎉"
                 message = f"""
@@ -1480,6 +1485,7 @@ class PasswordResetView(generics.GenericAPIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        logger.info("Control entered")
         email = request.data.get("email")
 
         # Always respond success (avoid email enumeration)
@@ -1491,6 +1497,12 @@ class PasswordResetView(generics.GenericAPIView):
         user = User.objects.filter(email=email).first()
         if not user:
             return Response(response_msg, status=200)
+        
+        # Extract device info from request
+        ip_address = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() \
+            or request.META.get("REMOTE_ADDR", "Unknown")
+        user_agent = request.META.get("HTTP_USER_AGENT", "Unknown device")
+        reset_time = timezone.now().strftime("%B %d, %Y at %I:%M %p UTC")
 
         # Delete old OTPs for this email
         PasswordResetOTP.objects.filter(email=email, is_used=False).delete()
@@ -1504,17 +1516,20 @@ class PasswordResetView(generics.GenericAPIView):
             otp=otp,
         )
 
-        # Send OTP via email
         try:
-            send_mail(
-                subject="Your Password Reset OTP",
-                message=f"Your OTP is {otp}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
+            logger.info("About to send mail")
+            # Send OTP via email
+            send_password_reset_email.delay(
+                user.email,
+                otp,
+                user_name=user.name,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                reset_time=reset_time,
+            )   
         except Exception as e:
-            print("Email error:", e)
+            logger.error(f"Email error: {e}", exc_info=True)
+            raise
 
         return Response(response_msg, status=200)
 
@@ -2770,6 +2785,7 @@ class UserRoleSelectionView(GenericAPIView):
             defaults={"selected_role": selected_role},
         )
 
+        # TODO: IF USER CHOOSE BONDMAKER, HE OUGHT TO UNDERGO SERIES OF VERIFICATION STEPS
         # If user chose bondmaker, create or reuse pending verification
         # if selected_role == "bondmaker":
         #     DocumentVerification.objects.get_or_create(
@@ -5633,6 +5649,7 @@ class SendNewsletterWelcomeEmailView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # TODO: MAKE IT RUN IN BACKGROUND
         # Send the welcome email
         send_mail(
             subject="Welcome to Bondah",
@@ -5657,6 +5674,7 @@ class SendWaitlistConfirmationEmailView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # TODO: MAKE IT RUN IN BG
         send_mail(
             "Waitlist confirmation",
             "You are on the waitlist!",
@@ -5786,8 +5804,14 @@ class AdminBondmakerReviewView(GenericAPIView):
                 },
             )
 
-            # Eend Email
-            send_kyc_email(user, status="approved")
+            try:
+                # Send Email to approved BondMaker
+                send_bondmaker_approval_email.delay(
+                    user.name,
+                    user.email
+                )
+            except Exception as e:
+                logger.error("An error occured while sending mail to just approved bondmaker", exc_info=True)
 
             return Response({
                 "message": "KYC approved successfully",
@@ -5818,8 +5842,15 @@ class AdminBondmakerReviewView(GenericAPIView):
                 },
             )
 
-            # 📧 Email
-            send_kyc_email(user, status="rejected", reason=reason)
+            try:
+                # Send Email to approved BondMaker
+                send_bondmaker_rejection_email.delay(
+                    user.name,
+                    user.email,
+                    reason
+                )
+            except Exception as e:
+                logger.error("An error occured while sending mail to just rejected bondmaker", exc_info=True)
 
             return Response({
                 "message": "KYC rejected",
@@ -6673,6 +6704,7 @@ class UserInteractionView(generics.CreateAPIView):
             except ValidationError as e:
                 raise ValidationError({"detail": str(e)})
 
+            # TODO: MOVE TO BACKGROUND
             notify_user.delay(
                 user_id=bondmaker.id,
                 title="New Match Request",
