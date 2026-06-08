@@ -1,3 +1,4 @@
+from dating_api_project.dating.location_utils2 import find_nearby_users
 from dating.tasks import send_password_reset_email
 from dating.tasks import send_bondmaker_rejection_email
 import logging
@@ -2612,6 +2613,12 @@ class NearbyUsersView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not self.request.user.country:
+            return Response(
+                {"message": "Enable location access to see users in your region"},
+                status=status.HTTP_200_OK
+            )
+
         max_distance = request.GET.get("max_distance")
         if max_distance:
             try:
@@ -6387,6 +6394,14 @@ class GlobalPublicUsersListView(generics.ListAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response(
+                {"message": "Enable location access to see users in your region"},
+                status=status.HTTP_200_OK
+            )
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         return (
             User.objects.filter(
@@ -6394,6 +6409,7 @@ class GlobalPublicUsersListView(generics.ListAPIView):
                 is_matchmaker=False,
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
+                country=self.request.user.country
             )
             .exclude(id=self.request.user.id)
             .distinct()
@@ -6777,6 +6793,13 @@ class UserSwipeDeckView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = UserSwipeDeckPagination
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response({
+                "message": "Enable location access to see users in your region"
+            }, status=status.HTTP_200_OK)
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         user = self.request.user
         max_distance = self.request.query_params.get("max_distance", None)
@@ -6787,6 +6810,7 @@ class UserSwipeDeckView(generics.ListAPIView):
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
                 visibility_settings__expires_at__gt=timezone.now(),
+                country=user.country
             )
             .exclude(id=user.id)
             .distinct()
@@ -6882,16 +6906,47 @@ class BondmakerSearchView(generics.ListAPIView):
         "bio",
         "city",
         "state",
-        "country",
+        # "country",
         "specialisations__category",
     ]
     ordering_fields = ["accepted_match_count"]
     ordering = ["-accepted_match_count"]
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response({
+                "message": "Enable location access to see users in your region"
+            }, status=status.HTTP_200_OK)
+
+        response = super().list(request, *args, **kwargs)
+
+        # If results are empty, check whether it's an out-of-region issue
+        results = response.data.get("results", response.data)
+        if not results:
+            search_query = request.query_params.get("search", "")
+            if search_query:
+                out_of_region = User.objects.filter(
+                    is_matchmaker=True,
+                    username__icontains=search_query
+                ).exclude(country=request.user.country).exists()
+
+                if out_of_region:
+                    return Response({
+                        "message": f"This bondmaker is not available in your region ({request.user.country}).",
+                        "results": []
+                    }, status=status.HTTP_200_OK)
+
+            return Response({
+                "message": "No bondmakers found in your region matching your search.",
+                "results": []
+            }, status=status.HTTP_200_OK)
+
+        return response
+
     def get_queryset(self):
         user = self.request.user
 
-        queryset = User.objects.filter(is_matchmaker=True).prefetch_related(
+        queryset = User.objects.filter(is_matchmaker=True, country=user.country).prefetch_related(
             "specialisations"
         )
 
@@ -6905,7 +6960,7 @@ class BondmakerSearchView(generics.ListAPIView):
         # Location (query param OR fallback to user)
         city = self.request.query_params.get("city") or user.city
         state = self.request.query_params.get("state") or user.state
-        country = self.request.query_params.get("country") or user.country
+        # country = self.request.query_params.get("country") or user.country
 
         if city:
             queryset = queryset.filter(city__iexact=city)
@@ -6913,8 +6968,8 @@ class BondmakerSearchView(generics.ListAPIView):
         if state:
             queryset = queryset.filter(state__iexact=state)
 
-        if country:
-            queryset = queryset.filter(country__iexact=country)
+        # if country:
+        #     queryset = queryset.filter(country__iexact=country)
 
         # Category filter
         category = self.request.query_params.get("category")

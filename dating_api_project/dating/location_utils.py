@@ -3,6 +3,7 @@ Location utilities for dating app - GPS, geocoding, and distance calculations
 NO GeoDjango. NO GDAL. Pure Python implementation.
 """
 
+from django.contrib.gis.geos import Point
 import math
 import requests
 from typing import Tuple, Optional, Dict, List
@@ -219,6 +220,7 @@ def update_user_location(
     try:
         user.latitude = latitude
         user.longitude = longitude
+        user.location = Point(longitude, latitude)
         user.last_location_update = timezone.now()
 
         address_data = reverse_geocode(latitude, longitude)
