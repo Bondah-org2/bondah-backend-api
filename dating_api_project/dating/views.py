@@ -2202,6 +2202,9 @@ class SocialLoginView(generics.GenericAPIView):
 
 @extend_schema(
     tags=["Authentication"],
+    responses={
+        401: OpenApiResponse(description="User Not Authenticated")
+    }
     )
 
 class DeviceRegistrationView(generics.CreateAPIView):
