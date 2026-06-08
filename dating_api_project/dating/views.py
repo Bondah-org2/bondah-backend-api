@@ -1,4 +1,5 @@
-from dating_api_project.dating.location_utils2 import find_nearby_users
+from dating.permissions import CanApproveApplications
+from dating.location_utils2 import find_nearby_users
 from dating.tasks import send_password_reset_email
 from dating.tasks import send_bondmaker_rejection_email
 import logging
@@ -1130,41 +1131,39 @@ class AdminLogoutView(APIView):
 
 @extend_schema(
     tags=["Admin"],
+    responses={
+        201: OpenApiResponse(description="Admin Created"),
+        403: OpenApiResponse(description="User is not Principal Admin")
+    }
     )
 class CreateAdminMemberView(generics.CreateAPIView):
     serializer_class = CreateTeamMemberSerializer
     permission_classes = [IsPrincipalAdmin]
 
-    def perform_create(self, serializer):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can Create members")
-        serializer.save()
-
 @extend_schema(
     tags=["Admin"],
+    responses={
+        200: UpdateAdminMemberSerializer,
+        403: OpenApiResponse(description="User is not a Principal Admin")
+    }
     )
 class UpdateAdminMemberView(generics.UpdateAPIView):
     queryset = User.objects.filter(is_staff=True)
     serializer_class = UpdateAdminMemberSerializer
     permission_classes = [IsPrincipalAdmin]
 
-    def perform_update(self, serializer):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can update members")
-        serializer.save()
-
 @extend_schema(
     tags=["Admin"],
+    responses={
+        204: OpenApiResponse(description="Member successfully removed"),
+        403: OpenApiResponse(description="User is not a Principal Admin")
+    }
     )
 class RemoveAdminMemberView(generics.DestroyAPIView):
     serializer_class = RemoveAdminMemberSerializer
     queryset = User.objects.filter(is_staff=True)
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPrincipalAdmin]
 
-    def perform_destroy(self, instance):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can remove members")
-        instance.delete()
 
 @extend_schema(
     tags=["Admin"],
@@ -5751,7 +5750,7 @@ class AdminNewsletterListView(GenericAPIView):
     # tags=["Bondmaker"],
     )
 class AdminBondmakerReviewView(GenericAPIView):
-    permission_classes = [CanViewApplications]
+    permission_classes = [CanApproveApplications]
 
     class InputSerializer(serializers.Serializer):
         action = serializers.ChoiceField(choices=["approve", "reject"])
@@ -7249,6 +7248,9 @@ class TogglePostLikeView(GenericAPIView):
 
 @extend_schema(
     tags=["Admin"],
+    responses={
+        403: OpenApiResponse(description="User does not have admin priviledges.")
+    }
     )
 class AdminOverviewView(GenericAPIView):
     """
@@ -7260,13 +7262,6 @@ class AdminOverviewView(GenericAPIView):
     permission_classes = [CanViewOverview]
 
     def get(self, request, *args, **kwargs):
-        # Admin-only protection
-        if not request.user.is_staff and not request.user.is_superuser:
-            return Response(
-                {"detail": "You do not have permission to access this resource."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         days = int(request.query_params.get("days", 7))
 
         service = OverviewAnalyticsService(days=days)
@@ -7274,6 +7269,7 @@ class AdminOverviewView(GenericAPIView):
 
         serializer = self.get_serializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 @extend_schema(
     tags=["Upload"],
