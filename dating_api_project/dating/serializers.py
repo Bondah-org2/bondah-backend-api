@@ -1338,18 +1338,13 @@ class CustomLoginSerializer(serializers.Serializer):
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def validate_email(self, value):
-        try:
-            User.objects.get(email=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("No user found with this email address.")
-        return value
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     reset_token = serializers.UUIDField()
     new_password = serializers.CharField(validators=[validate_password])
     new_password_confirm = serializers.CharField()
+
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password_confirm"]:
@@ -1376,6 +1371,13 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
             # Invalidate token
             otp_record.reset_token = None
             otp_record.save()
+
+            # Invalidate Refresh Token so as to prevent anyone with refresh being able to have access to account
+            from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+
+            tokens = OutstandingToken.objects.filter(user=user)
+            for token in tokens:
+                BlacklistedToken.objects.get_or_create(token=token)
 
         return user
 

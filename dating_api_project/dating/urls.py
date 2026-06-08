@@ -372,9 +372,12 @@ urlpatterns = [
         VerifyOTPView.as_view(),
         name="verify-email-otp",
     ),
+
     path("auth/login/", UserLoginView.as_view(), name="user-login"),
     path("auth/logout/", UserLogoutView.as_view(), name="user-logout"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
+
+
     path("auth/password-reset/", PasswordResetView.as_view(), name="password-reset"),
     path(
         "auth/password-reset-confirm/",
@@ -387,6 +390,8 @@ urlpatterns = [
         name="password-reset-verify",
     ),
     path("auth/password/reset/resend-otp/", PasswordResendOTPView.as_view()),
+
+
     path("auth/profile/", UserProfileViews.as_view(), name="user-profile"),
     path(
         "auth/deactivate/account", AccountDeactivationView.as_view(), name="account-deactivate"

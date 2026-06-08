@@ -1485,8 +1485,9 @@ class PasswordResetView(generics.GenericAPIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        logger.info("Control entered")
-        email = request.data.get("email")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
 
         # Always respond success (avoid email enumeration)
         response_msg = {
@@ -1517,7 +1518,6 @@ class PasswordResetView(generics.GenericAPIView):
         )
 
         try:
-            logger.info("About to send mail")
             # Send OTP via email
             send_password_reset_email.delay(
                 user.email,
