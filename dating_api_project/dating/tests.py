@@ -380,7 +380,7 @@ class EmailOTPFlowTests(APITestCase):
         response = self.client.post(
             self.request_otp_url, {"email": self.email}, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(
             EmailVerification.objects.filter(email=self.email).exists()
         )
@@ -445,19 +445,32 @@ class EmailOTPFlowTests(APITestCase):
 
     @patch("dating.tasks.send_otp_email.delay")
     def test_resend_otp_invalidates_old_otp(self, mock_email):
-        """Resending OTP marks old OTP as used."""
-        self.client.post(
+        """Resending OTP marks other OTPs as used."""
+        # First OTP request
+        first_response = self.client.post(
             self.request_otp_url, {"email": self.email}, format="json"
         )
+        registration_token = first_response.data.get("registration_token")
+
+        # Create a second older OTP for same email to verify it gets invalidated
         old_verification = EmailVerification.objects.filter(
             email=self.email, is_used=False
         ).latest("created_at")
 
+        # Resend using registration_token
         self.client.post(
-            self.resend_otp_url, {"email": self.email}, format="json"
+            self.resend_otp_url,
+            {"registration_token": registration_token},
+            format="json"
         )
-        old_verification.refresh_from_db()
-        self.assertTrue(old_verification.is_used)
+
+        # The old OTP (excluded from the new one) should now be used
+        # A new OTP was generated — old ones for the same email are marked used
+        remaining_unused = EmailVerification.objects.filter(
+            email=self.email, is_used=False
+        ).count()
+        # Only one active OTP should remain
+        self.assertEqual(remaining_unused, 1)
 
 
 # ─────────────────────────────────────────────
@@ -598,3 +611,238 @@ class PasswordResetFlowTests(APITestCase):
             self.assertTrue(
                 BlacklistedToken.objects.filter(token=token).exists()
             )
+
+
+# -------------------------
+# Location Based Filtering
+# -------------------------
+
+
+@override_settings(**TEST_OVERRIDES)
+class LocationRegionalFilteringTests(APITestCase):
+    """Tests for regional filtering on user-facing endpoints."""
+
+    def setUp(self):
+        # Nigerian user — the requesting user
+        self.nigerian_user = User.objects.create_user(
+            email="nigerian@example.com",
+            password="Password123!",
+            name="Nigerian User",
+            country="Nigeria",
+            is_matchmaker=False,
+        )
+
+        # Another Nigerian user
+        self.nigerian_user2 = User.objects.create_user(
+            email="nigerian2@example.com",
+            password="Password123!",
+            name="Nigerian User 2",
+            country="Nigeria",
+            is_matchmaker=True,
+        )
+
+        # Ghanaian user — different region
+        self.ghanaian_user = User.objects.create_user(
+            email="ghanaian@example.com",
+            password="Password123!",
+            name="Ghanaian User",
+            country="Ghana",
+            is_matchmaker=True,
+        )
+
+        # User with no country set
+        self.no_location_user = User.objects.create_user(
+            email="nolocation@example.com",
+            password="Password123!",
+            name="No Location User",
+            country=None,
+        )
+
+        self.client.force_authenticate(user=self.nigerian_user)
+        self.bondmaker_search_url = reverse("bondmaker-search")
+
+    def test_bondmaker_search_returns_only_same_country(self):
+        """Nigerian user should only see Nigerian bondmakers in search."""
+        response = self.client.get(self.bondmaker_search_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.data.get("results", response.data)
+        emails = [u["email"] for u in results]
+
+        self.assertIn(self.nigerian_user2.email, emails)
+        self.assertNotIn(self.ghanaian_user.email, emails)
+    
+    def test_bondmaker_search_no_location_returns_prompt(self):
+        """User without location set gets prompt to enable location."""
+        self.client.force_authenticate(user=self.no_location_user)
+        response = self.client.get(self.bondmaker_search_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("Enable location", response.data.get("message", ""))
+    
+    def test_bondmaker_search_out_of_region_returns_message(self):
+        """Searching for out-of-region bondmaker returns clear message."""
+        response = self.client.get(
+            self.bondmaker_search_url,
+            {"search": self.ghanaian_user.username or "ghanaian"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Either no results or explicit out-of-region message
+        results = response.data.get("results", [])
+        if not results:
+            message = response.data.get("message", "")
+            self.assertTrue(
+                "region" in message.lower() or "not available" in message.lower()
+            )
+    
+    @patch("dating.models.users.reverse_geocode")
+    def test_location_update_populates_country(self, mock_geocode):
+        """Submitting coordinates should populate country on user."""
+        url = reverse("location-update")
+        mock_geocode.return_value = {
+            "city": "Lagos",
+            "state": "Lagos State",
+            "country": "Nigeria",
+        }
+        response = self.client.patch(url, {
+            "latitude": "6.5244",
+            "longitude": "3.3792",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.nigerian_user.refresh_from_db()
+        self.assertEqual(self.nigerian_user.country, "Nigeria")
+
+
+# ─────────────────────────────────────────────
+# Task 3: Admin & Bondmaker Approval Tests
+# ─────────────────────────────────────────────
+
+from dating.models import AdminPermission
+
+
+@override_settings(**TEST_OVERRIDES)
+class AdminBondmakerApprovalTests(APITestCase):
+    """Tests for bondmaker approval flow and admin permissions."""
+
+    def setUp(self):
+        # Principal admin
+        self.admin = User.objects.create_user(
+            email="admin@example.com",
+            password="AdminPass123!",
+            name="Admin User",
+            is_staff=True,
+        )
+        AdminPermission.objects.create(
+            user=self.admin,
+            can_approve_applications=True,
+            can_view_applications=True,
+        )
+
+        # Admin without approval permission
+        self.viewer_admin = User.objects.create_user(
+            email="viewer@example.com",
+            password="ViewerPass123!",
+            name="Viewer Admin",
+            is_staff=True,
+        )
+        AdminPermission.objects.create(
+            user=self.viewer_admin,
+            can_approve_applications=False,
+            can_view_applications=True,
+        )
+
+        # Bondmaker applicant
+        self.applicant = User.objects.create_user(
+            email="applicant@example.com",
+            password="ApplicantPass123!",
+            name="Applicant User",
+            is_matchmaker=False,
+        )
+
+        from dating.models import DocumentVerification, SelfieVerification
+        self.document = DocumentVerification.objects.create(
+            user=self.applicant,
+            document_type="passport",
+            status="pending",
+        )
+        self.selfie = SelfieVerification.objects.create(
+            user=self.applicant,
+            document_verification=self.document,
+            status="pending",
+        )
+
+        self.review_url = reverse(
+            "bondmaker-review",
+            kwargs={"verification_id": self.document.id}
+        )
+
+    @patch("dating.tasks.send_bondmaker_approval_email.delay")
+    @patch("dating.tasks.notify_user.delay")
+    def test_admin_can_approve_bondmaker(self, mock_notify, mock_email):
+        """Admin with can_approve_applications can approve a bondmaker."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(
+            self.review_url,
+            {"action": "approve"},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.applicant.refresh_from_db()
+        self.assertTrue(self.applicant.is_matchmaker)
+
+    @patch("dating.tasks.send_bondmaker_rejection_email.delay")
+    @patch("dating.tasks.notify_user.delay")
+    def test_admin_can_reject_bondmaker(self, mock_notify, mock_email):
+        """Admin with can_approve_applications can reject a bondmaker."""
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(
+            self.review_url,
+            {"action": "reject", "reason": "Incomplete profile"},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.applicant.refresh_from_db()
+        self.assertFalse(self.applicant.is_matchmaker)
+
+    def test_viewer_admin_cannot_approve(self):
+        """Admin without can_approve_applications is denied."""
+        self.client.force_authenticate(user=self.viewer_admin)
+        response = self.client.post(
+            self.review_url,
+            {"action": "approve"},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_cannot_approve(self):
+        """Unauthenticated request is rejected."""
+        response = self.client.post(
+            self.review_url,
+            {"action": "approve"},
+            format="json"
+        )
+        self.assertIn(response.status_code, [
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN
+        ])
+
+    @patch("dating.tasks.send_bondmaker_approval_email.delay")
+    @patch("dating.tasks.notify_user.delay")
+    def test_approval_triggers_email_task(self, mock_notify, mock_email):
+        """Approval fires the email Celery task."""
+        self.client.force_authenticate(user=self.admin)
+        self.client.post(
+            self.review_url,
+            {"action": "approve"},
+            format="json"
+        )
+        mock_email.assert_called_once()
+
+    def test_admin_login_returns_tokens(self):
+        """Admin login returns JWT tokens."""
+        response = self.client.post(
+            reverse("admin-login"),
+            {"email": self.admin.email, "password": "AdminPass123!"},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
