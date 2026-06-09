@@ -1,3 +1,10 @@
+from dating.permissions import CanApproveApplications
+from dating.location_utils2 import find_nearby_users
+from dating.tasks import send_password_reset_email
+from dating.tasks import send_bondmaker_rejection_email
+import logging
+from dating.tasks import send_bondmaker_approval_email
+from dating.tasks import send_otp_email
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.db.models import Sum
@@ -116,10 +123,8 @@ from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
-from .notification import send_kyc_email
 from dating.tasks import notify_user
 from django.conf import settings
-import logging
 from rest_framework import filters
 from .serializers import (
     UserSerializer,
@@ -427,6 +432,8 @@ class NewsletterSignupView(generics.CreateAPIView):
                 # Save the newsletter subscription
                 subscriber = serializer.save()
 
+
+                #TODO: Ensure it runs in background
                 # Send automatic welcome email
                 subject = f"Welcome to Bondah Dating{f', {name}' if name else ''}! 🎉"
                 message = f"""
@@ -1124,41 +1131,39 @@ class AdminLogoutView(APIView):
 
 @extend_schema(
     tags=["Admin"],
+    responses={
+        201: OpenApiResponse(description="Admin Created"),
+        403: OpenApiResponse(description="User is not Principal Admin")
+    }
     )
 class CreateAdminMemberView(generics.CreateAPIView):
     serializer_class = CreateTeamMemberSerializer
     permission_classes = [IsPrincipalAdmin]
 
-    def perform_create(self, serializer):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can Create members")
-        serializer.save()
-
 @extend_schema(
     tags=["Admin"],
+    responses={
+        200: UpdateAdminMemberSerializer,
+        403: OpenApiResponse(description="User is not a Principal Admin")
+    }
     )
 class UpdateAdminMemberView(generics.UpdateAPIView):
     queryset = User.objects.filter(is_staff=True)
     serializer_class = UpdateAdminMemberSerializer
     permission_classes = [IsPrincipalAdmin]
 
-    def perform_update(self, serializer):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can update members")
-        serializer.save()
-
 @extend_schema(
     tags=["Admin"],
+    responses={
+        204: OpenApiResponse(description="Member successfully removed"),
+        403: OpenApiResponse(description="User is not a Principal Admin")
+    }
     )
 class RemoveAdminMemberView(generics.DestroyAPIView):
     serializer_class = RemoveAdminMemberSerializer
     queryset = User.objects.filter(is_staff=True)
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPrincipalAdmin]
 
-    def perform_destroy(self, instance):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can remove members")
-        instance.delete()
 
 @extend_schema(
     tags=["Admin"],
@@ -1480,7 +1485,9 @@ class PasswordResetView(generics.GenericAPIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get("email")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
 
         # Always respond success (avoid email enumeration)
         response_msg = {
@@ -1491,6 +1498,12 @@ class PasswordResetView(generics.GenericAPIView):
         user = User.objects.filter(email=email).first()
         if not user:
             return Response(response_msg, status=200)
+        
+        # Extract device info from request
+        ip_address = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() \
+            or request.META.get("REMOTE_ADDR", "Unknown")
+        user_agent = request.META.get("HTTP_USER_AGENT", "Unknown device")
+        reset_time = timezone.now().strftime("%B %d, %Y at %I:%M %p UTC")
 
         # Delete old OTPs for this email
         PasswordResetOTP.objects.filter(email=email, is_used=False).delete()
@@ -1504,17 +1517,19 @@ class PasswordResetView(generics.GenericAPIView):
             otp=otp,
         )
 
-        # Send OTP via email
         try:
-            send_mail(
-                subject="Your Password Reset OTP",
-                message=f"Your OTP is {otp}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
+            # Send OTP via email
+            send_password_reset_email.delay(
+                user.email,
+                otp,
+                user_name=user.name,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                reset_time=reset_time,
+            )   
         except Exception as e:
-            print("Email error:", e)
+            logger.error(f"Email error: {e}", exc_info=True)
+            raise
 
         return Response(response_msg, status=200)
 
@@ -2597,6 +2612,12 @@ class NearbyUsersView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not self.request.user.country:
+            return Response(
+                {"message": "Enable location access to see users in your region"},
+                status=status.HTTP_200_OK
+            )
+
         max_distance = request.GET.get("max_distance")
         if max_distance:
             try:
@@ -2770,6 +2791,7 @@ class UserRoleSelectionView(GenericAPIView):
             defaults={"selected_role": selected_role},
         )
 
+        # TODO: IF USER CHOOSE BONDMAKER, HE OUGHT TO UNDERGO SERIES OF VERIFICATION STEPS
         # If user chose bondmaker, create or reuse pending verification
         # if selected_role == "bondmaker":
         #     DocumentVerification.objects.get_or_create(
@@ -5633,6 +5655,7 @@ class SendNewsletterWelcomeEmailView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # TODO: MAKE IT RUN IN BACKGROUND
         # Send the welcome email
         send_mail(
             subject="Welcome to Bondah",
@@ -5657,6 +5680,7 @@ class SendWaitlistConfirmationEmailView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # TODO: MAKE IT RUN IN BG
         send_mail(
             "Waitlist confirmation",
             "You are on the waitlist!",
@@ -5726,7 +5750,7 @@ class AdminNewsletterListView(GenericAPIView):
     # tags=["Bondmaker"],
     )
 class AdminBondmakerReviewView(GenericAPIView):
-    permission_classes = [CanViewApplications]
+    permission_classes = [CanApproveApplications]
 
     class InputSerializer(serializers.Serializer):
         action = serializers.ChoiceField(choices=["approve", "reject"])
@@ -5786,8 +5810,14 @@ class AdminBondmakerReviewView(GenericAPIView):
                 },
             )
 
-            # Eend Email
-            send_kyc_email(user, status="approved")
+            try:
+                # Send Email to approved BondMaker
+                send_bondmaker_approval_email.delay(
+                    user.name,
+                    user.email
+                )
+            except Exception as e:
+                logger.error("An error occured while sending mail to just approved bondmaker", exc_info=True)
 
             return Response({
                 "message": "KYC approved successfully",
@@ -5818,8 +5848,15 @@ class AdminBondmakerReviewView(GenericAPIView):
                 },
             )
 
-            # 📧 Email
-            send_kyc_email(user, status="rejected", reason=reason)
+            try:
+                # Send Email to approved BondMaker
+                send_bondmaker_rejection_email.delay(
+                    user.name,
+                    user.email,
+                    reason
+                )
+            except Exception as e:
+                logger.error("An error occured while sending mail to just rejected bondmaker", exc_info=True)
 
             return Response({
                 "message": "KYC rejected",
@@ -6356,6 +6393,14 @@ class GlobalPublicUsersListView(generics.ListAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response(
+                {"message": "Enable location access to see users in your region"},
+                status=status.HTTP_200_OK
+            )
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         return (
             User.objects.filter(
@@ -6363,6 +6408,7 @@ class GlobalPublicUsersListView(generics.ListAPIView):
                 is_matchmaker=False,
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
+                country=self.request.user.country
             )
             .exclude(id=self.request.user.id)
             .distinct()
@@ -6673,6 +6719,7 @@ class UserInteractionView(generics.CreateAPIView):
             except ValidationError as e:
                 raise ValidationError({"detail": str(e)})
 
+            # TODO: MOVE TO BACKGROUND
             notify_user.delay(
                 user_id=bondmaker.id,
                 title="New Match Request",
@@ -6745,6 +6792,13 @@ class UserSwipeDeckView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = UserSwipeDeckPagination
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response({
+                "message": "Enable location access to see users in your region"
+            }, status=status.HTTP_200_OK)
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         user = self.request.user
         max_distance = self.request.query_params.get("max_distance", None)
@@ -6755,6 +6809,7 @@ class UserSwipeDeckView(generics.ListAPIView):
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
                 visibility_settings__expires_at__gt=timezone.now(),
+                country=user.country
             )
             .exclude(id=user.id)
             .distinct()
@@ -6850,16 +6905,47 @@ class BondmakerSearchView(generics.ListAPIView):
         "bio",
         "city",
         "state",
-        "country",
+        # "country",
         "specialisations__category",
     ]
     ordering_fields = ["accepted_match_count"]
     ordering = ["-accepted_match_count"]
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response({
+                "message": "Enable location access to see users in your region"
+            }, status=status.HTTP_200_OK)
+
+        response = super().list(request, *args, **kwargs)
+
+        # If results are empty, check whether it's an out-of-region issue
+        results = response.data.get("results", response.data)
+        if not results:
+            search_query = request.query_params.get("search", "")
+            if search_query:
+                out_of_region = User.objects.filter(
+                    is_matchmaker=True,
+                    username__icontains=search_query
+                ).exclude(country=request.user.country).exists()
+
+                if out_of_region:
+                    return Response({
+                        "message": f"This bondmaker is not available in your region ({request.user.country}).",
+                        "results": []
+                    }, status=status.HTTP_200_OK)
+
+            return Response({
+                "message": "No bondmakers found in your region matching your search.",
+                "results": []
+            }, status=status.HTTP_200_OK)
+
+        return response
+
     def get_queryset(self):
         user = self.request.user
 
-        queryset = User.objects.filter(is_matchmaker=True).prefetch_related(
+        queryset = User.objects.filter(is_matchmaker=True, country=user.country).prefetch_related(
             "specialisations"
         )
 
@@ -6873,7 +6959,7 @@ class BondmakerSearchView(generics.ListAPIView):
         # Location (query param OR fallback to user)
         city = self.request.query_params.get("city") or user.city
         state = self.request.query_params.get("state") or user.state
-        country = self.request.query_params.get("country") or user.country
+        # country = self.request.query_params.get("country") or user.country
 
         if city:
             queryset = queryset.filter(city__iexact=city)
@@ -6881,8 +6967,8 @@ class BondmakerSearchView(generics.ListAPIView):
         if state:
             queryset = queryset.filter(state__iexact=state)
 
-        if country:
-            queryset = queryset.filter(country__iexact=country)
+        # if country:
+        #     queryset = queryset.filter(country__iexact=country)
 
         # Category filter
         category = self.request.query_params.get("category")
@@ -7162,6 +7248,9 @@ class TogglePostLikeView(GenericAPIView):
 
 @extend_schema(
     tags=["Admin"],
+    responses={
+        403: OpenApiResponse(description="User does not have admin priviledges.")
+    }
     )
 class AdminOverviewView(GenericAPIView):
     """
@@ -7173,13 +7262,6 @@ class AdminOverviewView(GenericAPIView):
     permission_classes = [CanViewOverview]
 
     def get(self, request, *args, **kwargs):
-        # Admin-only protection
-        if not request.user.is_staff and not request.user.is_superuser:
-            return Response(
-                {"detail": "You do not have permission to access this resource."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         days = int(request.query_params.get("days", 7))
 
         service = OverviewAnalyticsService(days=days)
@@ -7187,6 +7269,7 @@ class AdminOverviewView(GenericAPIView):
 
         serializer = self.get_serializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 @extend_schema(
     tags=["Upload"],

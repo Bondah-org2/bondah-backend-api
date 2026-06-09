@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bondah – Verify Your Account</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"
+        rel="stylesheet" />
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f0f4f4;
+            font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Arial, sans-serif;
+        }
+
+        a {
+            color: #ff6b35;
+            text-decoration: none;
+        }
+
+        @media (max-width: 600px) {
+            .wrapper {
+                width: 100% !important;
+            }
+
+            .otp-box {
+                width: 34px !important;
+                height: 42px !important;
+                font-size: 18px !important;
+                line-height: 42px !important;
+            }
+
+            pad {
+                padding: 1.5rem 1.25rem !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f4; padding:2rem 1rem;">
+        <tr>
+            <td align="center">
+                <table class="wrapper" width="520" cellpadding="0" cellspacing="0"
+                    style="background:#ffffff; border-radius:16px; overflow:hidden; border:1px solid #d4e8e6;">
+                    <!-- HEADER -->
+                    <tr>
+                        <td style="background:#0d2e2e; padding:2rem 2.5rem 1.75rem; text-align:center;"> <img
+                                src="https://www.bondah.org/assets/color-logo-CO_ToS-T.png" alt="Bondah" width="150"
+                                style="max-height:52px; display:block; margin:0 auto 10px; object-fit:contain;" />
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                        font-size:11px; color:#4ecdc4; margin:0; letter-spacing:0.18em; opacity:0.8;">
+                                REAL PEOPLE. REAL LOVE. REAL BOND. </p>
+                        </td>
+                    </tr> <!-- ACCENT BAR -->
+                    <tr>
+                        <td
+                            style="height:4px; background:linear-gradient(90deg,#4ecdc4 0%,#ff6b35 100%);                      font-size:0; line-height:0;">
+                            &nbsp;</td>
+                    </tr>
+
+                    <!-- BODY -->
+                    <tr>
+                        <td class="pad" style="padding:2.5rem 2.5rem 1.5rem; text-align:center;">
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif; font-size:13px; font-weight:400; color:#5a8a87; margin:0 0 6px;">
+                                Hello, {{user_name}} </p>
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                        font-size:22px; font-weight:600; color:#0d2e2e;                        margin:0 0 0.75rem; line-height:1.4;">
+                                Your journey to finding<br>the one starts here. </p>
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                        font-size:14px; font-weight:400; color:#7a9e9b;                        margin:0 0 2rem; line-height:1.8;">
+                                Enter the code below to verify your Bondah account.<br> Real connections begin with a
+                                single step. </p> <!-- OTP CARD -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background:#0d2e2e; border-radius:12px; margin-bottom:1.75rem;">
+                                <tr>
+                                    <td style="padding:1.75rem; text-align:center;">
+                                        <p
+                                            style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                              font-size:11px; font-weight:600; color:#4ecdc4;                              margin:0 0 1rem; letter-spacing:0.2em; opacity:0.8;">
+                                            YOUR ONE-TIME CODE </p> <!-- OTP DIGITS -->
+                                        <table cellpadding="0" cellspacing="0" style="margin:0 auto 1rem;">
+                                            <tr>
+                                                {% for otp in otp_code %}
+                                                    <td style="padding:0 4px;">
+                                                        <div class="otp-box"
+                                                            style="width:42px; height:50px; border-radius:8px;                              background:#163d3d; border:1.5px solid #4ecdc4;                              display:inline-block; text-align:center; line-height:50px;                              font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                              font-size:22px; font-weight:700; color:#ff6b35;">
+                                                            {{otp}}</div>
+                                                    </td>
+                                                
+                                                {% endfor %}
+                                            </tr>
+                                        </table>
+                                        <p
+                                            style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                              font-size:12px; font-weight:400; color:#4ecdc4; margin:0; opacity:0.7;">
+                                            Expires in 10 minutes &nbsp;&middot;&nbsp; Do not share this code </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                        font-size:13px; font-weight:400; color:#7a9e9b; margin:0; line-height:1.7;">
+                                Didn't request this? Someone may have entered your email by mistake.<br> You can safely
+                                ignore this message. </p>
+                        </td>
+                    </tr> <!-- FOOTER -->
+                    <tr>
+                        <td
+                            style="background:#f0f4f4; padding:1.5rem 2.5rem; text-align:center; border-top:1px solid #d4e8e6;">
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                        font-size:12px; font-weight:700; color:#ff6b35;                        margin:0 0 1rem; letter-spacing:0.06em;">
+                                Stop swiping. Start bonding. </p> <!-- SOCIAL ICONS using inline SVGs -->
+                            <table cellpadding="0" cellspacing="0" style="margin:0 auto 1rem;">
+                                <tr>
+                                    <!-- TikTok -->
+                                    <td style="padding:0 6px;"> <a href="https://tiktok.com/@bondah.org" title="TikTok"
+                                            style="display:inline-block; width:34px; height:34px; background:#0d2e2e;                             border-radius:50%; line-height:34px; text-align:center;">
+                                            <img src="https://cdn.simpleicons.org/tiktok/4ecdc4" width="16" height="16"
+                                                alt="TikTok" style="vertical-align:middle; margin-top:-2px;" /> </a>
+                                    </td> <!-- X (Twitter) -->
+                                    <td style="padding:0 6px;"> <a href="https://x.com/bondah_org" title="X"
+                                            style="display:inline-block; width:34px; height:34px; background:#0d2e2e;                             border-radius:50%; line-height:34px; text-align:center;">
+                                            <img src="https://cdn.simpleicons.org/x/4ecdc4" width="16" height="16"
+                                                alt="X" style="vertical-align:middle; margin-top:-2px;" /> </a> </td>
+                                    <!-- Instagram -->
+                                    <td style="padding:0 6px;"> <a href="https://instagram.com/bondah_org"
+                                            title="Instagram"
+                                            style="display:inline-block; width:34px; height:34px; background:#0d2e2e;                             border-radius:50%; line-height:34px; text-align:center;">
+                                            <img src="https://cdn.simpleicons.org/instagram/4ecdc4" width="16"
+                                                height="16" alt="Instagram"
+                                                style="vertical-align:middle; margin-top:-2px;" /> </a>
+                                    </td> <!-- Facebook -->
+                                    <td style="padding:0 6px;"> <a href="https://facebook.com/bondah_org"
+                                            title="Facebook"
+                                            style="display:inline-block; width:34px; height:34px; background:#0d2e2e;                             border-radius:50%; line-height:34px; text-align:center;">
+                                            <img src="https://cdn.simpleicons.org/facebook/4ecdc4" width="16"
+                                                height="16" alt="Facebook"
+                                                style="vertical-align:middle; margin-top:-2px;" /> </a> </td>
+                                </tr>
+                            </table>
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                        font-size:11px; font-weight:400; color:#7a9e9b; margin:0 0 6px;">
+                                <a href="https://bondah.org/privacy"
+                                    style="color:#7a9e9b; text-decoration:underline;">Privacy Policy</a>
+                                &nbsp;&middot;&nbsp; <a href="https://bondah.org/unsubscribe"
+                                    style="color:#7a9e9b; textdecoration:underline;">Unsubscribe</a>
+                            </p>
+                            <p
+                                style="font-family:'Plus Jakarta Sans',-apple-system,'Segoe UI',Arial,sans-serif;                        font-size:10px; font-weight:400; color:#aac5c3; margin:0;">
+                                &copy; 2025 Bondah. All rights reserved. </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

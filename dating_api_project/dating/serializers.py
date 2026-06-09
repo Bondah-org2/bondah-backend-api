@@ -1,3 +1,4 @@
+from dating.tasks import send_otp_email
 from dating.tasks import notify_user
 from rest_framework import serializers
 from django.contrib.auth import authenticate
@@ -9,7 +10,6 @@ from lang import SUPPORTED_LANGUAGES
 from django.utils.timezone import now
 from datetime import timedelta
 from django.utils import timezone
-from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import make_password
@@ -1338,18 +1338,13 @@ class CustomLoginSerializer(serializers.Serializer):
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def validate_email(self, value):
-        try:
-            User.objects.get(email=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("No user found with this email address.")
-        return value
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     reset_token = serializers.UUIDField()
     new_password = serializers.CharField(validators=[validate_password])
     new_password_confirm = serializers.CharField()
+
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password_confirm"]:
@@ -1376,6 +1371,13 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
             # Invalidate token
             otp_record.reset_token = None
             otp_record.save()
+
+            # Invalidate Refresh Token so as to prevent anyone with refresh being able to have access to account
+            from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+
+            tokens = OutstandingToken.objects.filter(user=user)
+            for token in tokens:
+                BlacklistedToken.objects.get_or_create(token=token)
 
         return user
 
@@ -1931,14 +1933,7 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
         verification = EmailVerification.create_verification(email=email)
         verification.save()
 
-        print(verification.otp_code)
-        send_mail(
-            subject="Your Verification OTP",
-            message=f"Your OTP is {verification.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-        )
-
+        send_otp_email.delay(email, verification.otp_code)
         return {
             "message": "OTP sent to your email",
             "registration_token": str(verification.registration_token),
@@ -2103,11 +2098,9 @@ class ResendEmailOTPSerializer(serializers.Serializer):
         print(verification.otp_code)
 
         # Send OTP email
-        send_mail(
-            subject="Your Verification OTP",
-            message=f"Your new OTP is {verification.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[verification.email],
+        send_otp_email.delay(
+            verification.email,
+            verification.otp_code
         )
 
         return {

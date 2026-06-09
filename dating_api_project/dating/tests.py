@@ -5,6 +5,10 @@ and Apple authentication, account linking, account unlinking, and social
 accounts list endpoints.
 """
 
+from dating.models import PasswordResetOTP
+from datetime import timedelta
+from django.utils import timezone
+from dating.models import EmailVerification
 from unittest.mock import patch, MagicMock
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -356,3 +360,241 @@ class NotifyUserTaskTests(TestCase):
         notify_user(self.user.id, "Hello", "Should not send")
 
         mock_expo.assert_not_called()
+
+# -----------------------------------
+# Email OTP Registration Flow Tests
+# -----------------------------------
+@override_settings(**TEST_OVERRIDES)
+class EmailOTPFlowTests(APITestCase):
+    """Tests for OTP registration flow."""
+
+    def setUp(self):
+        self.request_otp_url = reverse("request-email-otp")
+        self.verify_otp_url = reverse("verify-email-otp")
+        self.resend_otp_url = reverse("resend-email-otp")
+        self.email = "otp_test_user@example.com"
+    
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_request_otp_success(self, mock_email):
+        """OTP is created and email task is triggered."""
+        response = self.client.post(
+            self.request_otp_url, {"email": self.email}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            EmailVerification.objects.filter(email=self.email).exists()
+        )
+        mock_email.assert_called_once()
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_verify_correct_otp_success(self, mock_email):
+        """Correct OTP within expiry window is accepted."""
+        self.client.post(
+            self.request_otp_url, {"email": self.email}, format="json"
+        )
+        verification = EmailVerification.objects.filter(
+            email=self.email, is_used=False
+        ).latest("created_at")
+
+        response = self.client.post(
+            self.verify_otp_url,
+            {"otp_code": verification.otp_code, "email": self.email},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_verify_wrong_otp_fails(self, mock_email):
+        """Wrong OTP returns error."""
+        self.client.post(
+            self.request_otp_url, {"email": self.email}, format="json"
+        )
+        response = self.client.post(
+            self.verify_otp_url,
+            {"otp_code": "000000", "email": self.email},
+            format="json",
+        )
+        self.assertIn(response.status_code, [
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_404_NOT_FOUND
+        ])
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_verify_expired_otp_fails(self, mock_email):
+        """Expired OTP is rejected."""
+        self.client.post(
+            self.request_otp_url, {"email": self.email}, format="json"
+        )
+        # Force expiry
+        EmailVerification.objects.filter(email=self.email).update(
+            expires_at=timezone.now() - timedelta(minutes=1)
+        )
+        verification = EmailVerification.objects.filter(
+            email=self.email, is_used=False
+        ).latest("created_at")
+
+        response = self.client.post(
+            self.verify_otp_url,
+            {"otp_code": verification.otp_code, "email": self.email},
+            format="json",
+        )
+        self.assertIn(response.status_code, [
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_410_GONE
+        ])
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_resend_otp_invalidates_old_otp(self, mock_email):
+        """Resending OTP marks old OTP as used."""
+        self.client.post(
+            self.request_otp_url, {"email": self.email}, format="json"
+        )
+        old_verification = EmailVerification.objects.filter(
+            email=self.email, is_used=False
+        ).latest("created_at")
+
+        self.client.post(
+            self.resend_otp_url, {"email": self.email}, format="json"
+        )
+        old_verification.refresh_from_db()
+        self.assertTrue(old_verification.is_used)
+
+
+# ─────────────────────────────────────────────
+# Sub-Task B: Password Reset Flow Tests
+# ─────────────────────────────────────────────
+
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+@override_settings(**TEST_OVERRIDES)
+class PasswordResetFlowTests(APITestCase):
+    """Tests for full password reset journey."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="reset_user@example.com",
+            password="OldPassword123!",
+            name="Reset User",
+        )
+        self.reset_url = reverse("password-reset")
+        self.verify_url = reverse("password-reset-verify")
+        self.confirm_url = reverse("password-reset-confirm")
+        self.login_url = reverse("user-login")
+
+    @patch("dating.tasks.send_password_reset_email.delay")
+    def test_request_reset_existing_email_returns_200(self, mock_email):
+        """Reset request always returns 200 regardless of email existence."""
+        response = self.client.post(
+            self.reset_url,
+            {"email": self.user.email},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_email.assert_called_once()
+
+    @patch("dating.tasks.send_password_reset_email.delay")
+    def test_request_reset_nonexistent_email_returns_200(self, mock_email):
+        """Non-existent email also returns 200 (email enumeration protection)."""
+        response = self.client.post(
+            self.reset_url,
+            {"email": "nobody@example.com"},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_email.assert_not_called()
+
+    @patch("dating.tasks.send_password_reset_email.delay")
+    def test_wrong_otp_rejected(self, mock_email):
+        """Wrong OTP returns error during password reset."""
+        self.client.post(
+            self.reset_url, {"email": self.user.email}, format="json"
+        )
+        response = self.client.post(
+            self.verify_url, {"otp": "000000"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("dating.tasks.send_password_reset_email.delay")
+    def test_full_reset_flow_and_old_password_invalidated(self, mock_email):
+        """Full flow: request → verify OTP → confirm → old password no longer works."""
+        # Step 1: request reset
+        self.client.post(
+            self.reset_url, {"email": self.user.email}, format="json"
+        )
+        otp_record = PasswordResetOTP.objects.filter(
+            email=self.user.email, is_used=False
+        ).latest("created_at")
+
+        # Step 2: verify OTP
+        verify_response = self.client.post(
+            self.verify_url, {"otp": otp_record.otp}, format="json"
+        )
+        self.assertEqual(verify_response.status_code, status.HTTP_200_OK)
+        reset_token = verify_response.data["reset_token"]
+
+        # Step 3: confirm new password
+        confirm_response = self.client.post(
+            self.confirm_url,
+            {
+                "reset_token": reset_token,
+                "new_password": "NewPassword456!",
+                "new_password_confirm": "NewPassword456!",
+            },
+            format="json",
+        )
+        self.assertEqual(confirm_response.status_code, status.HTTP_200_OK)
+
+        # Step 4: old password no longer works
+        old_login = self.client.post(
+            self.login_url,
+            {"email": self.user.email, "password": "OldPassword123!"},
+            format="json",
+        )
+        self.assertNotEqual(old_login.status_code, status.HTTP_200_OK)
+
+        # Step 5: new password works
+        new_login = self.client.post(
+            self.login_url,
+            {"email": self.user.email, "password": "NewPassword456!"},
+            format="json",
+        )
+        self.assertEqual(new_login.status_code, status.HTTP_200_OK)
+
+    @patch("dating.tasks.send_password_reset_email.delay")
+    def test_tokens_blacklisted_after_reset(self, mock_email):
+        """All outstanding tokens are blacklisted after password reset."""
+        # Issue a token first
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(self.user)
+
+        # Confirm the token is outstanding
+        self.assertTrue(
+            OutstandingToken.objects.filter(user=self.user).exists()
+        )
+
+        # Run full reset flow
+        self.client.post(
+            self.reset_url, {"email": self.user.email}, format="json"
+        )
+        otp_record = PasswordResetOTP.objects.filter(
+            email=self.user.email, is_used=False
+        ).latest("created_at")
+        verify_response = self.client.post(
+            self.verify_url, {"otp": otp_record.otp}, format="json"
+        )
+        reset_token = verify_response.data["reset_token"]
+        self.client.post(
+            self.confirm_url,
+            {
+                "reset_token": reset_token,
+                "new_password": "NewPassword456!",
+                "new_password_confirm": "NewPassword456!",
+            },
+            format="json",
+        )
+
+        # All tokens should now be blacklisted
+        outstanding = OutstandingToken.objects.filter(user=self.user)
+        for token in outstanding:
+            self.assertTrue(
+                BlacklistedToken.objects.filter(token=token).exists()
+            )

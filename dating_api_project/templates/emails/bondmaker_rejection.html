@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bondah – Application Update</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f2fafa;
+            font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Arial, sans-serif;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        @media (max-width: 600px) {
+            .wrapper {
+                width: 100% !important;
+            }
+
+            .pad {
+                padding: 2rem 1.25rem !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background: #f2fafa; padding: 2.5rem 1rem;">
+        <tr>
+            <td align="center">
+                <table class="wrapper" width="540" cellpadding="0" cellspacing="0" style="background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #c8eeea;">
+                    <!-- ── HEADER ── -->
+                    <tr>
+                        <td style="background: #ffffff; padding: 2rem 2.5rem 0; text-align: center;">
+                            <!-- Logo -->
+                            <img src="https://www.bondah.org/assets/color-logo-CO_ToS-T.png" alt="Bondah" width="120" style="display: block; margin: 0 auto 2rem; max-height: 42px; object-fit: contain;" />
+                            
+                            <!-- Hero Illustration -->
+                            <div style="margin: 0 auto; max-width: 380px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 200" style="width: 100%; display: block;">
+                                    <rect x="40" y="20" width="300" height="160" rx="80" fill="#e6faf8" />
+                                    <!-- Grayed silhouettes -->
+                                    <circle cx="118" cy="82" r="22" fill="#a0cac6" />
+                                    <path d="M78 158 Q78 128 118 128 Q158 128 158 158" fill="#a0cac6" />
+                                    <circle cx="262" cy="82" r="22" fill="#a0cac6" />
+                                    <path d="M222 158 Q222 128 262 128 Q302 128 302 158" fill="#a0cac6" />
+                                    <!-- Centered figure with Alert -->
+                                    <circle cx="190" cy="72" r="26" fill="#0d2e2e" />
+                                    <path d="M144 158 Q144 122 190 122 Q236 122 236 158" fill="#0d2e2e" />
+                                    <circle cx="212" cy="52" r="11" fill="#ffffff" stroke="#4ecdc4" stroke-width="2" />
+                                    <line x1="212" y1="48" x2="212" y2="53" stroke="#4ecdc4" stroke-width="2.5" stroke-linecap="round" />
+                                    <circle cx="212" cy="57" r="1.2" fill="#4ecdc4" />
+                                </svg>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- TEAL ACCENT BAR -->
+                    <tr>
+                        <td style="height: 3px; background: #4ecdc4; font-size: 0; line-height: 0;">&nbsp;</td>
+                    </tr>
+                    
+                    <!-- ── BODY ── -->
+                    <tr>
+                        <td class="pad" style="padding: 2.5rem 3rem 2rem; text-align: center; background: #ffffff;">
+                            <!-- Status pill -->
+                            <div style="display: inline-block; background: #e6faf8; border: 1px solid #4ecdc4; border-radius: 50px; padding: 5px 16px; margin-bottom: 1.5rem;">
+                                <p style="font-family: 'Plus Jakarta Sans', -apple-system, Arial, sans-serif; font-size: 11px; font-weight: 700; color: #1d9e75; margin: 0; letter-spacing: 0.1em;">
+                                    APPLICATION UPDATE
+                                </p>
+                            </div>
+                            <p style="font-family: 'Plus Jakarta Sans', -apple-system, Arial, sans-serif; font-size: 22px; font-weight: 700; color: #0d2e2e; margin: 0 0 1rem; line-height: 1.35;">
+                                Update on your Bondmaker application.
+                            </p>
+                            <p style="font-family: 'Plus Jakarta Sans', -apple-system, Arial, sans-serif; font-size: 14px; font-weight: 400; color: #6b9e9a; margin: 0 0 2rem; line-height: 1.8;">
+                                Dear {{bondmaker_name}}, thank you for applying to be a Bondmaker. Our team has carefully reviewed your profile. At this time, we are unable to approve your application for the following reasons:
+                            </p>
+                            
+                            <!-- REASON LIST -->
+                            <div style="background: #f2fafa; border: 1px solid #c8eeea; border-radius: 12px; padding: 1.5rem; text-align: left; margin-bottom: 2rem;">
+                                <p style="font-size: 11px; font-weight: 700; color: #4ecdc4; margin: 0 0 12px; letter-spacing: 0.05em; text-transform: uppercase;">
+                                    Feedback from our team:
+                                </p>
+                                <ul style="margin: 0; padding: 0 0 0 1.25rem; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 13px; color: #0d2e2e; line-height: 1.7;">
+                                    <li style="margin-bottom: 8px;">{{reason}}</li>
+                                </ul>
+                            </div>
+                            
+                            <!-- WAIT PERIOD BOX -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="background: #0d2e2e; border-radius: 10px;">
+                                <tr>
+                                    <td style="padding: 1.25rem; text-align: center;">
+                                        <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 13px; color: #ffffff; margin: 0; line-height: 1.6;">
+                                            You may submit a new application after <strong style="color: #4ecdc4;">180 days</strong>.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                    <!-- ── FOOTER ── -->
+                    <tr>
+                        <td style="background: #f2fafa; padding: 2rem 3rem; text-align: center; border-top: 1px solid #c8eeea;">
+                            <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 11px; color: #6b9e9a; margin: 0 0 10px;">
+                                Questions? Reply to this email or visit our <a href="https://bondah.org/help-center" style="color: #4ecdc4; text-decoration: underline;">Help Center</a>.
+                            </p>
+                            <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 10px; color: #a0cac6; margin: 0;">
+                                &copy; 2026 Bondah. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>
