@@ -5093,7 +5093,12 @@ class SelfieSubmissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SelfieVerification
-        fields = ["id", "document_verification_id", "selfie_image_url", "status"]
+        fields = [
+            "id",
+            "document_verification_id",
+            "selfie_image_url",
+            "status"
+        ]
         read_only_fields = ["status"]
 
     def validate_document_verification_id(self, value):

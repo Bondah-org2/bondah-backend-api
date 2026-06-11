@@ -337,7 +337,7 @@ SIMPLE_JWT = {
 # CORS settings for production
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:8081,http://localhost:5173,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org,https://bondah-website-fe-production.up.railway.app",
+    "http://localhost:8081,http://localhost:5173,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org,https://bondah-website-fe-production.up.railway.app,https://adminconsole.bondah.org",
 ).split(",")
 CORS_ALLOW_CREDENTIALS = True
 
@@ -677,8 +677,8 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 cloudinary.config(
-    cloud_name="drisz93x9",
-    api_key="154685282736747",
-    api_secret=os.environ.get("cloudinary_api_secret"),
+    cloud_name=config("CLOUDINARY_CLOUD_NAME"),
+    api_key=config("CLOUDINARY_API_KEY"),
+    api_secret=config("CLOUDINARY_API_SECRET"),
     secure=True
 )
