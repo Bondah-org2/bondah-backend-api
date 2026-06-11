@@ -1,5 +1,5 @@
 from dating.permissions import CanApproveApplications
-from dating.location_utils2 import find_nearby_users
+from dating.location_utils import find_nearby_users
 from dating.tasks import send_password_reset_email
 from dating.tasks import send_bondmaker_rejection_email
 import logging
