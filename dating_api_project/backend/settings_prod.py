@@ -616,7 +616,7 @@ SPECTACULAR_SETTINGS = {
 }
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
-    "https://*.up.railway.app,https://bondah.org,https://www.bondah.org",
+    "https://*.up.railway.app,https://bondah.org,https://www.bondah.org,https://adminconsole.bondah.org",
 ).split(",")
 
 
@@ -674,6 +674,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "dating.tasks.expire_visibilities",
         "schedule": crontab(minute=0, hour=0),  # every midnight (00:00)
     },
+    "delete-underage-accounts": {
+        "task": "dating.tasks.run_delete_underage_accounts",
+        "schedule": crontab(minute=0)
+    }
 }
 
 cloudinary.config(
