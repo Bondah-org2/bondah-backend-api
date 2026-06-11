@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "rest_framework",
     "rest_framework.authtoken",
+    "rest_framework_simplejwt.token_blacklist",
     "django_ratelimit",
     "django_redis",
     # "dating",
@@ -90,6 +91,7 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     # Development Tools
     "django_extensions",
+    "core",
 ]
 
 
@@ -104,6 +106,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "core.middleware.UpdateLastSeenMiddleware",
 ]
 
 ROOT_URLCONF = "backend.urls"
@@ -637,24 +640,29 @@ GOOGLE_PACKAGE_NAME = "com.bondah.app"
 GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
 
 REDIS_URL = os.environ.get("REDIS_URL")
-if not REDIS_URL:
-    raise RuntimeError(
-       "REDIS_URL env variable not set! Redis will not work in production."
-    )
 
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        #"LOCATION": REDIS_URL,
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        },
-        "TIMEOUT": 600,  # 10 minutes default
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+            "TIMEOUT": 600,
+        }
     }
-}
-
-CELERY_BROKER_URL = REDIS_URL  # Redis broker
-CELERY_RESULT_BACKEND = REDIS_URL
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+        }
+    }
+    CELERY_BROKER_URL = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
