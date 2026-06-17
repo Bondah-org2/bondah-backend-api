@@ -11,6 +11,7 @@ from .expo_utils import send_push_notification as expo_send_push_notif
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
+from django.core.management import call_command
 
 
 @shared_task
@@ -164,4 +165,8 @@ def send_password_reset_email(email, otp, user_name: str = "there", ip_address: 
     )
     msg.attach_alternative(html_body, "text/html")
     msg.send()
+
+@shared_task
+def run_delete_underage_accounts():
+    call_command("delete_underage_accounts")
 

@@ -479,6 +479,9 @@ class User(AbstractUser):
     bondmaker_cover_picture = models.URLField(null=True, blank=True)
     bondmaker_bio = models.TextField(blank=True, null=True)
 
+    is_flagged_for_deletion = models.BooleanField(default=False)
+    scheduled_deletion_at = models.DateTimeField(null=True, blank=True)
+
     # Bondcoin Wallet (From Figma Design)
     # bondcoin_balance = models.PositiveIntegerField(
     #     default=0, help_text="User's Bondcoin balance"

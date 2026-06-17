@@ -1,3 +1,5 @@
+from django.utils import timezone
+from datetime import timedelta
 from dating.permissions import CanApproveApplications
 from dating.location_utils import find_nearby_users
 from dating.tasks import send_password_reset_email
@@ -1720,6 +1722,13 @@ class UserProfileViews(generics.RetrieveUpdateAPIView):
             )
             serializer.is_valid(raise_exception=True)
             updated_user = serializer.save()
+
+            # Check if user is under 18 and flag them
+
+            if updated_user.date_of_birth and updated_user.age < 18:
+                updated_user.is_flagged_for_deletion = True
+                updated_user.scheduled_deletion_at = timezone.now() + timedelta(hours=24)
+                updated_user.save(update_fields=["is_flagged_for_deletion", "scheduled_deletion_at"])
 
             # CLEAR BOTH CACHES AFTER SAVE
             cache.delete(f"my_profile:{instance.id}")

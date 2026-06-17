@@ -9,9 +9,7 @@ class SubscriptionPlan(models.Model):
 
     PLAN_TYPES = [
         ("free", "Free"),
-        ("basic", "Basic"),
-        ("pro", "Pro"),
-        ("prime", "Prime"),
+        ("pro", "Bondah Pro"),
     ]
 
     DURATION_CHOICES = [
@@ -22,7 +20,7 @@ class SubscriptionPlan(models.Model):
         ("1_year", "1 Year"),
     ]
 
-    name = models.CharField(max_length=50, choices=PLAN_TYPES, unique=True)
+    name = models.CharField(max_length=50, choices=PLAN_TYPES, unique=True, default="free")
     display_name = models.CharField(
         max_length=100, help_text="Display name like 'BONDAH Basic'"
     )
@@ -50,7 +48,7 @@ class SubscriptionPlan(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.get_display_name()} ({self.get_duration_display()})"
+        return f"{self.display_name} ({self.get_duration_display()})"
 
     class Meta:
         ordering = ["price_bondcoins"]

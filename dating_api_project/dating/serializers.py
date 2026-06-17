@@ -1,6 +1,7 @@
 from dating.tasks import send_otp_email
 from dating.tasks import notify_user
 from rest_framework import serializers
+from datetime import date
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
@@ -1981,6 +1982,7 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
     registration_token = serializers.UUIDField()
     password = serializers.CharField(write_only=True)
     password_confirm = serializers.CharField(write_only=True)
+    date_of_birth = serializers.DateField(required=True)
 
     def validate(self, attrs):
         token = attrs["registration_token"]
@@ -1992,6 +1994,17 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
 
         if password != password_confirm:
             raise serializers.ValidationError("Passwords do not match.")
+        
+        # Validate Age
+        dob = attrs['date_of_birth']
+        today = date.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        if age < 18:
+            raise serializers.ValidationError(
+                {
+                    'date_of_birth': 'You must be at least 18 years old to register.'
+                }
+            )
 
         verification = EmailVerification.objects.filter(
             registration_token=token, is_used=False, is_verified=True
