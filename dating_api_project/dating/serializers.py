@@ -1,3 +1,4 @@
+import logging
 from dating.tasks import send_otp_email
 from dating.tasks import notify_user
 from rest_framework import serializers
@@ -110,6 +111,7 @@ from .models.username import (
     validate_username_format,
 )
 
+logger = logging.getLogger(__name__)
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -1934,7 +1936,12 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
         verification = EmailVerification.create_verification(email=email)
         verification.save()
 
-        send_otp_email.delay(email, verification.otp_code)
+
+        try:
+            logger.info(f"About to send token: {verification.otp_code}")
+            send_otp_email.delay(email, verification.otp_code)
+        except Exception:
+            logger.error("Code not sent", exc_info=True)
         return {
             "message": "OTP sent to your email",
             "registration_token": str(verification.registration_token),
@@ -2110,11 +2117,16 @@ class ResendEmailOTPSerializer(serializers.Serializer):
         verification.save()
         print(verification.otp_code)
 
-        # Send OTP email
-        send_otp_email.delay(
-            verification.email,
-            verification.otp_code
-        )
+        try:
+            logger.info(f"About to send token: {verification.otp_code}")
+            # Send OTP email
+            send_otp_email.delay(
+                verification.email,
+                verification.otp_code
+            )
+        except Exception:
+            logger.error("Code not sent", exc_info=True)
+
 
         return {
             "message": "OTP resent successfully",
