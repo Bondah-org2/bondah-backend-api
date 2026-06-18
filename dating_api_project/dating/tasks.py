@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from .models import Visibility, Notification, DeviceRegistration
 from .firebase_utils import send_push_notification
 from .expo_utils import send_push_notification as expo_send_push_notif
-from django.core.mail import EmailMultiAlternatives
+from .brevo_utils import send_email
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.core.management import call_command
@@ -65,77 +65,44 @@ def notify_user(user_id, title, message, data=None):
 
 @shared_task
 def send_otp_email(email, otp, user_name: str = "there", subject: str = "Verify your email"):
-    # Render HTML
     html_body = render_to_string("emails/otp_verification.html", {"user_name": user_name, "otp_code": list(str(otp))})
-
-    # Plain text fallback
     plain_text = (
         f"Hello {user_name}, \n\n"
         f"Your verification code is: {otp}\n\n"
         "If you didn't request this code, please ignore this email."
     )
-
-    # Build and send email
-    msg = EmailMultiAlternatives(
+    send_email(
+        recipient_email=email,
         subject=subject,
-        body=plain_text,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email]
+        html_content=html_body,
+        plain_text=plain_text,
     )
-
-    msg.attach_alternative(html_body, "text/html")
-    msg.send()
 
 @shared_task
 def send_bondmaker_approval_email(name: str, email: str):
-    # Render HTML
-    html_body = render_to_string(
-        "emails/bondmaker_approval.html",
-        {"bondmaker_name": name}
-    )
-
-    plain_text = (
-        f"Hello {name}, \n\n"
-        f"Your BondMaker application have been accepted."
-    )
-
-    # Build and send email
-    msg = EmailMultiAlternatives(
+    html_body = render_to_string("emails/bondmaker_approval.html", {"bondmaker_name": name})
+    plain_text = f"Hello {name}, \n\nYour BondMaker application has been accepted."
+    send_email(
+        recipient_email=email,
         subject="Your Bondmaker Application Has Been Approved 🎉",
-        body=plain_text,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email]
+        html_content=html_body,
+        plain_text=plain_text,
     )
-    msg.attach_alternative(html_body, "text/html")
-    msg.send()
 
 @shared_task
 def send_bondmaker_rejection_email(name: str, email: str, reason: str | None = "Portfolio did not meet current community standards."):
-    # Render HTML
-    html_body = render_to_string(
-        "emails/bondmaker_rejection.html",
-        {"bondmaker_name": name, "reason": reason}
-    )
-
-    plain_text = (
-        f"Hello {name}, \n\n"
-        f"Your BondMaker application have been rejected."
-    )
-
-    # Build and send email
-    msg = EmailMultiAlternatives(
+    html_body = render_to_string("emails/bondmaker_rejection.html", {"bondmaker_name": name, "reason": reason})
+    plain_text = f"Hello {name}, \n\nYour BondMaker application has been rejected.\nReason: {reason or 'Not specified'}"
+    send_email(
+        recipient_email=email,
         subject="Your Bondmaker Application Has Been Rejected",
-        body=plain_text,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email]
+        html_content=html_body,
+        plain_text=plain_text,
     )
-    msg.attach_alternative(html_body, "text/html")
-    msg.send()
 
 
 @shared_task
 def send_password_reset_email(email, otp, user_name: str = "there", ip_address: str = "Unknown", user_agent: str = "Unknown device", reset_time: str = ""):
-    # Render HTML
     html_body = render_to_string(
         "emails/password_reset.html",
         {
@@ -146,7 +113,6 @@ def send_password_reset_email(email, otp, user_name: str = "there", ip_address: 
             "reset_time": reset_time,
         }
     )
-
     plain_text = (
         f"Hello {user_name},\n\n"
         f"Your password reset OTP is: {otp}\n\n"
@@ -156,15 +122,12 @@ def send_password_reset_email(email, otp, user_name: str = "there", ip_address: 
         f"  Device: {user_agent}\n\n"
         "If you didn't request this, please secure your account immediately."
     )
-
-    msg = EmailMultiAlternatives(
+    send_email(
+        recipient_email=email,
         subject="Reset Your Bondah Password",
-        body=plain_text,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email]
+        html_content=html_body,
+        plain_text=plain_text,
     )
-    msg.attach_alternative(html_body, "text/html")
-    msg.send()
 
 @shared_task
 def run_delete_underage_accounts():
