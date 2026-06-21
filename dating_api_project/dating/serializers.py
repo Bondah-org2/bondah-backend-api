@@ -1989,7 +1989,6 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
     registration_token = serializers.UUIDField()
     password = serializers.CharField(write_only=True)
     password_confirm = serializers.CharField(write_only=True)
-    date_of_birth = serializers.DateField(required=True)
 
     def validate(self, attrs):
         token = attrs["registration_token"]
@@ -2002,17 +2001,6 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
         if password != password_confirm:
             raise serializers.ValidationError("Passwords do not match.")
         
-        # Validate Age
-        dob = attrs['date_of_birth']
-        today = date.today()
-        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-        if age < 18:
-            raise serializers.ValidationError(
-                {
-                    'date_of_birth': 'You must be at least 18 years old to register.'
-                }
-            )
-
         verification = EmailVerification.objects.filter(
             registration_token=token, is_used=False, is_verified=True
         ).first()
@@ -2065,6 +2053,10 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
             email=verification.email,
             password=password,
         )
+
+        # Set user to false initially until after date of birth has been confirmed.
+        user.is_active = False
+        user.save(update_fields=["is_active"])
 
         verification.user = user
         verification.is_used = True
@@ -2132,6 +2124,43 @@ class ResendEmailOTPSerializer(serializers.Serializer):
             "message": "OTP resent successfully",
             "registration_token": str(verification.registration_token),
         }
+
+
+class VerifyAgeSerializer(serializers.Serializer):
+    
+    registration_token = serializers.UUIDField(required=True)
+    date_of_birth = serializers.DateField(required=True)
+
+    def validate(self, attrs):
+
+        # Validate token exist and is already verified
+        token = attrs["registration_token"]
+        dob = attrs['date_of_birth']
+
+        # Get recently verified instance
+        verification = EmailVerification.objects.filter(
+            registration_token=token,
+            is_used=True,
+            is_verified=True
+        ).order_by('-created_at').first()
+
+        if not verification:
+            raise serializers.ValidationError(
+                "Invalid or unverified registration token."
+            )
+
+        # Validate Age
+        today = date.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        if age < 18:
+            raise serializers.ValidationError(
+                {
+                    'date_of_birth': 'You must be at least 18 years old to register.'
+                }
+            )
+        attrs["user"] = verification.user
+        return attrs
+
 
 
 class UserRoleSelectionSerializer(serializers.ModelSerializer):

@@ -52,6 +52,8 @@ from .views import (
     OAuthLinkAccountView,
     OAuthUnlinkAccountView,
     SocialAccountsListView,
+    # Age Verification
+    VerifyAgeView,
     # Location Management Views
     LocationUpdateView,
     AddressGeocodeView,
@@ -424,6 +426,15 @@ urlpatterns = [
         "oauth/social-accounts/",
         SocialAccountsListView.as_view(),
         name="social-accounts-list",
+    ),
+
+    # ---------------------------------------------------------------------
+    #   Age Verification
+    # ---------------------------------------------------------------------
+    path(
+        "auth/verify-age/",
+        VerifyAgeView.as_view(),
+        name="verify-age",
     ),
 
     
