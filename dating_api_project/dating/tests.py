@@ -846,3 +846,118 @@ class AdminBondmakerApprovalTests(APITestCase):
             format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+# ─────────────────────────────────────────────
+# Date of birth and age Validation
+# ─────────────────────────────────────────────
+@override_settings(**TEST_OVERRIDES)
+class VerifyAgeViewTests(APITestCase):
+    """Tests for the POST /auth/verify-age/ endpoint."""
+
+    def setUp(self):
+        self.url = reverse("verify-age")
+        self.user = User.objects.create_user(
+            email="ageverify@example.com",
+            password="TestPass123!",
+            name="Age Test User",
+            is_active=False,
+        )
+        self.verification = EmailVerification.objects.create(
+            user=self.user,
+            email=self.user.email,
+            otp_code="123456",
+            is_verified=True,
+            is_used=True,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        self.valid_token = str(self.verification.registration_token)
+
+    def test_success(self):
+        """Valid token and adult DOB returns 200 and activates user."""
+        response = self.client.post(
+            self.url,
+            {"registration_token": self.valid_token, "date_of_birth": "1995-06-01"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["message"], "Updated successfully")
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_active)
+        self.assertIsNotNone(self.user.date_of_birth)
+
+    def test_underage_rejected(self):
+        """DOB less than 18 years ago returns 400."""
+        from datetime import date
+        underage_dob = date.today().replace(year=date.today().year - 17)
+        response = self.client.post(
+            self.url,
+            {"registration_token": self.valid_token, "date_of_birth": str(underage_dob)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_token(self):
+        """A token that doesn't match any verified EmailVerification returns 400."""
+        import uuid
+        response = self.client.post(
+            self.url,
+            {"registration_token": str(uuid.uuid4()), "date_of_birth": "1990-01-01"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unverified_token_rejected(self):
+        """Token from an unverified (is_verified=False) record returns 400."""
+        unverified = EmailVerification.objects.create(
+            user=self.user,
+            email=self.user.email,
+            otp_code="654321",
+            is_verified=False,
+            is_used=False,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        response = self.client.post(
+            self.url,
+            {"registration_token": str(unverified.registration_token), "date_of_birth": "1990-01-01"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_date_of_birth(self):
+        """Omitting date_of_birth returns 400."""
+        response = self.client.post(
+            self.url,
+            {"registration_token": self.valid_token},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_registration_token(self):
+        """Omitting registration_token returns 400."""
+        response = self.client.post(
+            self.url,
+            {"date_of_birth": "1990-01-01"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_date_format(self):
+        """Malformed date_of_birth returns 400."""
+        response = self.client.post(
+            self.url,
+            {"registration_token": self.valid_token, "date_of_birth": "not-a-date"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_exactly_18_accepted(self):
+        """A user who turns exactly 18 today is accepted."""
+        from datetime import date
+        exactly_18 = date.today().replace(year=date.today().year - 18)
+        response = self.client.post(
+            self.url,
+            {"registration_token": self.valid_token, "date_of_birth": str(exactly_18)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

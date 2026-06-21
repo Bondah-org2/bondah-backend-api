@@ -110,7 +110,9 @@ class User(AbstractUser):
 
     STATUS_CHOICES = [
         ("active", "Active"),
-        ("inactive", "Inactive")
+        ("inactive", "Inactive"),
+        ("restricted", "Restricted"),
+        ("banned", "Banned"),
     ]
 
     status = models.CharField(

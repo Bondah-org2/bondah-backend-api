@@ -1,3 +1,4 @@
+from rest_framework.decorators import permission_classes
 from django.utils import timezone
 from datetime import timedelta
 from dating.permissions import CanApproveApplications
@@ -164,6 +165,9 @@ from .serializers import (
     SocialAccountSerializer,
     UserProfileWithSocialSerializer,
     OAuthLinkSerializer,
+
+    # Age verifier
+    VerifyAgeSerializer,
     # Location Serializers
     LocationUpdateSerializer,
     AddressGeocodeSerializer,
@@ -1283,7 +1287,7 @@ class ConfirmRegistrationView(generics.CreateAPIView):
         # ensure_firestore_user_document(firebase_uid, user)
 
         response_data = {
-            "user": {"id": user.id, "email": user.email},
+            "user": {"id": user.id, "email": user.email, "status": user.status, "is_active": user.is_active},
             "tokens": tokens,
         }
         return Response(response_data, status=status.HTTP_201_CREATED)
@@ -1305,6 +1309,35 @@ class ResendEmailOTPView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.save()  # dict returned
         return Response(data, status=200)
+
+
+@extend_schema(
+    tags=["Onboarding Verification"],
+    request=VerifyAgeSerializer,
+    responses={
+        200: MessageResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+    description="Verify user age during onboarding. Requires a valid, verified registration token. User must be at least 18 years old.",
+)
+class VerifyAgeView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        serializer = VerifyAgeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        user.date_of_birth = serializer.validated_data["date_of_birth"]
+        user.is_active = True
+        user.save()
+
+        return Response(
+            {
+                "message": "Updated successfully",
+                "user": {"id": user.id, "email": user.email, "status": user.status, "is_active": user.is_active},
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 # -------------------------
