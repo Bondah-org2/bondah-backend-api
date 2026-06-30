@@ -80,6 +80,8 @@ from .views import (
     ChatListView,
     ChatDetailView,
     SendMessageView,
+    CreateChatView,
+    MessageDetailView,
     # MessageListView,
     # MessageDetailView,
     # CallInitiateView,
@@ -167,6 +169,7 @@ from .views import (
     PasswordResetVerifyOTPView,
     PasswordResetConfirmView,
     UserSwipeDeckView,
+    ExploreUsersView,
     BondmakerPendingMatchListView,
     BondmakerProfileUpdateView,
     VerifyOTPView,
@@ -183,6 +186,7 @@ from .views import (
     IncomingPendingMatchListView,
     SuggestedMatchView,
     BondCircleCreateView,
+    BondCircleListView,
     AddBondCircleMembersView,
     BondCirclePostCreateView,
     BondCircleFeedView,
@@ -910,6 +914,7 @@ urlpatterns = [
 
     # Swipe View
     path("auth/swipe-deck/", UserSwipeDeckView.as_view(), name="user-swipe-deck"),
+    path("users/explore/", ExploreUsersView.as_view(), name="users-explore"),
 
 
     # List of Pending Request to each Bondmaker
@@ -969,6 +974,11 @@ urlpatterns = [
     # BondCircle Management
     # ---------------------------
     path(
+        "bondcircle/",
+        BondCircleListView.as_view(),
+        name="bondcircle-list",
+    ),
+    path(
         "bondcircle/create/", BondCircleCreateView.as_view(), name="bondcircle-create"
     ),
     path(
@@ -1004,9 +1014,15 @@ urlpatterns = [
     ),
     # Matched Chats
     path("chats/", ChatListView.as_view()),
+    path("chats/create/", CreateChatView.as_view(), name="chat-create"),
     path("chats/<int:pk>/", ChatDetailView.as_view()),
     path("chats/<int:chat_id>/send/", SendMessageView.as_view()),
     path("chats/<int:chat_id>/messages/", ChatMessagesView.as_view()),
+    path(
+        "chats/<int:chat_id>/messages/<int:message_id>/",
+        MessageDetailView.as_view(),
+        name="message-detail"
+    ),
 
     # ViewSet for Post, Story for BondStory
     path("", include(router.urls)),

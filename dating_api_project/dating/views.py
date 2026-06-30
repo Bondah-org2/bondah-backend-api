@@ -168,6 +168,7 @@ from .serializers import (
 
     # Age verifier
     VerifyAgeSerializer,
+
     # Location Serializers
     LocationUpdateSerializer,
     AddressGeocodeSerializer,
@@ -197,7 +198,12 @@ from .serializers import (
     UserSecurityQuestionCreateSerializer,
     UserSocialHandleSerializer,
     UserSocialHandleCreateSerializer,
+
+    # Chats
     ChatDetailSerializer,
+    CreateChatSerializer,
+    EditMessageSerializer,
+    DeleteMessageSerializer,
     # ChatSerializer,
     # ChatCreateSerializer,
     # CallInitiateSerializer,
@@ -1596,9 +1602,11 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         otp = serializer.validated_data["otp"]
+        email = serializer.validated_data["email"]
 
         otp_record = PasswordResetOTP.objects.filter(
             otp=otp,
+            email=email,
             is_used=False,
         ).first()
 
@@ -3153,15 +3161,27 @@ class ChatListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return (
-            Chat.objects.filter(
-                participants=self.request.user,
-                is_active=True
-            )
+        user = self.request.user
+        chat_type = self.request.query_params.get("chat_type")
+        is_active = self.request.query_params.get("status")
+
+        qs = (
+            Chat.objects.filter(participants=user, is_active=True)
             .select_related("created_by", "user_match")
             .prefetch_related("participants")
             .order_by("-last_message_at")
         )
+
+        if chat_type in ("direct", "matchmaker_intro"):
+            qs = qs.filter(chat_type=chat_type)
+
+        # status=archived maps to is_active=False
+        if is_active == "archived":
+            qs = Chat.objects.filter(
+                participants=user, is_active=False
+            ).select_related("created_by").prefetch_related("participants").order_by("-last_message_at")
+
+        return qs
 
 @extend_schema(
     tags=["Chat"],
@@ -3177,7 +3197,17 @@ class ChatDetailView(generics.RetrieveAPIView):
 
 @extend_schema(
     tags=["Chat"],
-    )
+    request=MessageSerializer,
+    responses={
+        201: MessageSerializer,
+        400: ValidationErrorResponseSerializer,
+        404: OpenApiTypes.OBJECT,
+    },
+    description=(
+        "Send a message to a chat. Supports text, voice notes, images, videos, and documents. "
+        "For media messages, upload the file to Cloudinary first and pass the returned URL as media_url."
+    ),
+)
 class SendMessageView(generics.CreateAPIView):
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
@@ -3191,38 +3221,147 @@ class SendMessageView(generics.CreateAPIView):
             participants=self.request.user
         )
 
-        serializer.save(chat=chat, sender=self.request.user, message_type="text")
+        serializer.save(chat=chat, sender=self.request.user)
 
-@extend_schema(
-    tags=["Chat"],
-    )
-class ChatMessagesView(generics.ListAPIView):
-    serializer_class = MessageSerializer
+@extend_schema(tags=["Chat"])
+class MessageDetailView(APIView):
     permission_classes = [IsAuthenticated]
-    pagination_class = ChatMessagePagination
 
-    def get_queryset(self):
-        chat_id = self.kwargs["chat_id"]
-
+    @extend_schema(
+        request=EditMessageSerializer,
+        responses={
+            200: MessageSerializer,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
+        description=(
+            "Edit a message you sent. Only the original sender can edit. "
+            "Updates the content and marks the message as edited."
+        ),
+    )
+    def patch(self, request, chat_id, message_id):
         chat = get_object_or_404(
             Chat,
             id=chat_id,
             participants=self.request.user
         )
+        message = get_object_or_404(Message, chat=chat, id=message_id)
 
-        return chat.messages.select_related("sender").order_by("timestamp")
+        if request.user != message.sender:
+            return Response(
+                {
+                    "detail": (
+                        "Only the sender can edit "
+                        "this message."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = EditMessageSerializer(message, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(MessageSerializer(message).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=DeleteMessageSerializer,
+        responses={
+            204: None,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
+        description=(
+            "Delete a message. "
+            "Use delete_type='for_me' to hide the message only for yourself — "
+            "it remains visible to other participants. "
+            "Use delete_type='for_everyone' to permanently delete the message for all participants — "
+            "only the original sender can do this."
+        ),
+    )
+    def delete(self, request, chat_id, message_id):
+        chat = get_object_or_404(
+            Chat,
+            id=chat_id,
+            participants=self.request.user
+        )
+        message = get_object_or_404(Message, chat=chat, id=message_id)
+        serializer = DeleteMessageSerializer(message, data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        delete_type = serializer.validated_data["delete_type"]
+
+        if delete_type == "for_me":
+            message.deleted_for.add(request.user)
+        
+        elif delete_type == "for_everyone":
+            if message.sender != request.user:
+                return Response(
+                    {
+                        "detail": (
+                            "Only the sender can delete "
+                            "for everyone."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            message.delete()
+        
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+@extend_schema(tags=["Chat"])
+class ChatMessagesView(generics.ListAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ChatMessagePagination
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
 
-        queryset.filter(is_read=False).exclude(
+        queryset.filter(
+            is_read=False
+        ).exclude(
             sender=request.user
         ).update(
             is_read=True,
             read_at=timezone.now()
         )
 
-        return super().list(request, *args, **kwargs)
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=["Chat"],
+    request=CreateChatSerializer,
+    responses={
+        201: ChatDetailSerializer,
+        200: ChatDetailSerializer,
+        400: ValidationErrorResponseSerializer,
+    },
+    description=(
+        "Create a new direct or matchmaker_intro chat."
+        " Returns existing chat (200) if a direct chat already exists between the two users."
+    )
+)
+class CreateChatView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = CreateChatSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        chat, created = serializer.save()
+        out = ChatDetailSerializer(chat)
+        return Response(
+            out.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
+        
 
     
 
@@ -6589,12 +6728,17 @@ class BondmakerMatchActionView(generics.GenericAPIView):
 
         action = serializer.validated_data["action"]
 
-        # Fetch financial source of truth
+        # For mark_successful, match must be accepted. For others, pending.
+        if action == "mark_successful":
+            allowed_status = "accepted"
+        else:
+            allowed_status = "pending"
+
         match_request = get_object_or_404(
             MatchRequest.objects.select_related("user_match"),
             id=match_request_id,
             bondmaker=request.user,
-            status="pending",
+            status=allowed_status,
         )
 
         if action == "accepted":
@@ -6612,6 +6756,15 @@ class BondmakerMatchActionView(generics.GenericAPIView):
             response_data = {
                 "message": "Match rejected successfully",
             }
+
+        elif action == "mark_successful":
+            with transaction.atomic():
+                match_request.status = "completed"
+                match_request.save(update_fields=["status"])
+                if hasattr(match_request, "user_match"):
+                    match_request.user_match.status = "matched"
+                    match_request.user_match.save(update_fields=["status"])
+            response_data = {"message": "Match marked as successful."}
 
         return Response(response_data, status=status.HTTP_200_OK)
 
@@ -6821,6 +6974,93 @@ class UserInteractionView(generics.CreateAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+@extend_schema(
+    tags=["Explore"],
+    parameters=[
+        OpenApiParameter("min_age", int, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("max_age", int, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("gender", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("max_distance", int, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("religion", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("genotype", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("ethnicity", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("have_kids", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("want_kids", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("education_level", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("relationship_type", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("online_only", bool, OpenApiParameter.QUERY, required=False),
+    ],
+    responses={200: StaticUserProfileSerializer(many=True)},
+    description=(
+        "Browse/explore users with comprehensive filters. "
+        "Supports age range, gender, distance, lifestyle, and demographic filters."
+    ),
+)
+class ExploreUsersView(generics.ListAPIView):
+    serializer_class = StaticUserProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        params = self.request.query_params
+
+        qs = (
+            User.objects.filter(is_active=True)
+            .exclude(id=user.id)
+            .exclude(is_matchmaker=True)
+        )
+
+        # Age filters using date_of_birth
+        min_age = params.get("min_age")
+        max_age = params.get("max_age")
+        if min_age:
+            from datetime import date
+            max_dob = date.today().replace(year=date.today().year - int(min_age))
+            qs = qs.filter(date_of_birth__lte=max_dob)
+        if max_age:
+            from datetime import date
+            min_dob = date.today().replace(year=date.today().year - int(max_age))
+            qs = qs.filter(date_of_birth__gte=min_dob)
+
+        # Simple field filters
+        simple_filters = {
+            "gender": "gender",
+            "religion": "religion",
+            "genotype": "genotype",
+            "ethnicity": "ethnicity",
+            "have_kids": "have_kids",
+            "want_kids": "want_kids",
+            "education_level": "education_level",
+            "relationship_type": "relationship_type",
+        }
+        for param, field in simple_filters.items():
+            value = params.get(param)
+            if value:
+                qs = qs.filter(**{field: value})
+
+        # Online only
+        if params.get("online_only") in ("true", "1"):
+            qs = qs.filter(last_seen__gte=timezone.now() - timedelta(minutes=3))
+
+        # Distance filter
+        max_distance = params.get("max_distance")
+        if max_distance and user.has_location:
+            qs = qs.annotate(
+                distance_km=6371 * ACos(
+                    Cos(Radians(F("latitude"))) * Cos(float(user.latitude) * 3.14159265359 / 180)
+                    * Cos(Radians(F("longitude")) - float(user.longitude) * 3.14159265359 / 180)
+                    + Sin(Radians(F("latitude"))) * Sin(float(user.latitude) * 3.14159265359 / 180)
+                )
+            ).filter(distance_km__lte=float(max_distance))
+
+        return qs.order_by("-last_seen")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
+
 
 @extend_schema(
     tags=["SwipeDeck"],
@@ -7265,6 +7505,16 @@ class BondCirclePostCreateView(generics.CreateAPIView):
             raise PermissionDenied("Not allowed.")
 
         serializer.save(author=self.request.user, circle=circle)
+
+
+@extend_schema(
+    tags=["Bond Story"],
+)
+class BondCircleListView(generics.ListAPIView):
+    serializer_class = BondCircleSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = BondCircle.objects.select_related("bondmaker").order_by("-created_at")
+
 
 @extend_schema(
     tags=["Bond Story"],

@@ -171,6 +171,20 @@ class User(AbstractUser):
     specialisations = models.ManyToManyField(
         Specialisation, blank=True, related_name="bondmakers"
     )
+    ethnicity = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=[
+            ("white", "White"),
+            ("black", "Black"),
+            ("asian", "Asian"),
+            ("hispanic", "Hispanic"),
+            ("middle_eastern", "Middle Eastern"),
+            ("mixed", "Mixed"),
+            ("other", "Other"),
+        ],
+    )
 
     # Location Privacy Settings
     location_privacy = models.CharField(
@@ -391,6 +405,12 @@ class User(AbstractUser):
         null=True,
         choices=[("yes", "Yes"), ("no", "No"), ("maybe", "Maybe")],
     )
+    want_kids = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=[("yes", "Yes"), ("no", "No"), ("maybe", "Maybe")],
+    )
     have_kids = models.CharField(
         max_length=20,
         blank=True,
@@ -470,6 +490,11 @@ class User(AbstractUser):
     email_notifications_enabled = models.BooleanField(
         default=True, help_text="Enable email notifications"
     )
+    notify_on_new_match = models.BooleanField(default=True)
+    notify_on_message = models.BooleanField(default=True)
+    notify_on_like = models.BooleanField(default=True)
+    notify_on_bondmaker_update = models.BooleanField(default=True)
+    notify_on_promotional = models.BooleanField(default=False)
 
     # Language Settings (From Figma Design)
     preferred_language = models.CharField(
@@ -480,6 +505,8 @@ class User(AbstractUser):
     bondmaker_profile_picture = models.URLField(null=True, blank=True)
     bondmaker_cover_picture = models.URLField(null=True, blank=True)
     bondmaker_bio = models.TextField(blank=True, null=True)
+    thought_leadership = models.TextField(blank=True, null=True)
+
 
     is_flagged_for_deletion = models.BooleanField(default=False)
     scheduled_deletion_at = models.DateTimeField(null=True, blank=True)

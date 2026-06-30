@@ -1,3 +1,4 @@
+from random import choices
 import logging
 from dating.tasks import send_otp_email
 from dating.tasks import notify_user
@@ -280,16 +281,19 @@ class NotificationSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["push_notifications_enabled", "email_notifications_enabled"]
+        fields = [
+            "push_notifications_enabled",
+            "email_notifications_enabled",
+            "notify_on_new_match",
+            "notify_on_message",
+            "notify_on_like",
+            "notify_on_bondmaker_update",
+            "notify_on_promotional",
+        ]
 
     def update(self, instance, validated_data):
-        """Update notification settings"""
-        instance.push_notifications_enabled = validated_data.get(
-            "push_notifications_enabled", instance.push_notifications_enabled
-        )
-        instance.email_notifications_enabled = validated_data.get(
-            "email_notifications_enabled", instance.email_notifications_enabled
-        )
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
         instance.save()
         return instance
 
@@ -1391,6 +1395,7 @@ class PasswordResetResendSerializer(serializers.Serializer):
 
 class OTPSerializer(serializers.Serializer):
     otp = serializers.CharField()
+    email = serializers.EmailField()
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -2252,6 +2257,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "username",
             "bio",
             "bondmaker_bio",
+            "thought_leadership",
             "profile_picture",
             "bondmaker_profile_picture",
             "bondmaker_cover_picture",
@@ -2265,6 +2271,9 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "drinking_preference",
             "pet_preference",
             "exercise_frequency",
+            "relationship_type",
+            "want_kids",
+            "ethnicity",
             "no_of_kids",
             "have_kids",
             "personality_type",
@@ -2665,6 +2674,111 @@ class CategoryFilterSerializer(serializers.Serializer):
 # CHAT AND MESSAGING SERIALIZERS (NEW)
 # =============================================================================
 
+class CreateChatSerializer(serializers.Serializer):
+    """Serializer for chat creation."""
+    participants = serializers.ListField(child=serializers.IntegerField())
+    chat_type = serializers.ChoiceField(
+        choices=[
+            "direct",
+            "matchmaker_intro"
+        ],
+        default="direct"
+    )
+
+    def validate_participants(self, value):
+        other_ids = value
+        users = User.objects.filter(id__in=other_ids)
+        if users.count() != len(other_ids):
+            raise serializers.ValidationError(
+                "One or more participant IDs are invalid."
+            )
+        
+        # Prevent self-chat
+        request = self.context["request"]
+        if request.user.id in other_ids:
+            raise serializers.ValidationError("You cannot start a chat with yourself.")
+        
+        return list(users)
+    
+    def validate(self, attrs):
+        request = self.context["request"]
+        chat_type = attrs["chat_type"]
+        other_users = attrs["participants"]
+
+        if chat_type == "direct":
+            if len(other_users) != 1:
+                raise serializers.ValidationError(
+                    {
+                        "participants": "Direct chats require exactly 1 other participant."
+                    }
+                )
+            
+            # If a direct chat already exists between the two, don't create a duplicate
+            # Filter chats where both the requester and other user a re participants.ValidationError
+            other_user = other_users[0]
+            existing = (
+                Chat.objects.filter(
+                    chat_type="direct",
+                    is_active=True
+                )
+                .filter(participants__id=request.user.id)
+                .filter(participants__id=other_user.id)
+                .first()
+            )
+
+            if existing:
+                # Store it so save() can return it without creating a new one
+                attrs["existing_chat"] = existing
+            
+            return attrs
+            
+        elif chat_type == "matchmaker_intro":
+            # Only bondmakers can create intro chats
+            if not request.user.is_matchmaker:
+                raise serializers.ValidationError(
+                    "Only bondmakers can create matchmaker intro chats."
+                )
+            
+            # A bondmaker is introducing exactly 2 other users
+            if len(other_users) != 2:
+                raise serializers.ValidationError(
+                    {
+                        "participants": "Matchmaker intro chats requires exactly 2 participants."
+                    }
+                )
+            
+            return attrs
+    
+    def save(self, *args, **kwargs):
+        request = self.context["request"]
+
+        if "existing_chat" in self.validated_data:
+            return self.validated_data["existing_chat"], False
+        
+        chat = Chat.objects.create(
+            chat_type=self.validated_data["chat_type"],
+            created_by=request.user
+        )
+
+        chat.participants.add(request.user, *self.validated_data["participants"])
+
+        return chat, True
+
+
+class EditMessageSerializer(serializers.Serializer):
+    content = serializers.CharField()
+
+    def update(self, instance, validated_data):
+        instance.content = validated_data["content"]
+        instance.edited_at = timezone.now()
+        instance.is_edited = True
+        instance.save()
+        return instance
+
+
+class DeleteMessageSerializer(serializers.Serializer):
+    delete_type = serializers.ChoiceField(choices=["for_me", "for_everyone"])
+
 
 # class ChatParticipantSerializer(serializers.ModelSerializer):
 #     """Serializer for chat participants (simplified user info)"""
@@ -2712,15 +2826,77 @@ class CategoryFilterSerializer(serializers.Serializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(source="sender.name", read_only=True)
+    message_type = serializers.ChoiceField(choices=[
+        "text",
+        "voice_note",
+        "image",
+        "video",
+        "document"
+    ])
+    media_url = serializers.URLField(
+        required=False,
+        allow_null=True,
+        write_only=True
+    )
 
     class Meta:
         model = Message
         fields = [
             "id",
             "sender_name",
+            "message_type",
             "content",
+            "media_url",
+            "voice_note_url",
+            "voice_note_duration",
+            "image_url",
+            "video_url",
+            "document_url",
+            "document_name",
+            "is_read",
+            "read_at",
+            "is_edited",
+            "edited_at",
             "timestamp",
         ]
+
+        read_only_fields = [
+            "id", "sender_name", "is_read", "is_edited", "timestamp",
+            "voice_note_url", "image_url", "video_url", "document_url"
+        ]
+    
+    def validate(self, attrs):
+        message_type = attrs.get("message_type", "text")
+        content = attrs.get("content")
+        media_url = attrs.get("media_url")
+
+        if message_type == "text" and not content:
+            raise serializers.ValidationError({
+                "content": "Text messages require content."
+            })
+        
+        if message_type != "text" and not media_url:
+            raise serializers.ValidationError({
+                "media_url": f"{message_type} messages require a media_url."
+            })
+
+        return attrs
+    
+    def create(self, validated_data):
+        media_url = validated_data.pop("media_url", None)
+        message_type = validated_data.get("message_type", "text")
+
+        field_map = {
+            "voice_note": "voice_note_url",
+            "image": "image_url",
+            "video": "video_url",
+            "document": "document_url"
+        }
+
+        if media_url and message_type in field_map:
+            validated_data[field_map[message_type]] = media_url
+        
+        return Message.objects.create(**validated_data)
 
 
 class ChatDetailSerializer(serializers.ModelSerializer):
@@ -3545,9 +3721,45 @@ class BondcoinPackageSerializer(serializers.ModelSerializer):
 
 
 class WalletSerializer(serializers.ModelSerializer):
+    total_earnings = serializers.SerializerMethodField()
+    earnings_this_month = serializers.SerializerMethodField()
+    bondcoin_balance = serializers.IntegerField(source="available_balance", read_only=True)
+    currency = serializers.SerializerMethodField()
+
     class Meta:
         model = Wallet
-        fields = ["available_balance", "locked_balance", "updated_at"]
+        fields = [
+            "available_balance",
+            "locked_balance",
+            "bondcoin_balance",
+            "total_earnings",
+            "earnings_this_month",
+            "currency",
+            "updated_at",
+        ]
+
+    def get_total_earnings(self, obj) -> int:
+        from django.db.models import Sum
+        result = WalletTransaction.objects.filter(
+            user=obj.user, tx_type="credit", status="completed"
+        ).aggregate(total=Sum("amount"))
+        return result["total"] or 0
+
+    def get_earnings_this_month(self, obj) -> int:
+        from django.db.models import Sum
+        from django.utils import timezone
+        now = timezone.now()
+        result = WalletTransaction.objects.filter(
+            user=obj.user,
+            tx_type="credit",
+            status="completed",
+            created_at__year=now.year,
+            created_at__month=now.month,
+        ).aggregate(total=Sum("amount"))
+        return result["total"] or 0
+
+    def get_currency(self, obj) -> str:
+        return "BONDCOIN"
 
 
 class WalletTransactionSerializer(serializers.ModelSerializer):
@@ -3576,6 +3788,7 @@ class SendGiftSerializer(serializers.Serializer):
 
 class ConvertGiftSerializer(serializers.Serializer):
     gift_id = serializers.IntegerField()
+    convert_to = serializers.ChoiceField(choices=["bondcoin", "cash"])
 
 
 class PurchaseSerializer(serializers.Serializer):
@@ -4132,6 +4345,7 @@ class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
             "username",
             "name",
             "bondmaker_bio",
+            "thought_leadership",
             "email",
             "gender",
             "date_of_birth",
@@ -4240,6 +4454,7 @@ class SubscribeBondmakerSerializer(serializers.Serializer):
 class BondmakerSuggestionSerializer(serializers.Serializer):
     visible_user_id = serializers.IntegerField()
     suggested_user_id = serializers.IntegerField()
+    note = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
     def validate(self, attrs):
         request = self.context["request"]
@@ -4472,7 +4687,7 @@ class BondmakerMatchActionResponseSerializer(serializers.Serializer):
 
 
 class BondmakerMatchActionSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=["accepted", "rejected"])
+    action = serializers.ChoiceField(choices=["accepted", "rejected", "mark_successful"])
 
 
 class UserSwipeCardSerializer(serializers.ModelSerializer):
@@ -4624,9 +4839,21 @@ class BondmakerDashboardSerializer(serializers.Serializer):
     bondmaker_name = serializers.CharField(read_only=True)
     bondmaker_profile_picture = serializers.URLField()
     level = serializers.IntegerField()
+    level_label = serializers.SerializerMethodField()
     total_matches = serializers.IntegerField()
     matches_to_next_level = serializers.IntegerField()
     progress_to_next_level = serializers.FloatField()
+
+    def get_level_label(self, obj) -> str:
+        level = obj.get("level", 1) if isinstance(obj, dict) else getattr(obj, "level", 1)
+        labels = {
+            1: "Newcomer",
+            2: "Connector",
+            3: "Matchmaker",
+            4: "Expert",
+            5: "Elite",
+        }
+        return labels.get(level, f"Level {level}")
     # pending_match_requests = serializers.IntegerField()
     live_profiles = serializers.IntegerField()
     net_subscribers = serializers.IntegerField()
@@ -4825,10 +5052,10 @@ class BondCircleCommentSerializer(serializers.ModelSerializer):
 
 
 class BondCircleSerializer(serializers.ModelSerializer):
-
+    bondmaker_name = serializers.CharField(source="bondmaker.name", read_only=True)
     class Meta:
         model = BondCircle
-        fields = ["id", "name", "description", "created_at"]
+        fields = ["id", "name", "bondmaker_name", "description", "created_at"]
         read_only_fields = ["id", "created_at"]
 
     def validate(self, attrs):
