@@ -146,6 +146,12 @@ class Message(models.Model):
     is_edited = models.BooleanField(default=False)
     edited_at = models.DateTimeField(blank=True, null=True)
 
+    deleted_for = models.ManyToManyField(
+        User,
+        blank=True,
+        related_name="deleted_messages"
+    )
+
     # Reply/quote functionality
     reply_to = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="replies"
