@@ -7,9 +7,13 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from django.conf import settings
 
+from .circuit_breakers import email_breaker
+
+
 logger = logging.getLogger(__name__)
 
 
+@email_breaker
 def send_email(recipient_email: str, subject: str, html_content: str, plain_text: str = ""):
     """
     Send a transactional email using Brevo API.
