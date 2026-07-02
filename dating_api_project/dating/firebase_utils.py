@@ -12,6 +12,7 @@ from firebase_admin import credentials
 from typing import Optional, Dict
 from .models import DeviceRegistration
 from firebase_admin.exceptions import FirebaseError
+from .circuit_breakers import firebase_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,7 @@ def update_user_profile_in_firestore(uid, data):
         return False
 
 
+@firebase_breaker
 def send_push_notification(token, title, body, data=None):
     if not token:
         return None

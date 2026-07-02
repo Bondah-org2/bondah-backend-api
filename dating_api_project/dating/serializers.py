@@ -2271,7 +2271,6 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "drinking_preference",
             "pet_preference",
             "exercise_frequency",
-            "relationship_type",
             "want_kids",
             "ethnicity",
             "no_of_kids",

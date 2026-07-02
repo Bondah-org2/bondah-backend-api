@@ -395,6 +395,8 @@ from .story_query import StoryQueryMixin
 from rest_framework.decorators import action
 import cloudinary
 import cloudinary.utils
+from pybreaker import CircuitBreakerError as BreakerError
+from .circuit_breakers import cloudinary_breaker, email_breaker
 from django.db.models import Prefetch
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
@@ -1700,12 +1702,18 @@ class PasswordResendOTPView(generics.GenericAPIView):
         )
 
         # Send mail
-        send_mail(
-            subject="Your Password Reset OTP",
-            message=f"Your OTP is {otp}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-        )
+        try:
+            email_breaker.call(
+                send_mail,
+                subject="Your Password Reset OTP",
+                message=f"Your OTP is {otp}",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+            )
+        except BreakerError:
+            logger.warning("Email circuit breaker open — password reset email not sent to %s", email)
+        except Exception:
+            logger.error("Failed to send password reset email to %s", email, exc_info=True)
 
         return Response(response_msg, status=200)
 
@@ -6988,7 +6996,7 @@ class UserInteractionView(generics.CreateAPIView):
         OpenApiParameter("have_kids", str, OpenApiParameter.QUERY, required=False),
         OpenApiParameter("want_kids", str, OpenApiParameter.QUERY, required=False),
         OpenApiParameter("education_level", str, OpenApiParameter.QUERY, required=False),
-        OpenApiParameter("relationship_type", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("relationship_status", str, OpenApiParameter.QUERY, required=False),
         OpenApiParameter("online_only", bool, OpenApiParameter.QUERY, required=False),
     ],
     responses={200: StaticUserProfileSerializer(many=True)},
@@ -7032,7 +7040,6 @@ class ExploreUsersView(generics.ListAPIView):
             "have_kids": "have_kids",
             "want_kids": "want_kids",
             "education_level": "education_level",
-            "relationship_type": "relationship_type",
         }
         for param, field in simple_filters.items():
             value = params.get(param)
@@ -7576,10 +7583,24 @@ class CloudinarySignatureView(GenericAPIView):
     def get(self, request, *args, **kwargs):
         timestamp = int(time.time())
 
-        signature = cloudinary.utils.api_sign_request(
-            {"timestamp": timestamp},
-            cloudinary.config().api_secret
-        )
+        try:
+            signature = cloudinary_breaker.call(
+                cloudinary.utils.api_sign_request,
+                {"timestamp": timestamp},
+                cloudinary.config().api_secret,
+            )
+        except BreakerError:
+            logger.warning("Cloudinary circuit breaker is open")
+            return Response(
+                {"error": "Upload service temporarily unavailable. Please try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:
+            logger.error("Cloudinary signature generation failed", exc_info=True)
+            return Response(
+                {"error": "Upload service error."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         data = {
             "timestamp": timestamp,
