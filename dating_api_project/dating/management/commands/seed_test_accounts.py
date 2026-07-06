@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from datetime import date
+from django.utils import timezone
+from datetime import date, timedelta
 
 User = get_user_model()
 
@@ -375,3 +376,47 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.MIGRATE_HEADING(f"Password for all accounts: {TEST_PASSWORD}")
         )
+
+        # ── Seed Visibility records so seekers appear in public list ──────────
+        self._seed_visibility()
+
+    def _seed_visibility(self):
+        from dating.models import Visibility
+
+        self.stdout.write(self.style.MIGRATE_HEADING("\nSeeding visibility records..."))
+
+        # Use the first bondmaker as the sponsor for all seeker visibilities
+        bondmaker = User.objects.filter(
+            email="grace.okonkwo@bondah.test"
+        ).first()
+
+        if not bondmaker:
+            self.stdout.write(self.style.WARNING("Bondmaker not found — skipping visibility seeding."))
+            return
+
+        seeker_emails = [s["email"] for s in SEEKERS]
+        seekers = User.objects.filter(email__in=seeker_emails)
+
+        for seeker in seekers:
+            vis, created = Visibility.objects.get_or_create(
+                owner=seeker,
+                bondmaker=bondmaker,
+                defaults={
+                    "visibility": "public",
+                    "status": "approved",
+                    "expires_at": timezone.now() + timedelta(days=30),
+                },
+            )
+            if created:
+                self.stdout.write(
+                    self.style.SUCCESS(f"  ✓ Visibility created for {seeker.email}")
+                )
+            else:
+                # Update existing to ensure it's approved and not expired
+                vis.visibility = "public"
+                vis.status = "approved"
+                vis.expires_at = timezone.now() + timedelta(days=30)
+                vis.save(update_fields=["visibility", "status", "expires_at"])
+                self.stdout.write(
+                    self.style.WARNING(f"  ~ Visibility refreshed for {seeker.email}")
+                )
