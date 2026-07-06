@@ -6588,8 +6588,11 @@ class GlobalPublicUsersListView(generics.ListAPIView):
     def list(self, request, *args, **kwargs):
         if not request.user.country:
             return Response(
-                {"message": "Enable location access to see users in your region"},
-                status=status.HTTP_200_OK
+                {
+                    "message": "Enable location access to see users in your region",
+                    "results": [],
+                },
+                status=status.HTTP_200_OK,
             )
         return super().list(request, *args, **kwargs)
 
@@ -6600,7 +6603,7 @@ class GlobalPublicUsersListView(generics.ListAPIView):
                 is_matchmaker=False,
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
-                country=self.request.user.country
+                country=self.request.user.country,
             )
             .exclude(id=self.request.user.id)
             .distinct()
