@@ -5419,3 +5419,44 @@ class GoogleCallbackSerializer(serializers.Serializer):
         required=True,
         help_text="Authorization code returned by Google OAuth"
     )
+
+
+# Bondmaker levels and badge serialize
+class BondmakerProgressionSerializer(serializers.ModelSerializer):
+    bondmaker_id = serializers.UUIDField(source="id", read_only=True)
+    metrics = serializers.SerializerMethodField()
+    ui_progress_tracker = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = (
+            "bondmaker_id",
+            "metrics",
+            "ui_progress_tracker",
+        )
+
+    @extend_schema_field(serializers.DictField())
+    def get_metrics(self, obj):
+        return {
+            "cumulative_successful_matches": obj.cumulative_successful_matches,
+            "current_level": obj.current_cached_level,
+            "badge_tier": obj.current_cached_badge_tier,
+        }
+
+    @extend_schema_field(serializers.DictField())
+    def get_ui_progress_tracker(self, obj):
+        progress = self.context["progress"]
+
+        return {
+            "active_badge_title_text": progress["badge"],
+            "current_connection_level_string": f"Level {progress['level']}",
+            "matches_completed_within_level": progress[
+                "matches_completed_within_level"
+            ],
+            "matches_required_for_next_level": progress[
+                "matches_required_for_next_level"
+            ],
+            "progress_percentage_gauge": progress[
+                "progress_percentage_gauge"
+            ],
+        }

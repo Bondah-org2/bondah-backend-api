@@ -1,3 +1,4 @@
+from dating.services.progression.progression import ProgressionService
 from rest_framework.decorators import permission_classes
 from django.utils import timezone
 from datetime import timedelta
@@ -307,6 +308,7 @@ from .serializers import (
     DocumentVerificationListSerializer,
     AdminBondmakerDetailSerializer,
     AdminBondmakerStatsSerializer,
+    BondmakerProgressionSerializer
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -7649,3 +7651,38 @@ class UserSelfieListView(generics.ListAPIView):
 
     def get_queryset(self):
         return SelfieVerification.objects.filter(user=self.request.user)
+
+
+@extend_schema(
+    summary="Get Bondmaker Progression",
+    description=(
+        "Returns the authenticated bondmaker's progression metrics, "
+        "current level, badge tier, and progress toward the next level."
+    ),
+    tags=["Bondmaker"],
+    responses=BondmakerProgressionSerializer,
+)
+class BondmakerProgressionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if not request.user.is_matchmaker:
+            return Response(
+                {"detail": "Only bondmakers can access this endpoint."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        progress = ProgressionService.calculate_progress(
+            user.cumulative_successful_matches
+        )
+
+        serializer = BondmakerProgressionSerializer(
+            user,
+            context={
+                "progress": progress,
+            },
+        )
+
+        return Response(serializer.data)

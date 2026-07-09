@@ -1,4 +1,5 @@
 # signals.py
+from django.utils import timezone
 from django.db.models.signals import post_save, pre_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
@@ -19,6 +20,8 @@ from .services.dashboard import BondmakerDashboardService
 from .services.analytics import BondmakerAnalyticsService
 from django.db import transaction
 from django.db.models import F
+
+from dating.services.progression.progression import ProgressionService
 
 
 User = get_user_model()
@@ -60,6 +63,134 @@ def suggested_match_notification(sender, instance, created, **kwargs):
             "suggestion_id": instance.id,
         },
     )
+
+# Bondmaker Progression
+@receiver(post_save, sender=UserMatch)
+def bondmaker_level_update(sender, instance, created, **kwargs):
+    """
+    Update a bondmaker's progression when a match is successfully completed.
+
+    Guarantees:
+    - Runs only after the UserMatch has been saved.
+    - Processes each match exactly once.
+    - Prevents duplicate increments.
+    """
+
+    if created:
+        return
+
+    if instance.status != "matched":
+        return
+
+    with transaction.atomic():
+
+        match = (
+            UserMatch.objects
+            .select_for_update()
+            .select_related("match_request__bondmaker")
+            .get(pk=instance.pk)
+        )
+
+        if match.progression_processed:
+            return
+
+        bondmaker = match.match_request.bondmaker
+
+        old_level = bondmaker.current_cached_level
+
+        bondmaker.cumulative_successful_matches = (
+            F("cumulative_successful_matches") + 1
+        )
+
+        bondmaker.save(update_fields=["cumulative_successful_matches"])
+        bondmaker.refresh_from_db()
+
+        progress = ProgressionService.calculate_progress(
+            bondmaker.cumulative_successful_matches
+        )
+
+        new_level = progress["level"]
+
+        bondmaker.current_cached_level = new_level
+        bondmaker.current_cached_badge_tier = progress["badge"]
+
+        update_fields = [
+            "current_cached_level",
+            "current_cached_badge_tier",
+        ]
+
+        if new_level > old_level:
+            bondmaker.last_level_up_at = timezone.now()
+            update_fields.append("last_level_up_at")
+
+        bondmaker.save(update_fields=update_fields)
+
+        UserMatch.objects.filter(pk=match.pk).update(
+            progression_processed=True
+        )
+
+    if new_level > old_level:
+        transaction.on_commit(
+            lambda: notify_user.delay(
+                bondmaker.id,
+                title="You've Leveled Up! 🚀",
+                message=f"Congratulations! You've reached Level {new_level}.",
+                data={
+                    "type": "level_up",
+                    "level": new_level,
+                },
+            )
+        )
+
+# Bondmaker Progression Reversal
+@receiver(pre_save, sender=UserMatch)
+def bondmaker_level_reversal(sender, instance, **kwargs):
+    """
+    Reverse a bondmaker's progression when a matched UserMatch
+    is changed to any non-matched state.
+    """
+
+    if not instance.pk:
+        return
+
+    with transaction.atomic():
+
+        previous = (
+            UserMatch.objects
+            .select_for_update()
+            .select_related("match_request__bondmaker")
+            .get(pk=instance.pk)
+        )
+
+        if previous.status != "matched":
+            return
+
+        if instance.status == "matched":
+            return
+
+        bondmaker = previous.match_request.bondmaker
+
+        if bondmaker.cumulative_successful_matches > 0:
+            bondmaker.cumulative_successful_matches = (
+                F("cumulative_successful_matches") - 1
+            )
+
+            bondmaker.save(update_fields=["cumulative_successful_matches"])
+            bondmaker.refresh_from_db()
+
+        progress = ProgressionService.calculate_progress(
+            bondmaker.cumulative_successful_matches
+        )
+
+        bondmaker.current_cached_level = progress["level"]
+        bondmaker.current_cached_badge_tier = progress["badge"]
+
+        bondmaker.save(
+            update_fields=[
+                "current_cached_level",
+                "current_cached_badge_tier",
+            ]
+        )
 
 
 @receiver(pre_save, sender=UserMatch)

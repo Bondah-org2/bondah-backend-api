@@ -211,6 +211,13 @@ class User(AbstractUser):
 
     # Dating App Specific Fields
     is_matchmaker = models.BooleanField(default=False)
+
+    # Bondmaker Progression & Gamification (Cached Metrics)
+    cumulative_successful_matches = models.PositiveIntegerField(default=0)
+    current_cached_level = models.PositiveIntegerField(default=0)
+    current_cached_badge_tier = models.CharField(max_length=50, default="Uprising")
+    last_level_up_at = models.DateTimeField(null=True, blank=True)
+
     bio = models.TextField(blank=True)
     last_location_update = models.DateTimeField(blank=True, null=True)
 
@@ -1392,6 +1399,10 @@ class UserMatch(models.Model):
     )
     status = models.CharField(
         max_length=20, choices=MATCH_STATUS_CHOICES, default="pending"
+    )
+    progression_processed = models.BooleanField(
+        default=False,
+        db_index=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -203,6 +203,7 @@ from .views import (
     GoogleOAuthCallbackView,
     AdminPendingBondmakerDetailView,
     AdminBondmakerStatsView,
+    BondmakerProgressionView
 )
 from .liveness_views import (
     StartLivenessCheckView,
@@ -831,6 +832,13 @@ urlpatterns = [
         "bondmaker/suggest-match/",
         BondmakerSuggestionView.as_view(),
         name="match_suggest",
+    ),
+
+    # Bondmaker progression
+    path(
+        "bondmaker/profile/progression/",
+        BondmakerProgressionView.as_view(),
+        name="bondmaker-progression",
     ),
     # Start / set visibility with a bondmaker
     path(
