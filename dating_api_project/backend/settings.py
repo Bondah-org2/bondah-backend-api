@@ -2,6 +2,7 @@ from decouple import config
 
 from pathlib import Path
 import os
+import sys
 from dotenv import load_dotenv
 from clean_enums import cleanup_openapi_schema
 from celery.schedules import crontab
@@ -505,7 +506,7 @@ GOOGLE_PACKAGE_NAME = "com.bondah.app"
 GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
 
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/1")
+REDIS_URL = os.environ.get("REDIS_URL")
 
 if REDIS_URL:
     CACHES = {
@@ -562,3 +563,11 @@ LOGGING = {
 }
 
 BREVO_API_KEY = config("BREVO_API_KEY")
+
+# Silence django-ratelimit checks only when running tests
+if 'test' in sys.argv:
+    SILENCED_SYSTEM_CHECKS = [
+        "django_ratelimit.E003",
+        "django_ratelimit.W001",
+    ]
+    
