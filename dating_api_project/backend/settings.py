@@ -506,7 +506,7 @@ GOOGLE_PACKAGE_NAME = "com.bondah.app"
 GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
 
 
-REDIS_URL = os.environ.get("REDIS_URL")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/1")
 
 if REDIS_URL:
     CACHES = {
@@ -570,4 +570,3 @@ if 'test' in sys.argv:
         "django_ratelimit.E003",
         "django_ratelimit.W001",
     ]
-    

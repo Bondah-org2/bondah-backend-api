@@ -97,6 +97,7 @@ def bondmaker_level_update(sender, instance, created, **kwargs):
         bondmaker = match.match_request.bondmaker
 
         old_level = bondmaker.current_cached_level
+        old_badge = bondmaker.current_cached_badge_tier
 
         bondmaker.cumulative_successful_matches = (
             F("cumulative_successful_matches") + 1
@@ -110,9 +111,10 @@ def bondmaker_level_update(sender, instance, created, **kwargs):
         )
 
         new_level = progress["level"]
+        new_badge = progress["badge"]
 
         bondmaker.current_cached_level = new_level
-        bondmaker.current_cached_badge_tier = progress["badge"]
+        bondmaker.current_cached_badge_tier = new_badge
 
         update_fields = [
             "current_cached_level",
@@ -138,6 +140,19 @@ def bondmaker_level_update(sender, instance, created, **kwargs):
                 data={
                     "type": "level_up",
                     "level": new_level,
+                },
+            )
+        )
+
+    if new_badge != old_badge:
+        transaction.on_commit(
+            lambda: notify_user.delay(
+                bondmaker.id,
+                title="You've Leveled Up! 🚀",
+                message=f"Congratulations! You've reached {new_badge}.",
+                data={
+                    "type": "badge_up",
+                    "badge": new_badge,
                 },
             )
         )
