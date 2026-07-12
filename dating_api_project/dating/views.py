@@ -45,7 +45,6 @@ from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from .utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
-from .firebase_utils import ensure_firestore_user_document
 from .permissions import (IsBondmakerOrReadOnly,
                           CanViewApplications,
                           CanManageTeam,
@@ -5902,6 +5901,20 @@ class AdminWaitlistListView(GenericAPIView):
     )
     def get(self, request, *args, **kwargs):
         entries = self.get_queryset()
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return Response(
+                {
+                    "message": "Waitlist retrieved",
+                    "status": "success",
+                    "count": self.page.paginator.count,
+                    "next": self.get_next_link(),
+                    "previous": self.get_previous_link(),
+                    "data": serializer.data,
+                }
+            )
+
         serializer = self.get_serializer(entries, many=True)
         return Response(
             {
@@ -5927,6 +5940,20 @@ class AdminNewsletterListView(GenericAPIView):
     )
     def get(self, request, *args, **kwargs):
         entries = self.get_queryset()
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return Response(
+                {
+                    "message": "Subscribers retrieved",
+                    "status": "success",
+                    "count": self.page.paginator.count,
+                    "next": self.get_next_link(),
+                    "previous": self.get_previous_link(),
+                    "data": serializer.data,
+                }
+            )
+
         serializer = self.get_serializer(entries, many=True)
         return Response(
             {
@@ -5935,6 +5962,7 @@ class AdminNewsletterListView(GenericAPIView):
                 "data": serializer.data,
             }
         )
+
 
 # Bondmaker Application Review View
 @extend_schema(

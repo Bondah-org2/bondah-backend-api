@@ -16,8 +16,11 @@ python create_admin_superuser.py
 
 
 echo "🔄 Starting Celery worker..."
-celery -A backend worker --loglevel=info &
+celery -A backend worker --loglevel=info --concurrency=1 --max-tasks-per-child=100 &
 
 gunicorn backend.wsgi:application \
   --bind 0.0.0.0:$PORT \
+  --workers 2 \
+  --max-requests 500 \
+  --max-requests-jitter 50 \
   --env DJANGO_SETTINGS_MODULE=backend.settings_prod

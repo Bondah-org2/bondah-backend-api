@@ -7,8 +7,6 @@ logger = logging.getLogger(__name__)
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from .models import Visibility, Notification, DeviceRegistration
-from .firebase_utils import send_push_notification
-from .expo_utils import send_push_notification as expo_send_push_notif
 from .brevo_utils import send_email
 from django.template.loader import render_to_string
 from django.conf import settings
@@ -28,8 +26,12 @@ def expire_visibilities():
 
     return f"{expired_count} visibilities expired."
 
+
 @shared_task
 def notify_user(user_id, title, message, data=None):
+    from .firebase_utils import send_push_notification
+    from .expo_utils import send_push_notification as expo_send_push_notif
+
     User = get_user_model()
     user = User.objects.get(id=user_id)
     # 1. Save notification in DB

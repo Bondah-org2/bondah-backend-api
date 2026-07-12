@@ -147,44 +147,79 @@ def reverse_geocode(latitude: float, longitude: float) -> Optional[Dict]:
 # NEARBY USER SEARCH
 # =========================================================
 def find_nearby_users(user, max_distance: Optional[int] = None) -> List[Dict]:
-    from .models import User
+    from .models import User, UserMatch
+    from django.db.models import Q, F
+    from django.db.models.functions import ACos, Cos, Radians, Sin
 
     if not getattr(user, "has_location", False):
         return []
 
     max_distance = max_distance or getattr(user, "max_distance", 50)
 
+    # Get matched user IDs to evaluate private settings without N+1 queries
+    matched_user_ids = list(
+        UserMatch.objects.filter(
+            Q(user1=user) | Q(user2=user),
+            status="matched"
+        ).values_list('user1_id', 'user2_id')
+    )
+    matched_ids = {uid for pair in matched_user_ids for uid in pair if uid != user.id}
+
+    # Query active users with location sharing enabled, using only() to limit fields loaded into memory
     users = User.objects.filter(
         latitude__isnull=False,
         longitude__isnull=False,
         is_active=True,
-    ).exclude(id=user.id)
+        location_sharing_enabled=True,
+    ).exclude(id=user.id).only(
+        "id", "name", "gender", "city", "bio", "date_of_birth",
+        "latitude", "longitude", "location_privacy", "location_sharing_enabled"
+    )
+
+    # Filter based on privacy settings
+    users = users.filter(
+        Q(location_privacy="public") |
+        Q(location_privacy="private", id__in=matched_ids)
+    )
+
+    # Calculate distance using database-level math
+    lat_rad = float(user.latitude) * 3.14159265359 / 180
+    lon_rad = float(user.longitude) * 3.14159265359 / 180
+
+    # HAversine formula in database
+    users = users.annotate(
+        distance_km=6371
+        * ACos(
+            Cos(Radians(F("latitude")))
+            * Cos(lat_rad)
+            * Cos(Radians(F("longitude")) - lon_rad)
+            + Sin(Radians(F("latitude"))) * Sin(lat_rad)
+        )
+    )
+
+    # Filter by max_distance
+    users = users.filter(distance_km__lte=float(max_distance))
+
+    # Order by distance
+    users = users.order_by("distance_km")
 
     results = []
+    for u in users:
+        try:
+            dist = float(u.distance_km)
+        except (TypeError, ValueError):
+            dist = 0.0
 
-    for other in users:
-        if not can_view_location(user, other):
-            continue
-
-        distance = calculate_distance(
-            (user.latitude, user.longitude),
-            (other.latitude, other.longitude),
+        results.append(
+            {
+                "user": u,
+                "distance": dist,
+                "coordinates": (u.latitude, u.longitude),
+            }
         )
 
-        if distance is None:
-            continue
-
-        if distance <= max_distance:
-            results.append(
-                {
-                    "user": other,
-                    "distance": distance,
-                    "coordinates": (other.latitude, other.longitude),
-                }
-            )
-
-    results.sort(key=lambda x: x["distance"])
     return results
+
 
 
 # =========================================================
