@@ -5964,13 +5964,14 @@ class AdminBondmakerReviewView(GenericAPIView):
             document_verification=document
         ).last()
 
-        if not selfie:
+        # Document is the source of truth; selfie is optional
+        if document.status != "pending":
             return Response(
-                {"error": "Selfie verification not found"},
+                {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if document.status != "pending" or selfie.status != "pending":
+        if selfie and selfie.status != "pending":
             return Response(
                 {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -5983,10 +5984,11 @@ class AdminBondmakerReviewView(GenericAPIView):
             document.verified_at = timezone.now()
             document.save()
 
-            selfie.status = "approved"
-            selfie.is_match = True
-            selfie.verified_at = timezone.now()
-            selfie.save()
+            if selfie:
+                selfie.status = "approved"
+                selfie.is_match = True
+                selfie.verified_at = timezone.now()
+                selfie.save()
 
             user.is_matchmaker = True
             user.save(update_fields=["is_matchmaker"])
@@ -6022,9 +6024,10 @@ class AdminBondmakerReviewView(GenericAPIView):
             document.rejection_reason = reason or "Rejected by admin"
             document.save()
 
-            selfie.status = "rejected"
-            selfie.is_match = False
-            selfie.save()
+            if selfie:
+                selfie.status = "rejected"
+                selfie.is_match = False
+                selfie.save()
 
             user.is_matchmaker = False
             user.save(update_fields=["is_matchmaker"])
