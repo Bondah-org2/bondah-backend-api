@@ -3,6 +3,7 @@ from django.db.models.signals import post_save, pre_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from .models import (
+    Activity,
     SuggestedMatch,
     MatchRequest,
     Visibility,
@@ -95,6 +96,21 @@ def usermatch_status_notification(sender, instance, **kwargs):
                 "match_id": instance.id,
             },
         )
+
+        # Log the match for the bondmaker's activity feed/dashboard
+        if instance.match_request_id:
+            bondmaker = instance.match_request.bondmaker
+            Activity.objects.create(
+                actor=bondmaker,
+                action="match_made",
+                recipient=bondmaker,
+                metadata={
+                    "user1_id": user_a.id,
+                    "user1_name": user_a.name,
+                    "user2_id": user_b.id,
+                    "user2_name": user_b.name,
+                },
+            )
     # -------------------------------
     # REJECTED / DISLIKED
     # -------------------------------
@@ -106,6 +122,14 @@ def usermatch_status_notification(sender, instance, **kwargs):
             title="Match Request Rejected",
             message="Your match request was rejected and coins refunded.",
             data={"type": "match_rejected", "match_id": instance.id},
+        )
+
+        # Log the rejection to the requester's activity feed
+        Activity.objects.create(
+            actor=instance.user2,
+            action="match_rejected",
+            recipient=requester,
+            metadata=None,
         )
 
 

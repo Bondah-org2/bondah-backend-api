@@ -29,6 +29,7 @@ import requests
 from django.core.files.base import ContentFile
 from rest_framework import serializers
 from .pagination import (
+    ActivityFeedPagination,
     BondmakerPagination,
     BondmakerPublicPagination,
     PendingRequestListPagination,
@@ -45,7 +46,6 @@ from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from .utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
-from .firebase_utils import ensure_firestore_user_document
 from .permissions import (IsBondmakerOrReadOnly,
                           CanViewApplications,
                           CanManageTeam,
@@ -56,6 +56,7 @@ import os
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
+    Activity,
     NewsletterSubscriber,
     PuzzleVerification,
     Waitlist,
@@ -130,6 +131,8 @@ from dating.tasks import notify_user
 from django.conf import settings
 from rest_framework import filters
 from .serializers import (
+    ActivityFeedSerializer,
+    MatchQueueSerializer,
     UserSerializer,
     LanguageSettingsSerializer,
     NewsletterSubscriberSerializer,
@@ -3019,7 +3022,7 @@ class UserProfileDetailView(generics.RetrieveAPIView):
 
         data[
             "is_online"
-        ] = viewed_user.last_seen and viewed_user.last_seen >= now() - timedelta(
+        ] = viewed_user.last_seen and viewed_user.last_seen >= timezone.now() - timedelta(
             minutes=3
         )
 
@@ -3040,6 +3043,18 @@ class UserProfileDetailView(generics.RetrieveAPIView):
             viewer=request.user,
             viewed_user=viewed_user,
             defaults={"source": "direct"},
+        )
+        # After tracking profile view, add to activity log
+        Activity.objects.create(
+            actor=request.user,
+            action="profile_viewed",
+            recipient=viewed_user,
+            metadata={
+                "viewed_user_id": viewed_user.id,
+                "viewed_username": viewed_user.name,
+                "viewer_user_id": request.user.id,
+                "viewer_username": request.user.name,
+            },
         )
 
         return Response(data)
@@ -5902,6 +5917,20 @@ class AdminWaitlistListView(GenericAPIView):
     )
     def get(self, request, *args, **kwargs):
         entries = self.get_queryset()
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return Response(
+                {
+                    "message": "Waitlist retrieved",
+                    "status": "success",
+                    "count": self.page.paginator.count,
+                    "next": self.get_next_link(),
+                    "previous": self.get_previous_link(),
+                    "data": serializer.data,
+                }
+            )
+
         serializer = self.get_serializer(entries, many=True)
         return Response(
             {
@@ -5927,6 +5956,20 @@ class AdminNewsletterListView(GenericAPIView):
     )
     def get(self, request, *args, **kwargs):
         entries = self.get_queryset()
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return Response(
+                {
+                    "message": "Subscribers retrieved",
+                    "status": "success",
+                    "count": self.page.paginator.count,
+                    "next": self.get_next_link(),
+                    "previous": self.get_previous_link(),
+                    "data": serializer.data,
+                }
+            )
+
         serializer = self.get_serializer(entries, many=True)
         return Response(
             {
@@ -5935,6 +5978,7 @@ class AdminNewsletterListView(GenericAPIView):
                 "data": serializer.data,
             }
         )
+
 
 # Bondmaker Application Review View
 @extend_schema(
@@ -6721,6 +6765,24 @@ class MatchRequestCreateView(generics.GenericAPIView):
             },
             status=201,
         )
+
+@extend_schema(
+    tags=["Bondmaker"],
+    )
+class MatchQueueView(generics.ListAPIView):
+    """Pending match requests awaiting this bondmaker's approve/reject decision."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MatchQueueSerializer
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        return (
+            MatchRequest.objects.filter(bondmaker=self.request.user, status="pending")
+            .select_related("requester", "user_match", "user_match__user2")
+            .order_by("-created_at")
+        )
+
 
 @extend_schema(
     tags=["Bondmaker"],
@@ -7652,3 +7714,17 @@ class UserSelfieListView(generics.ListAPIView):
 
     def get_queryset(self):
         return SelfieVerification.objects.filter(user=self.request.user)
+
+
+# ======================================== ACTIVITY FEEDS
+@extend_schema(
+    tags=["Activity Feeds"]
+)
+class ActivityFeedView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ActivityFeedSerializer
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        return Activity.objects.filter(recipient=self.request.user)
+    

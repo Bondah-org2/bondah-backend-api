@@ -19,7 +19,7 @@ class Command(BaseCommand):
 
         count = users.count()
 
-        for user in users:
+        for user in users.iterator():
             self.stdout.write(f"Deleting underage account: {user.email}")
             logger.info(f"Deleting underage account: {user.email} (id={user.id})")
             user.delete()

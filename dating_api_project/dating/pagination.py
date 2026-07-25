@@ -63,3 +63,9 @@ class ChatMessagePagination(PageNumberPagination):
     page_size = 20  # default items per page
     page_size_query_param = "page_size"  # allow client to override
     max_page_size = 50  # max limit
+
+
+class ActivityFeedPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 50
