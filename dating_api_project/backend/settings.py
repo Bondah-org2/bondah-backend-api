@@ -563,3 +563,4 @@ LOGGING = {
 }
 
 BREVO_API_KEY = config("BREVO_API_KEY")
+ENABLE_EMAIL_SENDING = config("ENABLE_EMAIL_SENDING", default=False, cast=bool)

@@ -6008,14 +6008,13 @@ class AdminBondmakerReviewView(GenericAPIView):
             document_verification=document
         ).last()
 
-        # Check if already reviewed (document is the source of truth)
+        # Document is the source of truth; selfie is optional
         if document.status != "pending":
             return Response(
                 {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Also guard selfie if it exists and has already been reviewed
         if selfie and selfie.status != "pending":
             return Response(
                 {"error": "KYC already reviewed"},

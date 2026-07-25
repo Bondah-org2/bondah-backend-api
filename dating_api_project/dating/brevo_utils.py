@@ -17,9 +17,29 @@ logger = logging.getLogger(__name__)
 def send_email(recipient_email: str, subject: str, html_content: str, plain_text: str = ""):
     """
     Send a transactional email using Brevo API.
+    If BREVO_API_KEY is not configured, logs the email instead of sending it.
     """
+    api_key = getattr(settings, "BREVO_API_KEY", None)
+    if not api_key:
+        logger.info(
+            "[EMAIL LOG - no Brevo key] To: %s | Subject: %s | Body: %s",
+            recipient_email,
+            subject,
+            plain_text or html_content,
+        )
+        return
+
+    if not getattr(settings, "ENABLE_EMAIL_SENDING", False):
+        logger.info(
+            "[EMAIL LOG - sending disabled] To: %s | Subject: %s | Body: %s",
+            recipient_email,
+            subject,
+            plain_text or html_content,
+        )
+        return
+
     configuration = sib_api_v3_sdk.Configuration()
-    configuration.api_key["api-key"] = settings.BREVO_API_KEY
+    configuration.api_key["api-key"] = api_key
 
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
         sib_api_v3_sdk.ApiClient(configuration)
