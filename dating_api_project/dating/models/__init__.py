@@ -1,3 +1,4 @@
+from .activity import Activity
 from .bondcoin import (
     BondcoinPackage,
     WalletTransaction,
@@ -86,6 +87,7 @@ from .username import UsernameValidation, validate_username_format
 from .feed import BondmakerTaskCompletion
 
 __all__ = [
+    "Activity",
     # Bondcoin
     "BondcoinPackage",
     "WalletTransaction",

@@ -3,6 +3,8 @@ from . import liveness_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_nested.routers import NestedDefaultRouter
 from .views import (
+    ActivityFeedView,
+    MatchQueueView,
     NewsletterSignupView,
     GetPuzzleView,
     SubmitPuzzleAnswerView,
@@ -898,6 +900,11 @@ urlpatterns = [
         name="create-match-request",
     ),
     path(
+        "match-requests/queue/",
+        MatchQueueView.as_view(),
+        name="match-queue",
+    ),
+    path(
         "match-requests/<int:match_request_id>/action/",
         BondmakerMatchActionView.as_view(),
         name="bondmaker-match-action",
@@ -1034,4 +1041,6 @@ urlpatterns = [
     path("selfie/submit/", SelfieSubmissionView.as_view()),
     path("selfie/", UserSelfieListView.as_view()),
 
+    # ============== Activity Feeds ==================
+    path("activity/", ActivityFeedView.as_view(), name="activity-feed"),
 ]

@@ -23,6 +23,7 @@ from rest_framework.validators import UniqueValidator
 from django.db.models import Q
 from .constants import QUESTION_UI_CONFIG
 from .models import (
+    Activity,
     User,
     NewsletterSubscriber,
     PuzzleVerification,
@@ -3477,6 +3478,13 @@ class PostInteractionSerializer(serializers.ModelSerializer):
                 Post.objects.filter(id=post.id).update(
                     likes_count=F("likes_count") + 1
                 )
+                if post.author_id != user.id:
+                    Activity.objects.create(
+                        actor=user,
+                        recipient=post.author,
+                        action="post_like",
+                        metadata={"post_id": post.id},
+                    )
             else:
                 interaction.delete()
                 Post.objects.filter(id=post.id).update(
@@ -3914,6 +3922,18 @@ class GiftTransactionCreateSerializer(serializers.ModelSerializer):
             gift=gift,
             description=f"Gift sent: {gift.name}",
             status="completed",
+        )
+
+        # Create Activity Log
+        Activity.objects.create(
+            actor=request.user,
+            action="gift_sent",
+            recipient=validated_data["recipient"],
+            metadata={
+                "gift_id": gift.id,
+                "gift_name": gift.name,
+                "quantity": quantity,
+            },
         )
         validated_data["bondcoin_transaction"] = bondcoin_transaction
 
@@ -4689,6 +4709,46 @@ class BondmakerMatchActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["accepted", "rejected", "mark_successful"])
 
 
+class MatchQueueSerializer(serializers.ModelSerializer):
+    requester_id = serializers.IntegerField(source="requester.id", read_only=True)
+    requester_name = serializers.CharField(source="requester.name", read_only=True)
+    candidate_id = serializers.SerializerMethodField()
+    candidate_name = serializers.SerializerMethodField()
+    match_score = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MatchRequest
+        fields = [
+            "id",
+            "requester_id",
+            "requester_name",
+            "candidate_id",
+            "candidate_name",
+            "match_score",
+            "coins_charged",
+            "status",
+            "created_at",
+        ]
+
+    def _candidate(self, obj):
+        user_match = getattr(obj, "user_match", None)
+        if user_match is None:
+            return None
+        return user_match.user2
+
+    def get_candidate_id(self, obj):
+        candidate = self._candidate(obj)
+        return candidate.id if candidate else None
+
+    def get_candidate_name(self, obj):
+        candidate = self._candidate(obj)
+        return candidate.name if candidate else None
+
+    def get_match_score(self, obj):
+        user_match = getattr(obj, "user_match", None)
+        return user_match.match_score if user_match else None
+
+
 class UserSwipeCardSerializer(serializers.ModelSerializer):
     bondmaker = serializers.SerializerMethodField()
     # distance_km = serializers.SerializerMethodField()
@@ -5419,3 +5479,25 @@ class GoogleCallbackSerializer(serializers.Serializer):
         required=True,
         help_text="Authorization code returned by Google OAuth"
     )
+
+
+# ======================================== ACTIVITY FEEDS
+class ActivityFeedSerializer(serializers.ModelSerializer):
+    actor_name = serializers.CharField(source="actor.name", read_only=True)
+    message = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Activity
+        fields = [
+            "id",
+            "actor",
+            "actor_name",
+            "action",
+            "metadata",
+            "message",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_message(self, obj):
+        return obj.render_message()

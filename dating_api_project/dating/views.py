@@ -29,6 +29,7 @@ import requests
 from django.core.files.base import ContentFile
 from rest_framework import serializers
 from .pagination import (
+    ActivityFeedPagination,
     BondmakerPagination,
     BondmakerPublicPagination,
     PendingRequestListPagination,
@@ -55,6 +56,7 @@ import os
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
+    Activity,
     NewsletterSubscriber,
     PuzzleVerification,
     Waitlist,
@@ -129,6 +131,8 @@ from dating.tasks import notify_user
 from django.conf import settings
 from rest_framework import filters
 from .serializers import (
+    ActivityFeedSerializer,
+    MatchQueueSerializer,
     UserSerializer,
     LanguageSettingsSerializer,
     NewsletterSubscriberSerializer,
@@ -3018,7 +3022,7 @@ class UserProfileDetailView(generics.RetrieveAPIView):
 
         data[
             "is_online"
-        ] = viewed_user.last_seen and viewed_user.last_seen >= now() - timedelta(
+        ] = viewed_user.last_seen and viewed_user.last_seen >= timezone.now() - timedelta(
             minutes=3
         )
 
@@ -3039,6 +3043,18 @@ class UserProfileDetailView(generics.RetrieveAPIView):
             viewer=request.user,
             viewed_user=viewed_user,
             defaults={"source": "direct"},
+        )
+        # After tracking profile view, add to activity log
+        Activity.objects.create(
+            actor=request.user,
+            action="profile_viewed",
+            recipient=viewed_user,
+            metadata={
+                "viewed_user_id": viewed_user.id,
+                "viewed_username": viewed_user.name,
+                "viewer_user_id": request.user.id,
+                "viewer_username": request.user.name,
+            },
         )
 
         return Response(data)
@@ -5992,13 +6008,15 @@ class AdminBondmakerReviewView(GenericAPIView):
             document_verification=document
         ).last()
 
-        if not selfie:
+        # Check if already reviewed (document is the source of truth)
+        if document.status != "pending":
             return Response(
-                {"error": "Selfie verification not found"},
+                {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if document.status != "pending" or selfie.status != "pending":
+        # Also guard selfie if it exists and has already been reviewed
+        if selfie and selfie.status != "pending":
             return Response(
                 {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -6011,10 +6029,11 @@ class AdminBondmakerReviewView(GenericAPIView):
             document.verified_at = timezone.now()
             document.save()
 
-            selfie.status = "approved"
-            selfie.is_match = True
-            selfie.verified_at = timezone.now()
-            selfie.save()
+            if selfie:
+                selfie.status = "approved"
+                selfie.is_match = True
+                selfie.verified_at = timezone.now()
+                selfie.save()
 
             user.is_matchmaker = True
             user.save(update_fields=["is_matchmaker"])
@@ -6050,9 +6069,10 @@ class AdminBondmakerReviewView(GenericAPIView):
             document.rejection_reason = reason or "Rejected by admin"
             document.save()
 
-            selfie.status = "rejected"
-            selfie.is_match = False
-            selfie.save()
+            if selfie:
+                selfie.status = "rejected"
+                selfie.is_match = False
+                selfie.save()
 
             user.is_matchmaker = False
             user.save(update_fields=["is_matchmaker"])
@@ -6746,6 +6766,24 @@ class MatchRequestCreateView(generics.GenericAPIView):
             },
             status=201,
         )
+
+@extend_schema(
+    tags=["Bondmaker"],
+    )
+class MatchQueueView(generics.ListAPIView):
+    """Pending match requests awaiting this bondmaker's approve/reject decision."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MatchQueueSerializer
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        return (
+            MatchRequest.objects.filter(bondmaker=self.request.user, status="pending")
+            .select_related("requester", "user_match", "user_match__user2")
+            .order_by("-created_at")
+        )
+
 
 @extend_schema(
     tags=["Bondmaker"],
@@ -7677,3 +7715,17 @@ class UserSelfieListView(generics.ListAPIView):
 
     def get_queryset(self):
         return SelfieVerification.objects.filter(user=self.request.user)
+
+
+# ======================================== ACTIVITY FEEDS
+@extend_schema(
+    tags=["Activity Feeds"]
+)
+class ActivityFeedView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ActivityFeedSerializer
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        return Activity.objects.filter(recipient=self.request.user)
+    
