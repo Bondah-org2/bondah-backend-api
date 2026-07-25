@@ -68,6 +68,7 @@ class AdminRole(models.Model):
     can_view_applications = models.BooleanField(default=False)
     can_view_withdrawals = models.BooleanField(default=False)
     can_view_reports = models.BooleanField(default=False)
+    can_approve_applications = models.BooleanField(default=False)
     can_manage_team = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)

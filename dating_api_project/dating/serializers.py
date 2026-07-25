@@ -5196,6 +5196,7 @@ class AdminPermissionSerializer(serializers.ModelSerializer):
     can_view_applications = serializers.BooleanField(default=False)
     can_view_withdrawals = serializers.BooleanField(default=False)
     can_view_reports = serializers.BooleanField(default=False)
+    can_approve_applications = serializers.BooleanField(default=False)
     can_manage_team = serializers.BooleanField(default=False)
 
     class Meta:
@@ -5205,6 +5206,7 @@ class AdminPermissionSerializer(serializers.ModelSerializer):
             "can_view_applications",
             "can_view_withdrawals",
             "can_view_reports",
+            "can_approve_applications",
             "can_manage_team"
         ]
 
@@ -5267,7 +5269,7 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
 
         # Start with role defaults
         for field in permission_fields:
-            setattr(perm_obj, field, getattr(role, field))
+            setattr(perm_obj, field, getattr(role, field, False))
 
         # Override only provided permissions
         if permissions_data:
