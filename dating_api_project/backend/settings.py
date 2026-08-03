@@ -74,6 +74,8 @@ INSTALLED_APPS = [
 
     # Local apps
     "dating.apps.DatingConfig",
+    "dating.accounts",
+
     # OAuth and Social Authentication
     "allauth",
     "allauth.account",
@@ -82,9 +84,11 @@ INSTALLED_APPS = [
     "allauth.socialaccount.providers.apple",
     "dj_rest_auth",
     "dj_rest_auth.registration",
+
     # API Documentation
     "drf_spectacular",
     "drf_spectacular_sidecar",
+    
     # Development Tools
     "django_extensions",
 ]

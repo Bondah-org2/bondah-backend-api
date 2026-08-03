@@ -542,7 +542,7 @@ class PasswordResetFlowTests(APITestCase):
 
         # Step 2: verify OTP
         verify_response = self.client.post(
-            self.verify_url, {"otp": otp_record.otp}, format="json"
+            self.verify_url, {"otp": otp_record.otp, "email": self.user.email}, format="json"
         )
         self.assertEqual(verify_response.status_code, status.HTTP_200_OK)
         reset_token = verify_response.data["reset_token"]
@@ -595,7 +595,7 @@ class PasswordResetFlowTests(APITestCase):
             email=self.user.email, is_used=False
         ).latest("created_at")
         verify_response = self.client.post(
-            self.verify_url, {"otp": otp_record.otp}, format="json"
+            self.verify_url, {"otp": otp_record.otp, "email": self.user.email}, format="json"
         )
         reset_token = verify_response.data["reset_token"]
         self.client.post(

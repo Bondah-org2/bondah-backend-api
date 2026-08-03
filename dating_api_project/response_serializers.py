@@ -6,12 +6,12 @@ JSON shapes across the application.
 """
 
 from rest_framework import serializers
+from dating.accounts.serializers import UserProfileWithSocialSerializer
 from dating.serializers import (
     LanguageSettingsSerializer,
     NotificationSettingsSerializer,
     SocialAccountSerializer,
     UserProfileSerializer,
-    UserProfileWithSocialSerializer,
     TokensSerializer,
 )
 
