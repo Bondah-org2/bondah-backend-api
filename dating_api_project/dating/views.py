@@ -232,6 +232,7 @@ from .serializers import (
     BondmakerSuggestionSerializer,
     SubscribeBondmakerSerializer,
     VisibilitySerializer,
+    PendingVisibilitySerializer,
     LocationStatisticsSerializer,
     MatchRequestSerializer,
     PurchaseSerializer,
@@ -6250,7 +6251,7 @@ class ApproveVisibilityView(generics.UpdateAPIView):
     )
 # pending Visibilty list View for bondmaker Review
 class PendingVisibilityListView(generics.ListAPIView):
-    serializer_class = VisibilitySerializer
+    serializer_class = PendingVisibilitySerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
