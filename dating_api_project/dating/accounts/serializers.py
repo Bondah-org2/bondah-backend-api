@@ -25,7 +25,8 @@ from dating.models import (
     DeviceRegistration,
     Specialisation,
     UserRoleSelection,
-    DocumentVerification
+    DocumentVerification,
+    SelfieVerification
 )
 from dating.tasks import send_otp_email
 
@@ -1122,4 +1123,55 @@ class StaticUserProfileSerializer(serializers.ModelSerializer):
     def get_selected_role(self, obj) -> str:
         role_selection = getattr(obj, "role_selection", None)
         return role_selection.selected_role if role_selection else None
+
+
+# =============================================================================
+# VERIFICATION AND IDENTITY
+# =============================================================================
+
+class SelfieSubmissionSerializer(serializers.ModelSerializer):
+    document_verification_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = SelfieVerification
+        fields = [
+            "id",
+            "document_verification_id",
+            "selfie_image_url",
+            "status"
+        ]
+        read_only_fields = ["status"]
+
+    def validate_document_verification_id(self, value):
+        user = self.context["request"].user
+
+        try:
+            document = DocumentVerification.objects.get(id=value, user=user)
+        except DocumentVerification.DoesNotExist:
+            raise serializers.ValidationError("Invalid document verification")
+
+        return document  # Return the document object itself
+
+    def create(self, validated_data):
+        user = self.context["request"].user
+        document = validated_data.pop("document_verification_id")
+
+        # Use transaction.atomic to prevent race conditions
+        with transaction.atomic():
+            # Check again inside transaction to prevent duplicates
+            if SelfieVerification.objects.select_for_update().filter(
+                user=user, document_verification=document
+            ).exists():
+                raise serializers.ValidationError(
+                    "Selfie already submitted for this document"
+                )
+
+            selfie = SelfieVerification.objects.create(
+                user=user,
+                document_verification=document,
+                status="pending",
+                **validated_data
+            )
+        return selfie
+
 

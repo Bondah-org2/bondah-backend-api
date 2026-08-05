@@ -43,6 +43,7 @@ from dating.models import (
     DocumentVerification,
     UserProfileView,
     Activity,
+    SelfieVerification,
 )
 from dating.oauth_utils import (
     GoogleOAuthVerifier,
@@ -89,6 +90,8 @@ from .serializers import (
     UserRoleSelectionSerializer,
     UserRoleStatusSerializer,
     StaticUserProfileSerializer,
+
+    SelfieSubmissionSerializer,
 )
 from response_serializers import (
     UserLoginResponseSerializer, 
@@ -1205,7 +1208,6 @@ class SocialAccountsListView(ListAPIView):
 # PROFILE AND SETTINGS
 # =============================================================================
 
-
 @extend_schema(
     tags=["Profile"],
     )
@@ -1578,4 +1580,45 @@ class UserProfileDetailView(RetrieveAPIView):
         )
 
         return Response(data)
+
+
+# =============================================================================
+# VERIFICATION AND IDENTITY
+# =============================================================================
+
+@extend_schema(
+    tags=["Upload"],
+    )
+class SelfieSubmissionView(GenericAPIView):
+    serializer_class = SelfieSubmissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        selfie = serializer.save()
+
+        return Response(
+            {
+                "message": "Selfie submitted successfully",
+                "data": {
+                    "id": selfie.id,
+                    "status": selfie.status,
+                    "selfie_image_url": selfie.selfie_image_url,
+                    "document_verification_id": selfie.document_verification.id
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+@extend_schema(
+    tags=["Upload"],
+    )
+class UserSelfieListView(ListAPIView):
+    serializer_class = SelfieSubmissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return SelfieVerification.objects.filter(user=self.request.user)
 

@@ -304,7 +304,7 @@ from .serializers import (
     # UpdateAdminMemberSerializer,
     # TeamMemberSerializer,
     # RemoveAdminMemberSerializer,
-    SelfieSubmissionSerializer,
+    # SelfieSubmissionSerializer,
     # GoogleCallbackSerializer,
     MessageResponseSerializer,
     DocumentVerificationListSerializer,
@@ -6226,40 +6226,7 @@ class CloudinarySignatureView(GenericAPIView):
         serializer = self.get_serializer(data)
         return Response(serializer.data)
 
-@extend_schema(
-    tags=["Upload"],
-    )
-class SelfieSubmissionView(GenericAPIView):
-    serializer_class = SelfieSubmissionSerializer
-    permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        serializer = self.get_serializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        selfie = serializer.save()
-
-        return Response(
-            {
-                "message": "Selfie submitted successfully",
-                "data": {
-                    "id": selfie.id,
-                    "status": selfie.status,
-                    "selfie_image_url": selfie.selfie_image_url,
-                    "document_verification_id": selfie.document_verification.id
-                },
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
-@extend_schema(
-    tags=["Upload"],
-    )
-class UserSelfieListView(generics.ListAPIView):
-    serializer_class = SelfieSubmissionSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return SelfieVerification.objects.filter(user=self.request.user)
 
 
 # ======================================== ACTIVITY FEEDS

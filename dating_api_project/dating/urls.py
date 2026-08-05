@@ -39,7 +39,10 @@ from dating.accounts.views import (
     LanguageSettingsView,
     UserRoleSelectionView,
     UserRoleStatusView,
-    UserProfileDetailView
+    UserProfileDetailView,
+
+    SelfieSubmissionView,
+    UserSelfieListView,
 )
 
 from .views import (
@@ -240,8 +243,8 @@ from .views import (
     AdminOverviewView,
     CloudinarySignatureView,
     ChatMessagesView,
-    SelfieSubmissionView,
-    UserSelfieListView,
+    # SelfieSubmissionView,
+    # UserSelfieListView,
     # GoogleOAuthCallbackView,
     AdminPendingBondmakerDetailView,
     AdminBondmakerStatsView,
