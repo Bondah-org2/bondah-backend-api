@@ -1566,3 +1566,103 @@ class MatchQueueViewTests(APITestCase):
         self.client.force_authenticate(user=None)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+# Bondmaker leaderboard test
+@override_settings(**TEST_OVERRIDES)
+class BondmakerLeaderboardTests(APITestCase):
+    def setUp(self):
+        self.url = reverse("bondmaker-leaderboard")
+
+        self.bondmaker = User.objects.create_user(
+            email="bondmaker@example.com",
+            password="password123",
+            name="John",
+            is_matchmaker=True,
+        )
+
+        self.requester = User.objects.create_user(
+            email="user@example.com",
+            password="password123",
+            name="Jane",
+        )
+
+        self.match_request = MatchRequest.objects.create(
+            requester=self.requester,
+            bondmaker=self.bondmaker,
+            coins_charged=10,
+            status="completed",
+        )
+
+        UserMatch.objects.create(
+            match_request=self.match_request,
+            user1=self.requester,
+            user2=self.bondmaker,
+            distance=2.5,
+            match_score=95,
+            status="matched",
+        )
+
+        self.client.force_authenticate(user=self.bondmaker)
+
+    def test_bondmaker_leaderboard_returns_match_count(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(len(response.data["results"]), 1)
+
+        bondmaker = response.data["results"][0]
+
+        self.assertEqual(bondmaker["name"], self.bondmaker.name)
+        self.assertEqual(bondmaker["matches"], 1)
+
+    def test_pending_matches_are_not_counted(self):
+        MatchRequest.objects.create(
+            requester=self.requester,
+            bondmaker=self.bondmaker,
+            coins_charged=10,
+            status="pending",
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"][0]["matches"], 1)
+
+    def test_leaderboard_is_sorted_by_matches(self):
+        bondmaker2 = User.objects.create_user(
+            email="second@example.com",
+            password="password123",
+            name="Mary",
+            is_matchmaker=True,
+        )
+
+        # Create two completed matches for bondmaker2
+        for i in range(2):
+            requester = User.objects.create_user(
+                email=f"user{i}@example.com",
+                password="password123",
+                name=f"User {i}",
+            )
+
+            request = MatchRequest.objects.create(
+                requester=requester,
+                bondmaker=bondmaker2,
+                coins_charged=10,
+                status="completed",
+            )
+
+            UserMatch.objects.create(
+                match_request=request,
+                user1=requester,
+                user2=bondmaker2,
+                distance=1,
+                match_score=90,
+                status="matched",
+            )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.data["results"][0]["name"], bondmaker2.name)
+        self.assertEqual(response.data["results"][0]["matches"], 2)
+        self.assertEqual(response.data["results"][1]["matches"], 1)

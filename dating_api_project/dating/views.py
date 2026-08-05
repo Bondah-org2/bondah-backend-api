@@ -310,6 +310,8 @@ from .serializers import (
     DocumentVerificationListSerializer,
     AdminBondmakerDetailSerializer,
     AdminBondmakerStatsSerializer,
+
+    BondmakersLeaderboardSerializer,
 )
 # from .firebase_utils import (
 #     verify_firebase_token,
@@ -321,7 +323,8 @@ from .serializers import (
 #     get_matches_for_user,
 # )
 from rest_framework import permissions
-from django.db.models import Count, Avg
+from django.db.models import Count, Avg, Window
+from django.db.models.functions import Rank
 from .location_utils import (
     calculate_match_score,
     get_location_statistics,
@@ -7727,4 +7730,31 @@ class ActivityFeedView(generics.ListAPIView):
 
     def get_queryset(self):
         return Activity.objects.filter(recipient=self.request.user)
+
+# ======================================== BONDMAKERS LEADERBOARD
+@extend_schema(tags=["Bondmaker Leaderboard"])
+class BondmakersLeaderboardView(generics.ListAPIView):
+    serializer_class = BondmakersLeaderboardSerializer
+
+    def get_queryset(self):
+        return (
+            User.objects.filter(is_matchmaker=True)
+            .annotate(
+                matches=Count(
+                    "received_requests__user_match",
+                    filter=Q(
+                        received_requests__status="completed",
+                        received_requests__user_match__status="matched",
+                    ),
+                )
+            )
+            .annotate(
+                rank=Window(
+                    expression=Rank(),
+                    order_by=F("matches").desc()
+                )
+            )
+            .order_by("rank")[:20]
+        )
+
     

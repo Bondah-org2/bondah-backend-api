@@ -205,6 +205,8 @@ from .views import (
     GoogleOAuthCallbackView,
     AdminPendingBondmakerDetailView,
     AdminBondmakerStatsView,
+
+    BondmakersLeaderboardView,
 )
 from .liveness_views import (
     StartLivenessCheckView,
@@ -956,6 +958,12 @@ urlpatterns = [
         "bondmaker/analytics/",
         BondmakerAnalyticsView.as_view(),
         name="bondmaker-dashboard",
+    ),
+    # Bondmaker leaderboard
+    path(
+        "bondmaker/leaderboard/",
+        BondmakersLeaderboardView.as_view(),
+        name="bondmaker-leaderboard",
     ),
     # List View For Matched_User for Users
     path(
