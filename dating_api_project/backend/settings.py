@@ -126,7 +126,7 @@ WSGI_APPLICATION = "backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-if os.getenv("DB_ENGINE", "sqlite3") == "sqlite3":
+if "postgresql" not in os.getenv("DB_ENGINE", "django.db.backends.sqlite3"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
