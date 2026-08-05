@@ -9,6 +9,8 @@ from django.contrib.auth import authenticate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema, extend_schema_field
+
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.validators import UniqueValidator
 from rest_framework import serializers
@@ -20,7 +22,10 @@ from dating.models import (
     AdminRole,
     SocialAccount,
     AdminPermission,
-    DeviceRegistration
+    DeviceRegistration,
+    Specialisation,
+    UserRoleSelection,
+    DocumentVerification
 )
 from dating.tasks import send_otp_email
 
@@ -782,4 +787,339 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "is_matchmaker",
         )
         read_only_fields = ("id", "email", "is_matchmaker")
+
+
+class UserProfileDetailSerializer(serializers.ModelSerializer):
+    """Detailed user profile serializer for viewing other users"""
+
+    profile_views_count = serializers.SerializerMethodField()
+    is_online = serializers.SerializerMethodField()
+    distance = serializers.SerializerMethodField()
+    compatibility_score = serializers.SerializerMethodField()
+    profile_completion_percentage = serializers.IntegerField(
+        source="get_profile_completion_percentage", read_only=True
+    )
+    selected_role = serializers.SerializerMethodField()
+    age = serializers.ReadOnlyField()
+    languages = serializers.ListField(child=serializers.CharField())
+    hobbies = serializers.ListField(child=serializers.CharField())
+    interests = serializers.ListField(child=serializers.CharField())
+    traits = serializers.ListField(child=serializers.CharField())
+    profile_gallery = serializers.ListField(child=serializers.URLField())
+    speciality = serializers.SlugRelatedField(
+        slug_field="category",
+        queryset=Specialisation.objects.all(),
+        many=True,
+        source="specialisations",
+    )
+    # visibility_status = serializers.SerializerMethodField()
+    # visibility_choice = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "name",
+            "age",
+            "email",
+            "gender",
+            "username",
+            "bio",
+            "bondmaker_bio",
+            "thought_leadership",
+            "profile_picture",
+            "bondmaker_profile_picture",
+            "bondmaker_cover_picture",
+            "profile_gallery",
+            "education_level",
+            "height",
+            "zodiac_sign",
+            "languages",
+            "relationship_status",
+            "smoking_preference",
+            "drinking_preference",
+            "pet_preference",
+            "exercise_frequency",
+            "want_kids",
+            "ethnicity",
+            "no_of_kids",
+            "have_kids",
+            "personality_type",
+            "love_language",
+            "communication_style",
+            "hobbies",
+            "interests",
+            "marriage_plans",
+            "future_kids",
+            "religion_importance",
+            "religion",
+            "dating_type",
+            "open_to_long_distance",
+            "city",
+            "state",
+            "country",
+            "profile_views_count",
+            "is_online",
+            "distance",
+            "compatibility_score",
+            "profile_completion_percentage",
+            "looking_for",
+            "push_notifications_enabled",
+            "email_notifications_enabled",
+            "preferred_language",
+            "profile_completion_percentage",
+            "selected_role",
+            "traits",
+            "genotype",
+            "location",
+            "age",
+            "date_of_birth",
+            "preferred_gender",
+            "job_title",
+            "company_name",
+            "deal_breaker",
+            "speciality",
+            # "visibility_status",
+            # "visibility_choice",
+        ]
+        read_only_fields = [
+            "id",
+            "profile_views_count",
+            "is_online",
+            "distance",
+            "compatibility_score",
+            "profile_completion_percentage",
+            "location",
+            "age",
+            "username",
+            "speciality"
+            # "visibility_status",
+            # "visibility_choice",
+        ]
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_profile_views_count(self, obj):
+        return UserProfileView.objects.filter(viewed_user=obj).count()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_online(self, obj):
+        if not obj.last_seen:
+            return False
+
+        return obj.last_seen >= now() - timedelta(minutes=3)
+
+    @extend_schema_field(serializers.FloatField())
+    def get_distance(self, obj):
+        request = self.context.get("request")
+        if request and request.user.has_location and obj.has_location:
+            return request.user.get_distance_to(obj)
+        return None
+
+    # @extend_schema_field(serializers.CharField(allow_null=True))
+    # def _get_visibility(self, obj):
+    #     request = self.context.get("request")
+    #     # A user viewing their own profile has no bondmaker context
+    #     # if request.user == obj:
+    #     #     return None
+
+    #     return Visibility.objects.filter(
+    #         owner=obj,
+    #         bondmaker=request.user
+    #     ).first()
+
+    # def get_visibility_status(self, obj) -> str:
+    #     visibility = self._get_visibility(obj)
+    #     return visibility.status if visibility else None
+
+    # def get_visibility_choice(self, obj) -> str:
+    #     visibility = self._get_visibility(obj)
+    #     return visibility.visibility if visibility else None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_compatibility_score(self, obj):
+        request = self.context.get("request")
+        if request and request.user != obj:
+            from .location_utils import calculate_match_score
+
+            return calculate_match_score(request.user, obj)
+        return None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_selected_role(self, obj):
+        role_selection = getattr(obj, "role_selection", None)
+        return role_selection.selected_role if role_selection else None
+
+    def validate_phone_number(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must contain only digits.")
+
+        if len(value) != 11:
+            raise serializers.ValidationError("Phone number must be exactly 11 digits.")
+
+        if not value.startswith("0"):
+            raise serializers.ValidationError("Phone number must start with 0.")
+
+        return value
+
+    def validate_traits(self, value):
+        if len(value) > 3:
+            raise serializers.ValidationError("You can select only 3 traits.")
+        return value
+
+    def validate_interests(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Must be a list of interests.")
+        if len(value) > 5:
+            raise serializers.ValidationError("You can select up to 5 interests.")
+        return value
+
+    def validate_profile_gallery(self, value):
+        if len(value) < 3:
+            raise serializers.ValidationError("Minimum of 3 pictures required")
+        if len(value) > 7:
+            raise serializers.ValidationError("Maximum of 7 pictures allowed")
+        return value
+
+    def validate_date_of_birth(self, value):
+        today = date.today()
+        age = (
+            today.year
+            - value.year
+            - ((today.month, today.day) < (value.month, value.day))
+        )
+
+        if age < 18:
+            raise serializers.ValidationError("You must be at least 18 years old.")
+
+        return value
+
+
+class NotificationSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for notification settings"""
+
+    class Meta:
+        model = User
+        fields = [
+            "push_notifications_enabled",
+            "email_notifications_enabled",
+            "notify_on_new_match",
+            "notify_on_message",
+            "notify_on_like",
+            "notify_on_bondmaker_update",
+            "notify_on_promotional",
+        ]
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save()
+        return instance
+
+
+class LanguageSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for language settings"""
+
+    class Meta:
+        model = User
+        fields = ["preferred_language"]
+
+    def update(self, instance, validated_data):
+        """Update language settings"""
+        instance.preferred_language = validated_data.get(
+            "preferred_language", instance.preferred_language
+        )
+        instance.save()
+        return instance
+
+
+class UserRoleSelectionSerializer(serializers.ModelSerializer):
+    is_matchmaker = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = UserRoleSelection
+        fields = ["selected_role", "is_matchmaker"]
+
+
+class UserRoleStatusSerializer(serializers.Serializer):
+    selected_role = serializers.ChoiceField(choices=UserRoleSelection.ROLE_CHOICES)
+    is_matchmaker = serializers.BooleanField()
+    verification_status = serializers.ChoiceField(
+        choices=DocumentVerification.STATUS_CHOICES, allow_null=True, required=False
+    )
+
+
+class StaticUserProfileSerializer(serializers.ModelSerializer):
+    selected_role = serializers.SerializerMethodField()
+    profile_completion_percentage = serializers.IntegerField(
+        source="get_profile_completion_percentage",
+        read_only=True,
+    )
+    age = serializers.ReadOnlyField()
+    languages = serializers.ListField(child=serializers.CharField())
+    hobbies = serializers.ListField(child=serializers.CharField())
+    interests = serializers.ListField(child=serializers.CharField())
+    traits = serializers.ListField(child=serializers.CharField())
+    profile_gallery = serializers.ListField(child=serializers.URLField())
+    speciality = serializers.SlugRelatedField(
+        slug_field="category",
+        queryset=Specialisation.objects.all(),
+        many=True,
+        source="specialisations",
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "name",
+            "email",
+            "age",
+            "gender",
+            "bio",
+            "profile_picture",
+            "profile_gallery",
+            "education_level",
+            "height",
+            "zodiac_sign",
+            "languages",
+            "relationship_status",
+            "smoking_preference",
+            "drinking_preference",
+            "pet_preference",
+            "exercise_frequency",
+            "no_of_kids",
+            "have_kids",
+            "personality_type",
+            "love_language",
+            "communication_style",
+            "hobbies",
+            "interests",
+            "marriage_plans",
+            "future_kids",
+            "religion_importance",
+            "religion",
+            "dating_type",
+            "open_to_long_distance",
+            "city",
+            "state",
+            "country",
+            "looking_for",
+            "preferred_language",
+            "traits",
+            "genotype",
+            "location",
+            "date_of_birth",
+            "selected_role",
+            "profile_completion_percentage",
+            "company_name",
+            "job_title",
+            "deal_breaker",
+            "speciality"
+        ]
+
+        read_only_fields = ["speciality"]
+
+    def get_selected_role(self, obj) -> str:
+        role_selection = getattr(obj, "role_selection", None)
+        return role_selection.selected_role if role_selection else None
 

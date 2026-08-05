@@ -32,6 +32,14 @@ from dating.accounts.views import (
     DeviceRegistrationView,
     OAuthLinkAccountView,
     OAuthUnlinkAccountView,
+
+    UserProfileViews,
+    AccountDeactivationView,
+    NotificationSettingsView,
+    LanguageSettingsView,
+    UserRoleSelectionView,
+    UserRoleStatusView,
+    UserProfileDetailView
 )
 
 from .views import (
@@ -74,10 +82,10 @@ from .views import (
     # TokenRefreshView,
     # PasswordResetView,
     # PasswordResetConfirmView,
-    UserProfileViews,
-    AccountDeactivationView,
-    NotificationSettingsView,
-    LanguageSettingsView,
+    # UserProfileViews,
+    # AccountDeactivationView,
+    # NotificationSettingsView,
+    # LanguageSettingsView,
     # DeviceRegistrationView,
     # OAuth Views
     # GoogleOAuthView,
@@ -102,10 +110,10 @@ from .views import (
     # RegisterRequestOTPView,
     # ResendEmailOTPView,
     # RegisterRequestOTPView,
-    UserRoleSelectionView,
+    # UserRoleSelectionView,
     # Advanced Search and Discovery Views
     # UserSearchView,
-    UserProfileDetailView,
+    # UserProfileDetailView,
     UserInteractionView,
     # UserRecommendationsView,
     # CategoryFilterView,
@@ -182,7 +190,7 @@ from .views import (
     # FirebasePushNotificationView,
     AdminBondmakerReviewView,
     AdminPendingBondmakersView,
-    UserRoleStatusView,
+    # UserRoleStatusView,
     AdminBondmakerListView,
     PublicBondmakerListView,
     BondmakerProfileDetailView,

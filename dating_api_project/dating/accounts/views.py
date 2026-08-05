@@ -1,5 +1,6 @@
 import uuid
 from logging import getLogger
+from datetime import timedelta
 
 from django.utils.decorators import method_decorator
 from django.conf import settings
@@ -9,7 +10,8 @@ from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
 
-from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiRequest, OpenApiResponse
+
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiRequest, OpenApiResponse, extend_schema_view
 from django_ratelimit.decorators import ratelimit
 from pybreaker import CircuitBreakerError as BreakerError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -23,13 +25,25 @@ from rest_framework.generics import (
     CreateAPIView,
     ListAPIView,
     DestroyAPIView,
-    UpdateAPIView
+    UpdateAPIView,
+    RetrieveUpdateAPIView,
+    RetrieveAPIView
 )
 
-from dating.models import PasswordResetOTP, DeviceRegistration, SocialAccount
 from dating.tasks import send_password_reset_email
 from dating.circuit_breakers import email_breaker
 from dating.permissions import IsPrincipalAdmin
+from dating.utils import get_cached_my_profile, get_cached_static_profile
+from dating.location_utils import calculate_match_score, get_location_statistics
+from dating.models import (
+    PasswordResetOTP,
+    DeviceRegistration,
+    SocialAccount,
+    UserRoleSelection,
+    DocumentVerification,
+    UserProfileView,
+    Activity,
+)
 from dating.oauth_utils import (
     GoogleOAuthVerifier,
     OAuthUserManager,
@@ -69,6 +83,12 @@ from .serializers import (
 
     UserProfileSerializer,
     UserProfileWithSocialSerializer,
+    UserProfileDetailSerializer,
+    NotificationSettingsSerializer,
+    LanguageSettingsSerializer,
+    UserRoleSelectionSerializer,
+    UserRoleStatusSerializer,
+    StaticUserProfileSerializer,
 )
 from response_serializers import (
     UserLoginResponseSerializer, 
@@ -92,6 +112,12 @@ from response_serializers import (
     OAuthLinkAccountResponseSerializer,
     OAuthUnlinkAccountResponseSerializer,
     SocialAccountsListResponseSerializer,
+
+    SimpleStatusResponseSerializer,
+    NotificationSettingsResponseSerializer,
+    NotificationSettingsErrorSerializer,
+    LanguageSettingsResponseSerializer,
+    LanguageSettingsErrorSerializer,
 )
 
 logger = getLogger(__name__)
@@ -1178,4 +1204,378 @@ class SocialAccountsListView(ListAPIView):
 # =============================================================================
 # PROFILE AND SETTINGS
 # =============================================================================
+
+
+@extend_schema(
+    tags=["Profile"],
+    )
+class UserProfileViews(RetrieveUpdateAPIView):
+    serializer_class = UserProfileDetailSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+    # ---------------- RETRIEVE ----------------
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            user = self.get_object()
+
+            # 1 Cached profile
+            profile_data = get_cached_my_profile(user, request=request)
+
+            # 2 Firestore merge (live)
+            # firebase_uid = getattr(user, "firebase_uid", user.email)
+            # firestore_profile = get_user_profile_from_firestore(firebase_uid)
+
+            # if firestore_profile:
+            #     profile_data = {**profile_data, **firestore_profile}
+
+            return Response(
+                {
+                    "message": "Profile retrieved successfully",
+                    "status": "success",
+                    "user": profile_data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to retrieve profile: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # ---------------- UPDATE ----------------
+    def update(self, request, *args, **kwargs):
+        try:
+            partial = kwargs.pop("partial", False)
+            instance = self.get_object()
+
+            serializer = self.get_serializer(
+                instance, data=request.data, partial=partial
+            )
+            serializer.is_valid(raise_exception=True)
+            updated_user = serializer.save()
+
+            # Check if user is under 18 and flag them
+
+            if updated_user.date_of_birth and updated_user.age < 18:
+                updated_user.is_flagged_for_deletion = True
+                updated_user.scheduled_deletion_at = timezone.now() + timedelta(hours=24)
+                updated_user.save(update_fields=["is_flagged_for_deletion", "scheduled_deletion_at"])
+
+            # CLEAR BOTH CACHES AFTER SAVE
+            cache.delete(f"my_profile:{instance.id}")
+            cache.delete(f"user_static_profile:{instance.id}")
+
+            # 2 Update Firestore if needed
+            # from .firebase_utils import update_user_profile_in_firestore
+
+            # firestore_data = {}
+            # firestore_fields = ["bio", "interests", "photos"]
+
+            # for field in firestore_fields:
+            #     if field in request.data:
+            #         firestore_data[field] = request.data[field]
+
+            # if firestore_data:
+            #     firebase_uid = getattr(instance, "firebase_uid", instance.email)
+            #     update_user_profile_in_firestore(firebase_uid, firestore_data)
+
+            return Response(
+                {
+                    "message": "Profile updated successfully",
+                    "status": "success",
+                    "user": UserProfileDetailSerializer(updated_user).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to update profile: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+
+@extend_schema(
+    tags = ['Authentication'],
+    request=None,
+    responses={
+        200: SimpleStatusResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+    description="Deactivate the authenticated user's account",
+)
+class AccountDeactivationView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            user = request.user
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+
+            return Response(
+                {
+                    "message": "Account deactivated successfully",
+                    "status": "success",
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to deactivate account: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+
+@extend_schema(tags=["Notification"])
+@extend_schema_view(
+    get=extend_schema(
+        responses={
+            200: NotificationSettingsResponseSerializer,
+            500: CustomErrorResponseSerializer
+        },
+        description="Get current notification settings",
+    ),
+
+    put=extend_schema(
+        request=NotificationSettingsSerializer,
+        responses={
+            200: NotificationSettingsResponseSerializer,
+            400: NotificationSettingsErrorSerializer,
+            500: CustomErrorResponseSerializer,
+        },
+        description="Update notification settings",
+    )
+)
+class NotificationSettingsView(GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = NotificationSettingsSerializer
+
+    def get(self, request):
+        try:
+            user = request.user
+            serializer = self.get_serializer(user)
+
+            return Response(
+                {
+                    "message": "Notification settings retrieved successfully",
+                    "status": "success",
+                    "settings": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to retrieve notification settings: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def put(self, request):
+        try:
+            user = request.user
+            serializer = self.get_serializer(user, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            return Response(
+                {
+                    "message": "Notification settings updated successfully",
+                    "status": "success",
+                    "settings": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except serializers.ValidationError as e:
+            return Response(
+                {
+                    "message": "Failed to update notification settings",
+                    "status": "error",
+                    "errors": e.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "message": f"Failed to update notification settings: {str(e)}",
+                    "status": "error",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+
+@extend_schema(tags=["Language"])
+@extend_schema_view(
+    get=extend_schema(
+        responses={
+            200: LanguageSettingsResponseSerializer,
+            500: CustomErrorResponseSerializer,
+        },
+        description="Get current language settings",
+    ),
+    put=extend_schema(
+        request=LanguageSettingsSerializer,
+        responses={
+            200: LanguageSettingsResponseSerializer,
+            400: LanguageSettingsErrorSerializer,
+            500: CustomErrorResponseSerializer,
+        },
+        description="Update language settings",
+    ),
+)
+
+class LanguageSettingsView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = LanguageSettingsSerializer
+
+
+@extend_schema(
+    tags=["Profile"],
+    )
+class UserRoleSelectionView(GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = UserRoleSelectionSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        selected_role = serializer.validated_data["selected_role"]
+
+        role_selection, _ = UserRoleSelection.objects.update_or_create(
+            user=request.user,
+            defaults={"selected_role": selected_role},
+        )
+
+        # TODO: IF USER CHOOSE BONDMAKER, HE OUGHT TO UNDERGO SERIES OF VERIFICATION STEPS
+        # If user chose bondmaker, create or reuse pending verification
+        # if selected_role == "bondmaker":
+        #     DocumentVerification.objects.get_or_create(
+        #         user=request.user,
+        #         status="pending",
+        #         defaults={"document_type": "passport"},
+        #     )
+
+        return Response(
+            {
+                "message": "Role selection saved",
+                "status": "success",
+                "selected_role": selected_role,
+                "is_matchmaker": request.user.is_matchmaker,  # still False
+            }
+        )
+
+
+@extend_schema(
+    tags=["Profile"],
+    )
+class UserRoleStatusView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserRoleStatusSerializer
+
+    def get(self, request):
+        user = request.user
+
+        # Role selection
+        role_selection = UserRoleSelection.objects.filter(user=user).first()
+        selected_role = (
+            role_selection.selected_role if role_selection else "looking_for_love"
+        )
+
+        # Latest verification (if any)
+        verification = (
+            DocumentVerification.objects.filter(user=user)
+            .order_by("-uploaded_at")
+            .first()
+        )
+        verification_status = verification.status if verification else None
+
+        data = {
+            "selected_role": selected_role,
+            "is_matchmaker": user.is_matchmaker,
+            "verification_status": verification_status,
+        }
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=["Profile"],
+    )
+class UserProfileDetailView(RetrieveAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = StaticUserProfileSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        user_id = kwargs.get("user_id")
+        viewed_user = User.objects.get(id=user_id)
+
+        # 1 Get cached static profile
+        data = get_cached_static_profile(user_id)
+
+        # 2 Inject dynamic fields
+        data["profile_views_count"] = UserProfileView.objects.filter(
+            viewed_user=viewed_user
+        ).count()
+
+        data[
+            "is_online"
+        ] = viewed_user.last_seen and viewed_user.last_seen >= timezone.now() - timedelta(
+            minutes=3
+        )
+
+        if request.user.has_location and viewed_user.has_location:
+            data["distance"] = request.user.get_distance_to(viewed_user)
+        else:
+            data["distance"] = None
+
+        if request.user != viewed_user:
+            data["compatibility_score"] = calculate_match_score(
+                request.user, viewed_user
+            )
+        else:
+            data["compatibility_score"] = None
+
+        # 3 Track profile view
+        UserProfileView.objects.get_or_create(
+            viewer=request.user,
+            viewed_user=viewed_user,
+            defaults={"source": "direct"},
+        )
+        # After tracking profile view, add to activity log
+        Activity.objects.create(
+            actor=request.user,
+            action="profile_viewed",
+            recipient=viewed_user,
+            metadata={
+                "viewed_user_id": viewed_user.id,
+                "viewed_username": viewed_user.name,
+                "viewer_user_id": request.user.id,
+                "viewer_username": request.user.name,
+            },
+        )
+
+        return Response(data)
 

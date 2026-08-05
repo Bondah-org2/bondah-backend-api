@@ -1715,20 +1715,9 @@ class UserVerificationStatusSerializer(serializers.ModelSerializer):
 
 
 
-class UserRoleSelectionSerializer(serializers.ModelSerializer):
-    is_matchmaker = serializers.BooleanField(read_only=True)
-
-    class Meta:
-        model = UserRoleSelection
-        fields = ["selected_role", "is_matchmaker"]
 
 
-class UserRoleStatusSerializer(serializers.Serializer):
-    selected_role = serializers.ChoiceField(choices=UserRoleSelection.ROLE_CHOICES)
-    is_matchmaker = serializers.BooleanField()
-    verification_status = serializers.ChoiceField(
-        choices=DocumentVerification.STATUS_CHOICES, allow_null=True, required=False
-    )
+
 
 
 class EmailVerificationSerializer(serializers.ModelSerializer):
