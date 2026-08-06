@@ -5519,3 +5519,13 @@ class ActivityFeedSerializer(serializers.ModelSerializer):
 
     def get_message(self, obj):
         return obj.render_message()
+
+
+# ======================================== lEADERBOARD
+class BondmakersLeaderboardSerializer(serializers.ModelSerializer):
+    rank = serializers.IntegerField(read_only=True)
+    matches = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ["rank", "name", "profile_picture", "matches"]
