@@ -4542,6 +4542,14 @@ class SuggestedMatchSerializer(serializers.ModelSerializer):
         ]
 
 
+class VisibilityOwnerSerializer(serializers.ModelSerializer):
+    age = serializers.ReadOnlyField()
+
+    class Meta:
+        model = User
+        fields = ["id", "name", "age", "bio", "profile_picture"]
+
+
 class VisibilitySerializer(serializers.ModelSerializer):
     bondmaker_id = serializers.IntegerField(write_only=True)
     owner_id = serializers.IntegerField(source="owner.id", read_only=True)
@@ -4623,6 +4631,14 @@ class VisibilitySerializer(serializers.ModelSerializer):
             VisibilityService.request_private_visibility(visibility)
 
         return visibility
+
+
+class PendingVisibilitySerializer(serializers.ModelSerializer):
+    owner = VisibilityOwnerSerializer(read_only=True)
+
+    class Meta:
+        model = Visibility
+        fields = ["id", "owner", "visibility", "status", "created_at"]
 
 
 class ApproveVisibilitySerializer(serializers.ModelSerializer):

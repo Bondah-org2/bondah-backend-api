@@ -22,8 +22,8 @@ JWT_SECRET_KEY = config("JWT_SECRET_KEY")
 # Load environment variables
 load_dotenv()
 print("🔥 USING PRODUCTION SETTINGS 🔥")
-# Firebase Configuration
-# For Railway deployment - JSON content from environment variable
+ Firebase Configuration
+ For Railway deployment - JSON content from environment variable
 FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
 # For local development - path to JSON file
@@ -641,17 +641,19 @@ GOOGLE_PACKAGE_NAME = "com.bondah.app"
 GOOGLE_PLAY_KEY_PATH = BASE_DIR / "dating/google_play_key.json"
 
 REDIS_URL = os.environ.get("REDIS_URL")
+if not REDIS_URL:
+    raise RuntimeError(
+       "REDIS_URL env variable not set! Redis will not work in production."
+    )
 
-if REDIS_URL:
-    CACHES = {
-        "default": {
-            "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": REDIS_URL,
-            "OPTIONS": {
-                "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            },
-            "TIMEOUT": 600,
-        }
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        #"LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+        "TIMEOUT": 600,  # 10 minutes default
     }
     CELERY_BROKER_URL = REDIS_URL
     CELERY_RESULT_BACKEND = REDIS_URL

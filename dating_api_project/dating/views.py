@@ -253,6 +253,7 @@ from .serializers import (
     BondmakerSuggestionSerializer,
     SubscribeBondmakerSerializer,
     VisibilitySerializer,
+    PendingVisibilitySerializer,
     LocationStatisticsSerializer,
     MatchRequestSerializer,
     PurchaseSerializer,
@@ -1157,6 +1158,13 @@ class CreateAdminMemberView(generics.CreateAPIView):
     serializer_class = CreateTeamMemberSerializer
     permission_classes = [IsPrincipalAdmin]
 
+    def perform_create(self, serializer):
+        if not self.request.user.is_principal_admin:
+            raise PermissionError("Only Principal Admin can Create members")
+        serializer.save()
+
+@extend_schema(
+    tags=["Admin"],
 @extend_schema(
     tags=["Admin"],
     responses={
@@ -1169,6 +1177,13 @@ class UpdateAdminMemberView(generics.UpdateAPIView):
     serializer_class = UpdateAdminMemberSerializer
     permission_classes = [IsPrincipalAdmin]
 
+    def perform_update(self, serializer):
+        if not self.request.user.is_principal_admin:
+            raise PermissionError("Only Principal Admin can update members")
+        serializer.save()
+
+@extend_schema(
+    tags=["Admin"],
 @extend_schema(
     tags=["Admin"],
     responses={
@@ -1230,6 +1245,7 @@ class AdminTeamView(generics.ListAPIView):
 
 @extend_schema(
     tags=["Authentication"],
+    )
     responses={
         201: RegisterRequestOTPResponseSerializer,
         400: ValidationErrorResponseSerializer,
@@ -1582,13 +1598,13 @@ class PasswordResetView(generics.GenericAPIView):
 
 @extend_schema(
     tags = ['Authentication'],
-    request=OTPSerializer,
-    responses={
-        200: PasswordResetVerifyOTPResponseSerializer,
-        400: CustomErrorResponseSerializer,
-        500: CustomErrorResponseSerializer,
+   request=PasswordResetConfirmSerializer,
+     responses={
+       200: PasswordResetConfirmSerializer,
+        400: PasswordResetConfirmSerializer,
+        500: PasswordResetConfirmSerializer,
     },
-)
+ )
 
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
@@ -3246,6 +3262,11 @@ class SendMessageView(generics.CreateAPIView):
 
         serializer.save(chat=chat, sender=self.request.user)
 
+@extend_schema(
+    tags=["Chat"],
+    )
+class ChatMessagesView(generics.ListAPIView):
+    serializer_class = MessageSerializer
 @extend_schema(tags=["Chat"])
 class MessageDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -4023,7 +4044,7 @@ class CreateChatView(APIView):
 # =============================================================================
 
 @extend_schema(
-    tags=["Bond Story"],
+    tags=["Post"],
     )
 @extend_schema_view(
     retrieve=extend_schema(
@@ -4175,7 +4196,7 @@ class PostViewSet(viewsets.ModelViewSet):
     ),
 )
 @extend_schema(
-    tags=["Bond Story"],
+    tags=["PostComment"],
     )
 class PostCommentViewSet(viewsets.ModelViewSet):
     serializer_class = PostCommentCreateSerializer
@@ -5979,7 +6000,6 @@ class AdminNewsletterListView(GenericAPIView):
             }
         )
 
-
 # Bondmaker Application Review View
 @extend_schema(
     tags=["Admin"],
@@ -6571,7 +6591,7 @@ class ApproveVisibilityView(generics.UpdateAPIView):
     )
 # pending Visibilty list View for bondmaker Review
 class PendingVisibilityListView(generics.ListAPIView):
-    serializer_class = VisibilitySerializer
+    serializer_class = PendingVisibilitySerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
@@ -7581,7 +7601,6 @@ class BondCirclePostCreateView(generics.CreateAPIView):
 
         serializer.save(author=self.request.user, circle=circle)
 
-
 @extend_schema(
     tags=["Bond Story"],
 )
@@ -7592,7 +7611,7 @@ class BondCircleListView(generics.ListAPIView):
 
 
 @extend_schema(
-    tags=["Bond Story"],
+    tags=["Comment"],
     )
 class CreateCommentView(generics.CreateAPIView):
     serializer_class = BondCircleCommentSerializer
