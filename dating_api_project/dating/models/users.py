@@ -68,6 +68,7 @@ class AdminRole(models.Model):
     can_view_applications = models.BooleanField(default=False)
     can_view_withdrawals = models.BooleanField(default=False)
     can_view_reports = models.BooleanField(default=False)
+    can_approve_applications = models.BooleanField(default=False)
     can_manage_team = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -110,7 +111,9 @@ class User(AbstractUser):
 
     STATUS_CHOICES = [
         ("active", "Active"),
-        ("inactive", "Inactive")
+        ("inactive", "Inactive"),
+        ("restricted", "Restricted"),
+        ("banned", "Banned"),
     ]
 
     status = models.CharField(
@@ -168,6 +171,20 @@ class User(AbstractUser):
     partner_qualities = models.JSONField(default=list, blank=True, null=True)
     specialisations = models.ManyToManyField(
         Specialisation, blank=True, related_name="bondmakers"
+    )
+    ethnicity = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=[
+            ("white", "White"),
+            ("black", "Black"),
+            ("asian", "Asian"),
+            ("hispanic", "Hispanic"),
+            ("middle_eastern", "Middle Eastern"),
+            ("mixed", "Mixed"),
+            ("other", "Other"),
+        ],
     )
 
     # Location Privacy Settings
@@ -389,6 +406,12 @@ class User(AbstractUser):
         null=True,
         choices=[("yes", "Yes"), ("no", "No"), ("maybe", "Maybe")],
     )
+    want_kids = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=[("yes", "Yes"), ("no", "No"), ("maybe", "Maybe")],
+    )
     have_kids = models.CharField(
         max_length=20,
         blank=True,
@@ -468,6 +491,11 @@ class User(AbstractUser):
     email_notifications_enabled = models.BooleanField(
         default=True, help_text="Enable email notifications"
     )
+    notify_on_new_match = models.BooleanField(default=True)
+    notify_on_message = models.BooleanField(default=True)
+    notify_on_like = models.BooleanField(default=True)
+    notify_on_bondmaker_update = models.BooleanField(default=True)
+    notify_on_promotional = models.BooleanField(default=False)
 
     # Language Settings (From Figma Design)
     preferred_language = models.CharField(
@@ -478,6 +506,11 @@ class User(AbstractUser):
     bondmaker_profile_picture = models.URLField(null=True, blank=True)
     bondmaker_cover_picture = models.URLField(null=True, blank=True)
     bondmaker_bio = models.TextField(blank=True, null=True)
+    thought_leadership = models.TextField(blank=True, null=True)
+
+
+    is_flagged_for_deletion = models.BooleanField(default=False)
+    scheduled_deletion_at = models.DateTimeField(null=True, blank=True)
 
     # Bondcoin Wallet (From Figma Design)
     # bondcoin_balance = models.PositiveIntegerField(
@@ -842,6 +875,7 @@ class AdminPermission(models.Model):
     can_view_applications = models.BooleanField(default=False)
     can_view_withdrawals = models.BooleanField(default=False)
     can_view_reports = models.BooleanField(default=False)
+    can_approve_applications = models.BooleanField(default=False)
     can_manage_team = models.BooleanField(default=False)
 
     updated_at = models.DateTimeField(auto_now=True)
@@ -935,7 +969,20 @@ class DeviceRegistration(models.Model):
         ("android", "Android"),
     )
 
+    TOKEN_PROVIDER = (
+        ("fcm", "Firebase Cloud Messaging"),
+        ("expo", "Expo Push Notifications"),
+    )
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="devices")
+
+    # A field to distinguish between choices, i.e fcm, expo
+    token_type = models.CharField(
+        max_length=5,
+        choices=TOKEN_PROVIDER,
+        default="expo"
+    )
+
     device_id = models.CharField(max_length=255, unique=True)
     device_type = models.CharField(max_length=10, choices=DEVICE_TYPE_CHOICES)
     push_token = models.CharField(max_length=500)

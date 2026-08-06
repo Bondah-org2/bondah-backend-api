@@ -3,6 +3,8 @@ from . import liveness_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_nested.routers import NestedDefaultRouter
 from .views import (
+    ActivityFeedView,
+    MatchQueueView,
     NewsletterSignupView,
     GetPuzzleView,
     SubmitPuzzleAnswerView,
@@ -52,6 +54,8 @@ from .views import (
     OAuthLinkAccountView,
     OAuthUnlinkAccountView,
     SocialAccountsListView,
+    # Age Verification
+    VerifyAgeView,
     # Location Management Views
     LocationUpdateView,
     AddressGeocodeView,
@@ -78,6 +82,8 @@ from .views import (
     ChatListView,
     ChatDetailView,
     SendMessageView,
+    CreateChatView,
+    MessageDetailView,
     # MessageListView,
     # MessageDetailView,
     # CallInitiateView,
@@ -165,6 +171,7 @@ from .views import (
     PasswordResetVerifyOTPView,
     PasswordResetConfirmView,
     UserSwipeDeckView,
+    ExploreUsersView,
     BondmakerPendingMatchListView,
     BondmakerProfileUpdateView,
     VerifyOTPView,
@@ -181,6 +188,7 @@ from .views import (
     IncomingPendingMatchListView,
     SuggestedMatchView,
     BondCircleCreateView,
+    BondCircleListView,
     AddBondCircleMembersView,
     BondCirclePostCreateView,
     BondCircleFeedView,
@@ -219,6 +227,12 @@ posts_router.register(r"bondstory/comments", PostCommentViewSet, basename="post-
 urlpatterns = [
     # Public API endpoints
     # path("create-user/", UserCreateView.as_view(), name="create-user"),
+
+    # ---------------------------------------
+    #           Newsletter
+    # ---------------------------------------
+
+    #TODO: Check if both endpoints are needed or not and remove one: newsletter/signup/ and newsletter/subscribe/
     path(
         "newsletter/signup/", NewsletterSignupView.as_view(), name="newsletter-signup"
     ),
@@ -227,11 +241,6 @@ urlpatterns = [
         NewsletterSignupView.as_view(),
         name="newsletter-subscribe",
     ),
-    path("puzzle/", GetPuzzleView.as_view(), name="get-puzzle"),
-    path("puzzle/verify/", SubmitPuzzleAnswerView.as_view(), name="verify-puzzle"),
-    # path("coins/earn/", EarnCoinsView.as_view(), name="earn-coins"),
-    # path("coins/spend/", SpendCoinsView.as_view(), name="spend-coins"),
-    path("waitlist/", JoinWaitlistView.as_view(), name="join-waitlist"),
     path(
         "email/send-newsletter-welcome/",
         SendNewsletterWelcomeEmailView.as_view(),
@@ -243,11 +252,31 @@ urlpatterns = [
         name="send-waitlist-confirmation",
     ),
     path("email/send/", SendGenericEmailView.as_view(), name="send-generic-email"),
+
+    # ---------------------------------------
+    #           Puzzles
+    # ---------------------------------------
+    path("puzzle/", GetPuzzleView.as_view(), name="get-puzzle"),
+    path("puzzle/verify/", SubmitPuzzleAnswerView.as_view(), name="verify-puzzle"),
+
+    # path("coins/earn/", EarnCoinsView.as_view(), name="earn-coins"),
+    # path("coins/spend/", SpendCoinsView.as_view(), name="spend-coins"),
+
+    # ---------------------------------------
+    #           Join waitlist
+    # ---------------------------------------
+    
+    path("waitlist/", JoinWaitlistView.as_view(), name="join-waitlist"),
+    
     # path("jobs/", JobListView.as_view(), name="job-list"),
     # path("jobs/<int:id>/", JobDetailView.as_view(), name="job-detail"),
     # path("jobs/apply/", JobApplicationView.as_view(), name="job-application"),
     # path("jobs/options/", JobOptionsView.as_view(), name="job-options"),
-    # # Translation API endpoints
+
+    # ---------------------------------------
+    #       Translation API endpoints
+    # ---------------------------------------
+
     # path("translate/", TranslationView.as_view(), name="translate"),
     path(
         "translate/languages/",
@@ -260,7 +289,11 @@ urlpatterns = [
         name="translation-history",
     ),
     path("translate/stats/", TranslationStatsView.as_view(), name="translation-stats"),
-    # Admin API endpoints
+
+
+    # ---------------------------------------
+    #       Admin API endpoints
+    # ---------------------------------------
     path("admin/login/", AdminLoginView.as_view(), name="admin-login"),
     path(
         "principal/token/refresh/",
@@ -288,6 +321,7 @@ urlpatterns = [
         AdminTeamView.as_view(),
         name="team-list"
     ),
+
     # path("admin/jobs/", AdminJobListView.as_view(), name="admin-job-list"),
     # path("admin/jobs/create/", AdminJobCreateView.as_view(), name="admin-job-create"),
     # path(
@@ -322,9 +356,12 @@ urlpatterns = [
     # Admin OverView
     path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
 
-    # Mobile App Authentication Endpoints
+
+    # ---------------------------------------
+    #   Mobile App Authentication Endpoints
+    # ---------------------------------------
     path(
-        "auth/register/request-otp//",
+        "auth/register/request-otp/",
         RegisterRequestOTPView.as_view(),
         name="request-email-otp",
     ),
@@ -343,9 +380,12 @@ urlpatterns = [
         VerifyOTPView.as_view(),
         name="verify-email-otp",
     ),
+
     path("auth/login/", UserLoginView.as_view(), name="user-login"),
     path("auth/logout/", UserLogoutView.as_view(), name="user-logout"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
+
+
     path("auth/password-reset/", PasswordResetView.as_view(), name="password-reset"),
     path(
         "auth/password-reset-confirm/",
@@ -358,6 +398,8 @@ urlpatterns = [
         name="password-reset-verify",
     ),
     path("auth/password/reset/resend-otp/", PasswordResendOTPView.as_view()),
+
+
     path("auth/profile/", UserProfileViews.as_view(), name="user-profile"),
     path(
         "auth/deactivate/account", AccountDeactivationView.as_view(), name="account-deactivate"
@@ -391,7 +433,20 @@ urlpatterns = [
         SocialAccountsListView.as_view(),
         name="social-accounts-list",
     ),
-    # Liveness Check / Facial Verification Endpoints
+
+    # ---------------------------------------------------------------------
+    #   Age Verification
+    # ---------------------------------------------------------------------
+    path(
+        "auth/verify-age/",
+        VerifyAgeView.as_view(),
+        name="verify-age",
+    ),
+
+    
+    # ---------------------------------------------------------------------
+    #   Liveness Check / Facial Verification endpoints
+    # ---------------------------------------------------------------------
     path(
         "liveness/start/",
         StartLivenessCheckView.as_view(),
@@ -423,28 +478,34 @@ urlpatterns = [
         name="verification-status",
     ),
 
-    # Users Role selection EndPoint
+
+    # ---------------------------------------------------------------------
+    #   Profile & Users
+    # ---------------------------------------------------------------------
     path(
         "roleselection/role/",
         UserRoleSelectionView.as_view(),
         name="user-role-selection",
     ),
-    # Advanced Search and Discovery Endpoints
-    # path("search/users/", UserSearchView.as_view(), name="user-search"),
     path(
         "auth/<int:user_id>/profile-detail/",
         UserProfileDetailView.as_view(),
         name="user-profile-detail",
     ),
     path("users/interact/", UserInteractionView.as_view(), name="user-interaction"),
+    path("users/interests/", UserInterestsView.as_view(), name="user-interests"),
+    # Advanced Search and Discovery Endpoints
+    # path("search/users/", UserSearchView.as_view(), name="user-search"),
     # path(
     #     "users/recommendations/",
     #     UserRecommendationsView.as_view(),
     #     name="user-recommendations",
     # ),
     # path("users/category/", CategoryFilterView.as_view(), name="category-filter"),
-    path("users/interests/", UserInterestsView.as_view(), name="user-interests"),
-    # Location Management Endpoints
+
+    # ---------------------------------------------------------------------
+    #   Location Management Endpoint
+    # ---------------------------------------------------------------------
     path("location/update/", LocationUpdateView.as_view(), name="location-update"),
     path("location/geocode/", AddressGeocodeView.as_view(), name="address-geocode"),
     path(
@@ -526,7 +587,10 @@ urlpatterns = [
     #     LiveSessionLeaveView.as_view(),
     #     name="live-session-leave",
     # ),
-    # Social Media Handles Endpoints (NEW FROM FIGMA)
+
+    # ---------------------------------------------------------------------
+    #   Social Media Handles Endpoints (NEW FROM FIGMA)
+    # ---------------------------------------------------------------------
     path(
         "social-handles/", UserSocialHandleListView.as_view(), name="social-handle-list"
     ),
@@ -535,7 +599,10 @@ urlpatterns = [
         UserSocialHandleDetailView.as_view(),
         name="social-handle-detail",
     ),
-    # # Security Questions Endpoints (NEW FROM FIGMA)
+
+    # ---------------------------------------------------------------------
+    #   Security Questions Endpoints (NEW FROM FIGMA)
+    # ---------------------------------------------------------------------    
     path(
         "security-questions/",
         UserSecurityQuestionListView.as_view(),
@@ -546,7 +613,10 @@ urlpatterns = [
         UserSecurityQuestionDetailView.as_view(),
         name="security-question-detail",
     ),
-    # Document Verification Endpoints (NEW FROM FIGMA)
+
+    # ---------------------------------------------------------------------
+    #   Document Verification Endpoints (NEW FROM FIGMA)
+    # --------------------------------------------------------------------- 
     path(
         "document-verification/",
         DocumentVerificationListView.as_view(),
@@ -558,10 +628,15 @@ urlpatterns = [
         name="document-verification-detail",
     ),
 
-    # Username Validation Endpoints (NEW FROM FIGMA)
-    # path("username/create/", CreateUsernameView.as_view(), name="username-validate"),
+    # ---------------------------------------------------------------------
+    #   Username Validation Endpoints (NEW FROM FIGMA)
+    # --------------------------------------------------------------------- 
     path("username/update/", UsernameUpdateView.as_view(), name="username-update"),
-    # Subscription Plans Endpoints (NEW FROM FIGMA)
+    # path("username/create/", CreateUsernameView.as_view(), name="username-validate"),
+
+    # ---------------------------------------------------------------------
+    #   Subscription Plans endpoints (NEW FROM FIGMA)
+    # --------------------------------------------------------------------- 
     path(
         "subscriptions/plans/",
         SubscriptionPlanListView.as_view(),
@@ -585,6 +660,10 @@ urlpatterns = [
         UserFeatureAccessView.as_view(),
         name="feature-access",
     ),
+
+    # ---------------------------------------------------------------------
+    #   Bondcoin and Gifting Endpoints (NEW FROM FIGMA)
+    # ---------------------------------------------------------------------
     # Bondcoin package List View
     path(
         "bondcoin/packages/",
@@ -597,6 +676,14 @@ urlpatterns = [
         BondcoinTransactionListView.as_view(),
         name="bondcoin-transactions",
     ),
+
+    # Virtual Gifting Endpoints (NEW FROM FIGMA)
+    path("gifts/categories/", GiftCategoryListView.as_view(), name="gift-categories"),
+    path("gifts/", VirtualGiftListView.as_view(), name="virtual-gifts"),
+    path(
+        "gifts/<int:pk>/", VirtualGiftDetailView.as_view(), name="virtual-gift-detail"
+    ),
+
     # path(
     #     "bondcoin/transactions/<int:pk>/",
     #     BondcoinTransactionDetailView.as_view(),
@@ -605,13 +692,10 @@ urlpatterns = [
     # path(
     #     "bondcoin/purchase/", BondcoinPurchaseView.as_view(), name="bondcoin-purchase"
     # ),
-    # Virtual Gifting Endpoints (NEW FROM FIGMA)
-    path("gifts/categories/", GiftCategoryListView.as_view(), name="gift-categories"),
-    path("gifts/", VirtualGiftListView.as_view(), name="virtual-gifts"),
-    path(
-        "gifts/<int:pk>/", VirtualGiftDetailView.as_view(), name="virtual-gift-detail"
-    ),
-    # Live Streaming Enhancement Endpoints (NEW FROM FIGMA)
+
+    # ---------------------------------------------------------------------
+    #   Live Streaming Enhancement Endpoints (NEW FROM FIGMA)
+    # ---------------------------------------------------------------------
     path("live-sessions/gifts/", LiveGiftListView.as_view(), name="live-gifts"),
     path(
         "live-sessions/join-requests/",
@@ -633,7 +717,10 @@ urlpatterns = [
         LiveSessionGiftersView.as_view(),
         name="live-session-gifters",
     ),
-    # Payment Processing Endpoints
+
+    # ---------------------------------------------------------------------
+    #   Payment Processing endpoints
+    # ---------------------------------------------------------------------
     path("payments/methods/", PaymentMethodListView.as_view(), name="payment-methods"),
     path(
         "payments/transactions/",
@@ -656,6 +743,9 @@ urlpatterns = [
         RefundPaymentView.as_view(),
         name="refund-payment",
     ),
+
+
+
     # Firebase Integration Endpoints
     # path("firebase/login/", FirebaseLoginView.as_view(), name="firebase-login"),
     # path(
@@ -670,6 +760,11 @@ urlpatterns = [
     #     FirebasePushNotificationView.as_view(),
     #     name="firebase-notify",
     # ),
+
+
+    # ---------------------------------------------------------------------
+    #   Admin Bondmaker
+    # ---------------------------------------------------------------------
     path(
         "admin/bondmakers/review/<int:verification_id>/",
         AdminBondmakerReviewView.as_view(),
@@ -686,12 +781,11 @@ urlpatterns = [
         AdminBondmakerListView.as_view(),
         name="admin-bondmaker-list",
     ),
-
-    # admin Bondmaker detail view
     path(
         "admin/bondmakers/pending/<int:id>/",
         AdminPendingBondmakerDetailView.as_view(),
     ),
+
     # bondmaker Stats
     path("admin/bondmakers/stats/", AdminBondmakerStatsView.as_view()),
     # List all public bondmakers
@@ -758,6 +852,12 @@ urlpatterns = [
         EndVisbilityView.as_view(),
         name="end-visibility",
     ),
+
+
+    # ---------------------------------------------------------------------
+    #   Visibility endpoints
+    # ---------------------------------------------------------------------
+
     # pending Visibility reqest List for bondmaker
     path(
         "visibility/pending/",
@@ -782,26 +882,48 @@ urlpatterns = [
         PrivateUsersForBondmakerListView.as_view(),
         name="private-users-list",
     ),
+
+    # ---------------------------------------------------------------------
+    #   Bondcoin Wallet
+    # ---------------------------------------------------------------------
     # Bondcoin Wallet
     path("wallet/", MyWalletView.as_view(), name="my-wallet"),
     path("wallet/ledger/", MyLedgerView.as_view(), name="my-ledger"),
-    # Match Request
+
+
+    # ---------------------------------------------------------------------
+    #   Match Request
+    # ---------------------------------------------------------------------
     path(
         "match-request/",
         MatchRequestCreateView.as_view(),
         name="create-match-request",
     ),
     path(
+        "match-requests/queue/",
+        MatchQueueView.as_view(),
+        name="match-queue",
+    ),
+    path(
         "match-requests/<int:match_request_id>/action/",
         BondmakerMatchActionView.as_view(),
         name="bondmaker-match-action",
     ),
-    # Purchase coins
+
+
+    # ---------------------------------------------------------------------
+    #   Purchase coins
+    # ---------------------------------------------------------------------
     path("wallet/purchase_coins/", PurchaseCoinView.as_view(), name="purchase-coins"),
     path("wallet/send-gift/", SendGiftView.as_view(), name="send-gift"),
     path("wallet/convert-gift/", ConvertGiftView.as_view(), name="convert-gift"),
+
+
     # Swipe View
     path("auth/swipe-deck/", UserSwipeDeckView.as_view(), name="user-swipe-deck"),
+    path("users/explore/", ExploreUsersView.as_view(), name="users-explore"),
+
+
     # List of Pending Request to each Bondmaker
     path(
         "pending/matches_Request/List/",
@@ -859,6 +981,11 @@ urlpatterns = [
     # BondCircle Management
     # ---------------------------
     path(
+        "bondcircle/",
+        BondCircleListView.as_view(),
+        name="bondcircle-list",
+    ),
+    path(
         "bondcircle/create/", BondCircleCreateView.as_view(), name="bondcircle-create"
     ),
     path(
@@ -894,9 +1021,15 @@ urlpatterns = [
     ),
     # Matched Chats
     path("chats/", ChatListView.as_view()),
+    path("chats/create/", CreateChatView.as_view(), name="chat-create"),
     path("chats/<int:pk>/", ChatDetailView.as_view()),
     path("chats/<int:chat_id>/send/", SendMessageView.as_view()),
     path("chats/<int:chat_id>/messages/", ChatMessagesView.as_view()),
+    path(
+        "chats/<int:chat_id>/messages/<int:message_id>/",
+        MessageDetailView.as_view(),
+        name="message-detail"
+    ),
 
     # ViewSet for Post, Story for BondStory
     path("", include(router.urls)),
@@ -908,4 +1041,6 @@ urlpatterns = [
     path("selfie/submit/", SelfieSubmissionView.as_view()),
     path("selfie/", UserSelfieListView.as_view()),
 
+    # ============== Activity Feeds ==================
+    path("activity/", ActivityFeedView.as_view(), name="activity-feed"),
 ]

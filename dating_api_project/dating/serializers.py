@@ -1,4 +1,9 @@
+from random import choices
+import logging
+from dating.tasks import send_otp_email
+from dating.tasks import notify_user
 from rest_framework import serializers
+from datetime import date
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
@@ -8,7 +13,6 @@ from lang import SUPPORTED_LANGUAGES
 from django.utils.timezone import now
 from datetime import timedelta
 from django.utils import timezone
-from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import make_password
@@ -19,6 +23,7 @@ from rest_framework.validators import UniqueValidator
 from django.db.models import Q
 from .constants import QUESTION_UI_CONFIG
 from .models import (
+    Activity,
     User,
     NewsletterSubscriber,
     PuzzleVerification,
@@ -100,7 +105,7 @@ from .location_utils import calculate_distance, calculate_match_score
 from django.core.exceptions import ValidationError
 from django.db import transaction as db_transaction
 from .services.visibility_services import VisibilityService
-from .notification import notify_user
+
 from django.db.models import F
 from .models.username import (
     UsernameValidation,
@@ -108,6 +113,7 @@ from .models.username import (
     validate_username_format,
 )
 
+logger = logging.getLogger(__name__)
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -276,16 +282,19 @@ class NotificationSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["push_notifications_enabled", "email_notifications_enabled"]
+        fields = [
+            "push_notifications_enabled",
+            "email_notifications_enabled",
+            "notify_on_new_match",
+            "notify_on_message",
+            "notify_on_like",
+            "notify_on_bondmaker_update",
+            "notify_on_promotional",
+        ]
 
     def update(self, instance, validated_data):
-        """Update notification settings"""
-        instance.push_notifications_enabled = validated_data.get(
-            "push_notifications_enabled", instance.push_notifications_enabled
-        )
-        instance.email_notifications_enabled = validated_data.get(
-            "email_notifications_enabled", instance.email_notifications_enabled
-        )
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
         instance.save()
         return instance
 
@@ -1337,18 +1346,13 @@ class CustomLoginSerializer(serializers.Serializer):
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def validate_email(self, value):
-        try:
-            User.objects.get(email=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("No user found with this email address.")
-        return value
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     reset_token = serializers.UUIDField()
     new_password = serializers.CharField(validators=[validate_password])
     new_password_confirm = serializers.CharField()
+
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password_confirm"]:
@@ -1376,6 +1380,13 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
             otp_record.reset_token = None
             otp_record.save()
 
+            # Invalidate Refresh Token so as to prevent anyone with refresh being able to have access to account
+            from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+
+            tokens = OutstandingToken.objects.filter(user=user)
+            for token in tokens:
+                BlacklistedToken.objects.get_or_create(token=token)
+
         return user
 
 
@@ -1385,6 +1396,7 @@ class PasswordResetResendSerializer(serializers.Serializer):
 
 class OTPSerializer(serializers.Serializer):
     otp = serializers.CharField()
+    email = serializers.EmailField()
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -1465,7 +1477,7 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DeviceRegistration
-        fields = ["device_id", "device_type", "push_token"]
+        fields = ["device_id", "device_type", "push_token", "token_type"]
 
     def validate_device_type(self, value):
         if value not in ["ios", "android"]:
@@ -1486,6 +1498,7 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
             device_id=device_id,
             user=user,
             defaults={
+                "token_type": validated_data.get("token_type", "expo"),
                 "device_type": validated_data["device_type"],
                 "push_token": validated_data["push_token"],
                 "is_active": True,
@@ -1497,12 +1510,15 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
 
 # OAuth Serializers
 class GoogleOAuthSerializer(serializers.Serializer):
-    id_token = serializers.CharField()
-
-    def validate_id_token(self, value):
-        if not value:
-            raise serializers.ValidationError("ID token is required.")
-        return value
+    id_token = serializers.CharField(required=False)
+    access_token = serializers.CharField(required=False)
+    
+    def validate(self, attrs):
+        if not attrs.get("id_token") and not attrs.get("access_token"):
+            raise serializers.ValidationError(
+                "Either id_token or access_token is required."
+            )
+        return attrs
 
 
 class AppleOAuthSerializer(serializers.Serializer):
@@ -1926,15 +1942,16 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
         verification = EmailVerification.create_verification(email=email)
         verification.save()
 
-        print(verification.otp_code)
-        send_mail(
-            subject="Your Verification OTP",
-            message=f"Your OTP is {verification.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-        )
 
-        return {"message": "OTP sent to your email"}
+        try:
+            logger.info(f"About to send token: {verification.otp_code}")
+            send_otp_email.delay(email, verification.otp_code)
+        except Exception:
+            logger.error("Code not sent", exc_info=True)
+        return {
+            "message": "OTP sent to your email",
+            "registration_token": str(verification.registration_token),
+        }
 
 
 class VerifyOTPSerializer(serializers.Serializer):
@@ -1964,10 +1981,17 @@ class VerifyOTPSerializer(serializers.Serializer):
         verification.verified_at = timezone.now()
         verification.save()
 
-        return {"registration_token": str(verification.registration_token)}
+        return {
+            "status": "success",
+            "message": "OTP verified successfully.",
+            "registration_token": str(verification.registration_token),
+        }
 
 
 class ConfirmRegistrationSerializer(serializers.Serializer):
+
+    import re
+
     registration_token = serializers.UUIDField()
     password = serializers.CharField(write_only=True)
     password_confirm = serializers.CharField(write_only=True)
@@ -1977,9 +2001,12 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
         password = attrs["password"]
         password_confirm = attrs["password_confirm"]
 
+        # Validate password
+        ConfirmRegistrationSerializer.validate_password_strength(password)
+
         if password != password_confirm:
             raise serializers.ValidationError("Passwords do not match.")
-
+        
         verification = EmailVerification.objects.filter(
             registration_token=token, is_used=False, is_verified=True
         ).first()
@@ -1991,6 +2018,37 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
 
         attrs["verification"] = verification
         return attrs
+    
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        """
+        Validate that the password meets the strength requirements:
+        - At least 8 characters long
+        - Contains at least one uppercase letter
+        - Contains at least one lowercase letter
+        - Contains at least one digit
+        - Contains at least one special character
+        """
+        import re
+
+        if len(v) < 8:
+            raise serializers.ValidationError(
+                "Password must be at least 8 characters long"
+            )
+        
+        if not re.search(r"[A-Z]", v):
+            raise serializers.ValidationError(
+                "Password must contain at least one uppercase letter"
+            )
+        
+        if not re.search(r"[a-z]", v):
+            raise serializers.ValidationError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise serializers.ValidationError("Password must contain at least one digit")
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
+            raise serializers.ValidationError("Password must contain at least one special character")
+        return v
+
 
     def create(self, validated_data):
         verification = validated_data["verification"]
@@ -2001,6 +2059,10 @@ class ConfirmRegistrationSerializer(serializers.Serializer):
             email=verification.email,
             password=password,
         )
+
+        # Set user to false initially until after date of birth has been confirmed.
+        user.is_active = False
+        user.save(update_fields=["is_active"])
 
         verification.user = user
         verification.is_used = True
@@ -2042,26 +2104,69 @@ class ResendEmailOTPSerializer(serializers.Serializer):
     def create(self, validated_data):
         verification = self.context["verification"]
 
-        # Generate new OTP
-        from random import randint
+        # Invalidate other OTPs (exclude current one)
+        EmailVerification.objects.filter(
+            email=verification.email,
+            is_used=False
+        ).exclude(pk=verification.pk).update(is_used=True)
 
-        verification.otp_code = f"{randint(100000, 999999)}"
-        verification.expires_at = timezone.now() + timezone.timedelta(minutes=10)
+        verification.otp_code = EmailVerification.generate_otp()
+        verification.expires_at = timezone.now() + timedelta(minutes=10)
         verification.save()
         print(verification.otp_code)
 
-        # Send OTP email
-        send_mail(
-            subject="Your Verification OTP",
-            message=f"Your new OTP is {verification.otp_code}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[verification.email],
-        )
+        try:
+            logger.info(f"About to send token: {verification.otp_code}")
+            # Send OTP email
+            send_otp_email.delay(
+                verification.email,
+                verification.otp_code
+            )
+        except Exception:
+            logger.error("Code not sent", exc_info=True)
+
 
         return {
             "message": "OTP resent successfully",
             "registration_token": str(verification.registration_token),
         }
+
+
+class VerifyAgeSerializer(serializers.Serializer):
+    
+    registration_token = serializers.UUIDField(required=True)
+    date_of_birth = serializers.DateField(required=True)
+
+    def validate(self, attrs):
+
+        # Validate token exist and is already verified
+        token = attrs["registration_token"]
+        dob = attrs['date_of_birth']
+
+        # Get recently verified instance
+        verification = EmailVerification.objects.filter(
+            registration_token=token,
+            is_used=True,
+            is_verified=True
+        ).order_by('-created_at').first()
+
+        if not verification:
+            raise serializers.ValidationError(
+                "Invalid or unverified registration token."
+            )
+
+        # Validate Age
+        today = date.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        if age < 18:
+            raise serializers.ValidationError(
+                {
+                    'date_of_birth': 'You must be at least 18 years old to register.'
+                }
+            )
+        attrs["user"] = verification.user
+        return attrs
+
 
 
 class UserRoleSelectionSerializer(serializers.ModelSerializer):
@@ -2153,6 +2258,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "username",
             "bio",
             "bondmaker_bio",
+            "thought_leadership",
             "profile_picture",
             "bondmaker_profile_picture",
             "bondmaker_cover_picture",
@@ -2166,6 +2272,8 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
             "drinking_preference",
             "pet_preference",
             "exercise_frequency",
+            "want_kids",
+            "ethnicity",
             "no_of_kids",
             "have_kids",
             "personality_type",
@@ -2566,6 +2674,111 @@ class CategoryFilterSerializer(serializers.Serializer):
 # CHAT AND MESSAGING SERIALIZERS (NEW)
 # =============================================================================
 
+class CreateChatSerializer(serializers.Serializer):
+    """Serializer for chat creation."""
+    participants = serializers.ListField(child=serializers.IntegerField())
+    chat_type = serializers.ChoiceField(
+        choices=[
+            "direct",
+            "matchmaker_intro"
+        ],
+        default="direct"
+    )
+
+    def validate_participants(self, value):
+        other_ids = value
+        users = User.objects.filter(id__in=other_ids)
+        if users.count() != len(other_ids):
+            raise serializers.ValidationError(
+                "One or more participant IDs are invalid."
+            )
+        
+        # Prevent self-chat
+        request = self.context["request"]
+        if request.user.id in other_ids:
+            raise serializers.ValidationError("You cannot start a chat with yourself.")
+        
+        return list(users)
+    
+    def validate(self, attrs):
+        request = self.context["request"]
+        chat_type = attrs["chat_type"]
+        other_users = attrs["participants"]
+
+        if chat_type == "direct":
+            if len(other_users) != 1:
+                raise serializers.ValidationError(
+                    {
+                        "participants": "Direct chats require exactly 1 other participant."
+                    }
+                )
+            
+            # If a direct chat already exists between the two, don't create a duplicate
+            # Filter chats where both the requester and other user a re participants.ValidationError
+            other_user = other_users[0]
+            existing = (
+                Chat.objects.filter(
+                    chat_type="direct",
+                    is_active=True
+                )
+                .filter(participants__id=request.user.id)
+                .filter(participants__id=other_user.id)
+                .first()
+            )
+
+            if existing:
+                # Store it so save() can return it without creating a new one
+                attrs["existing_chat"] = existing
+            
+            return attrs
+            
+        elif chat_type == "matchmaker_intro":
+            # Only bondmakers can create intro chats
+            if not request.user.is_matchmaker:
+                raise serializers.ValidationError(
+                    "Only bondmakers can create matchmaker intro chats."
+                )
+            
+            # A bondmaker is introducing exactly 2 other users
+            if len(other_users) != 2:
+                raise serializers.ValidationError(
+                    {
+                        "participants": "Matchmaker intro chats requires exactly 2 participants."
+                    }
+                )
+            
+            return attrs
+    
+    def save(self, *args, **kwargs):
+        request = self.context["request"]
+
+        if "existing_chat" in self.validated_data:
+            return self.validated_data["existing_chat"], False
+        
+        chat = Chat.objects.create(
+            chat_type=self.validated_data["chat_type"],
+            created_by=request.user
+        )
+
+        chat.participants.add(request.user, *self.validated_data["participants"])
+
+        return chat, True
+
+
+class EditMessageSerializer(serializers.Serializer):
+    content = serializers.CharField()
+
+    def update(self, instance, validated_data):
+        instance.content = validated_data["content"]
+        instance.edited_at = timezone.now()
+        instance.is_edited = True
+        instance.save()
+        return instance
+
+
+class DeleteMessageSerializer(serializers.Serializer):
+    delete_type = serializers.ChoiceField(choices=["for_me", "for_everyone"])
+
 
 # class ChatParticipantSerializer(serializers.ModelSerializer):
 #     """Serializer for chat participants (simplified user info)"""
@@ -2613,15 +2826,77 @@ class CategoryFilterSerializer(serializers.Serializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(source="sender.name", read_only=True)
+    message_type = serializers.ChoiceField(choices=[
+        "text",
+        "voice_note",
+        "image",
+        "video",
+        "document"
+    ])
+    media_url = serializers.URLField(
+        required=False,
+        allow_null=True,
+        write_only=True
+    )
 
     class Meta:
         model = Message
         fields = [
             "id",
             "sender_name",
+            "message_type",
             "content",
+            "media_url",
+            "voice_note_url",
+            "voice_note_duration",
+            "image_url",
+            "video_url",
+            "document_url",
+            "document_name",
+            "is_read",
+            "read_at",
+            "is_edited",
+            "edited_at",
             "timestamp",
         ]
+
+        read_only_fields = [
+            "id", "sender_name", "is_read", "is_edited", "timestamp",
+            "voice_note_url", "image_url", "video_url", "document_url"
+        ]
+    
+    def validate(self, attrs):
+        message_type = attrs.get("message_type", "text")
+        content = attrs.get("content")
+        media_url = attrs.get("media_url")
+
+        if message_type == "text" and not content:
+            raise serializers.ValidationError({
+                "content": "Text messages require content."
+            })
+        
+        if message_type != "text" and not media_url:
+            raise serializers.ValidationError({
+                "media_url": f"{message_type} messages require a media_url."
+            })
+
+        return attrs
+    
+    def create(self, validated_data):
+        media_url = validated_data.pop("media_url", None)
+        message_type = validated_data.get("message_type", "text")
+
+        field_map = {
+            "voice_note": "voice_note_url",
+            "image": "image_url",
+            "video": "video_url",
+            "document": "document_url"
+        }
+
+        if media_url and message_type in field_map:
+            validated_data[field_map[message_type]] = media_url
+        
+        return Message.objects.create(**validated_data)
 
 
 class ChatDetailSerializer(serializers.ModelSerializer):
@@ -3203,6 +3478,13 @@ class PostInteractionSerializer(serializers.ModelSerializer):
                 Post.objects.filter(id=post.id).update(
                     likes_count=F("likes_count") + 1
                 )
+                if post.author_id != user.id:
+                    Activity.objects.create(
+                        actor=user,
+                        recipient=post.author,
+                        action="post_like",
+                        metadata={"post_id": post.id},
+                    )
             else:
                 interaction.delete()
                 Post.objects.filter(id=post.id).update(
@@ -3446,9 +3728,45 @@ class BondcoinPackageSerializer(serializers.ModelSerializer):
 
 
 class WalletSerializer(serializers.ModelSerializer):
+    total_earnings = serializers.SerializerMethodField()
+    earnings_this_month = serializers.SerializerMethodField()
+    bondcoin_balance = serializers.IntegerField(source="available_balance", read_only=True)
+    currency = serializers.SerializerMethodField()
+
     class Meta:
         model = Wallet
-        fields = ["available_balance", "locked_balance", "updated_at"]
+        fields = [
+            "available_balance",
+            "locked_balance",
+            "bondcoin_balance",
+            "total_earnings",
+            "earnings_this_month",
+            "currency",
+            "updated_at",
+        ]
+
+    def get_total_earnings(self, obj) -> int:
+        from django.db.models import Sum
+        result = WalletTransaction.objects.filter(
+            user=obj.user, tx_type="credit", status="completed"
+        ).aggregate(total=Sum("amount"))
+        return result["total"] or 0
+
+    def get_earnings_this_month(self, obj) -> int:
+        from django.db.models import Sum
+        from django.utils import timezone
+        now = timezone.now()
+        result = WalletTransaction.objects.filter(
+            user=obj.user,
+            tx_type="credit",
+            status="completed",
+            created_at__year=now.year,
+            created_at__month=now.month,
+        ).aggregate(total=Sum("amount"))
+        return result["total"] or 0
+
+    def get_currency(self, obj) -> str:
+        return "BONDCOIN"
 
 
 class WalletTransactionSerializer(serializers.ModelSerializer):
@@ -3477,6 +3795,7 @@ class SendGiftSerializer(serializers.Serializer):
 
 class ConvertGiftSerializer(serializers.Serializer):
     gift_id = serializers.IntegerField()
+    convert_to = serializers.ChoiceField(choices=["bondcoin", "cash"])
 
 
 class PurchaseSerializer(serializers.Serializer):
@@ -3603,6 +3922,18 @@ class GiftTransactionCreateSerializer(serializers.ModelSerializer):
             gift=gift,
             description=f"Gift sent: {gift.name}",
             status="completed",
+        )
+
+        # Create Activity Log
+        Activity.objects.create(
+            actor=request.user,
+            action="gift_sent",
+            recipient=validated_data["recipient"],
+            metadata={
+                "gift_id": gift.id,
+                "gift_name": gift.name,
+                "quantity": quantity,
+            },
         )
         validated_data["bondcoin_transaction"] = bondcoin_transaction
 
@@ -4033,6 +4364,7 @@ class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
             "username",
             "name",
             "bondmaker_bio",
+            "thought_leadership",
             "email",
             "gender",
             "date_of_birth",
@@ -4141,6 +4473,7 @@ class SubscribeBondmakerSerializer(serializers.Serializer):
 class BondmakerSuggestionSerializer(serializers.Serializer):
     visible_user_id = serializers.IntegerField()
     suggested_user_id = serializers.IntegerField()
+    note = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
     def validate(self, attrs):
         request = self.context["request"]
@@ -4282,8 +4615,8 @@ class VisibilitySerializer(serializers.ModelSerializer):
         )
 
         # Notify Bondmaker
-        notify_user(
-            user=visibility.bondmaker,
+        notify_user.delay(
+            user=visibility.bondmaker.id,
             title="New Public Visibility Request",
             message=f"{visibility.owner.email} requested public visibility.",
             data={
@@ -4389,7 +4722,47 @@ class BondmakerMatchActionResponseSerializer(serializers.Serializer):
 
 
 class BondmakerMatchActionSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=["accepted", "rejected"])
+    action = serializers.ChoiceField(choices=["accepted", "rejected", "mark_successful"])
+
+
+class MatchQueueSerializer(serializers.ModelSerializer):
+    requester_id = serializers.IntegerField(source="requester.id", read_only=True)
+    requester_name = serializers.CharField(source="requester.name", read_only=True)
+    candidate_id = serializers.SerializerMethodField()
+    candidate_name = serializers.SerializerMethodField()
+    match_score = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MatchRequest
+        fields = [
+            "id",
+            "requester_id",
+            "requester_name",
+            "candidate_id",
+            "candidate_name",
+            "match_score",
+            "coins_charged",
+            "status",
+            "created_at",
+        ]
+
+    def _candidate(self, obj):
+        user_match = getattr(obj, "user_match", None)
+        if user_match is None:
+            return None
+        return user_match.user2
+
+    def get_candidate_id(self, obj):
+        candidate = self._candidate(obj)
+        return candidate.id if candidate else None
+
+    def get_candidate_name(self, obj):
+        candidate = self._candidate(obj)
+        return candidate.name if candidate else None
+
+    def get_match_score(self, obj):
+        user_match = getattr(obj, "user_match", None)
+        return user_match.match_score if user_match else None
 
 
 class UserSwipeCardSerializer(serializers.ModelSerializer):
@@ -4541,9 +4914,21 @@ class BondmakerDashboardSerializer(serializers.Serializer):
     bondmaker_name = serializers.CharField(read_only=True)
     bondmaker_profile_picture = serializers.URLField()
     level = serializers.IntegerField()
+    level_label = serializers.SerializerMethodField()
     total_matches = serializers.IntegerField()
     matches_to_next_level = serializers.IntegerField()
     progress_to_next_level = serializers.FloatField()
+
+    def get_level_label(self, obj) -> str:
+        level = obj.get("level", 1) if isinstance(obj, dict) else getattr(obj, "level", 1)
+        labels = {
+            1: "Newcomer",
+            2: "Connector",
+            3: "Matchmaker",
+            4: "Expert",
+            5: "Elite",
+        }
+        return labels.get(level, f"Level {level}")
     # pending_match_requests = serializers.IntegerField()
     live_profiles = serializers.IntegerField()
     net_subscribers = serializers.IntegerField()
@@ -4742,10 +5127,10 @@ class BondCircleCommentSerializer(serializers.ModelSerializer):
 
 
 class BondCircleSerializer(serializers.ModelSerializer):
-
+    bondmaker_name = serializers.CharField(source="bondmaker.name", read_only=True)
     class Meta:
         model = BondCircle
-        fields = ["id", "name", "description", "created_at"]
+        fields = ["id", "name", "bondmaker_name", "description", "created_at"]
         read_only_fields = ["id", "created_at"]
 
     def validate(self, attrs):
@@ -4827,6 +5212,7 @@ class AdminPermissionSerializer(serializers.ModelSerializer):
     can_view_applications = serializers.BooleanField(default=False)
     can_view_withdrawals = serializers.BooleanField(default=False)
     can_view_reports = serializers.BooleanField(default=False)
+    can_approve_applications = serializers.BooleanField(default=False)
     can_manage_team = serializers.BooleanField(default=False)
 
     class Meta:
@@ -4836,6 +5222,7 @@ class AdminPermissionSerializer(serializers.ModelSerializer):
             "can_view_applications",
             "can_view_withdrawals",
             "can_view_reports",
+            "can_approve_applications",
             "can_manage_team"
         ]
 
@@ -4898,7 +5285,7 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
 
         # Start with role defaults
         for field in permission_fields:
-            setattr(perm_obj, field, getattr(role, field))
+            setattr(perm_obj, field, getattr(role, field, False))
 
         # Override only provided permissions
         if permissions_data:
@@ -5064,7 +5451,12 @@ class SelfieSubmissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SelfieVerification
-        fields = ["id", "document_verification_id", "selfie_image_url", "status"]
+        fields = [
+            "id",
+            "document_verification_id",
+            "selfie_image_url",
+            "status"
+        ]
         read_only_fields = ["status"]
 
     def validate_document_verification_id(self, value):
@@ -5105,3 +5497,25 @@ class GoogleCallbackSerializer(serializers.Serializer):
         required=True,
         help_text="Authorization code returned by Google OAuth"
     )
+
+
+# ======================================== ACTIVITY FEEDS
+class ActivityFeedSerializer(serializers.ModelSerializer):
+    actor_name = serializers.CharField(source="actor.name", read_only=True)
+    message = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Activity
+        fields = [
+            "id",
+            "actor",
+            "actor_name",
+            "action",
+            "metadata",
+            "message",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_message(self, obj):
+        return obj.render_message()

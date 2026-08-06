@@ -41,6 +41,7 @@ class LivenessVerifier:
                 'message': 'Verification successful'
             }
         """
+        #TODO: Implement actual liveness verification logic, MOCKED FOR NOW
         try:
             # In production, this would call actual face detection API
             # For now, we'll return a mock response structure

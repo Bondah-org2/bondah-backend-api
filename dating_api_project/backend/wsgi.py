@@ -14,13 +14,6 @@ from django.core.wsgi import get_wsgi_application
 # Use production settings if DJANGO_SETTINGS_MODULE is not set
 # os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings_prod')
 
-env = os.getenv("ENVIRONMENT", "dev")
-
-if env == "prod":
-    default_settings = "backend.settings_prod"
-else:
-    default_settings = "backend.settings_dev"
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", default_settings)
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings_prod")
 
 application = get_wsgi_application()

@@ -122,3 +122,8 @@ class CanViewWithdrawals(HasAdminPermission):
 
 class CanViewOverview(HasAdminPermission):
     permission_field = "can_view_overview"
+
+
+class CanApproveApplications(HasAdminPermission):
+    permission_field = "can_approve_applications"
+

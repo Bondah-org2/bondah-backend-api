@@ -2,7 +2,7 @@ from django.db import transaction
 from .wallet_service import WalletService
 from .revenue import RevenueEngine
 from .fraud_service import FraudService
-from ..notification import notify_user
+from dating.tasks import notify_user
 
 PRIVATE_COST = 10
 
@@ -20,8 +20,8 @@ class VisibilityService:
         )
 
         # Notify bondmaker
-        notify_user(
-            user=visibility.bondmaker,
+        notify_user.delay(
+            user_id=visibility.bondmaker.id,
             title="New Private Visibility Request",
             message=f"{visibility.owner.email} requested private visibility.",
             data={
@@ -54,8 +54,8 @@ class VisibilityService:
             visibility.activate(duration_days=7)
 
         # Notify user (applies to BOTH public & private)
-        notify_user(
-            user=visibility.owner,
+        notify_user.delay(
+            user_id=visibility.owner.id,
             title="Visibility Approved",
             message=f"Your {visibility.visibility} visibility has been approved.",
             data={
@@ -81,8 +81,8 @@ class VisibilityService:
         visibility.save()
 
         # Notify user
-        notify_user(
-            user=visibility.owner,
+        notify_user.delay(
+            user_id=visibility.owner.id,
             title="Visibility Rejected",
             message=f"Your {visibility.visibility} visibility request was rejected.",
             data={

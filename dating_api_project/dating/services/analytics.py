@@ -262,10 +262,10 @@ class OverviewAnalyticsService:
     # ==========================================================
 
     def get_overview(self):
-        # cache_key = self._generate_cache_key()
-        # cached = cache.get(cache_key)
-        # if cached:
-        #     return cached
+        cache_key = self._generate_cache_key()
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
         data = {
             "period_days": self.days,
@@ -275,7 +275,7 @@ class OverviewAnalyticsService:
             "reports_stats": self._report_stats(),
         }
 
-        # cache.set(cache_key, data, CACHE_TIMEOUT_SECONDS)
+        cache.set(cache_key, data, CACHE_TIMEOUT_SECONDS)
         return data
 
     # ==========================================================

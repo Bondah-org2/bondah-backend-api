@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "rest_framework",
     "rest_framework.authtoken",
+    "rest_framework_simplejwt.token_blacklist",
     "django_ratelimit",
     "django_redis",
     # "dating",
@@ -90,6 +91,7 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     # Development Tools
     "django_extensions",
+    "core",
 ]
 
 
@@ -104,6 +106,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "core.middleware.UpdateLastSeenMiddleware",
 ]
 
 ROOT_URLCONF = "backend.urls"
@@ -111,7 +114,7 @@ ROOT_URLCONF = "backend.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -334,7 +337,7 @@ SIMPLE_JWT = {
 # CORS settings for production
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:8081,http://localhost:5173,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org,https://bondah-website-fe-production.up.railway.app",
+    "http://localhost:8081,http://localhost:5173,https://bondah-dating.vercel.app,https://bondah.org,https://www.bondah.org,https://bondah-website-fe-production.up.railway.app,https://adminconsole.bondah.org,https://bdd2cf6a-bondah-admin-system.bondah-org.workers.dev",
 ).split(",")
 CORS_ALLOW_CREDENTIALS = True
 
@@ -384,13 +387,14 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Email Configuration for Production
 
-EMAIL_HOST = config("EMAIL_HOST", default="localhost")
-EMAIL_PORT = config("EMAIL_PORT", cast=int, default=25)
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", cast=bool, default=False)
-EMAIL_USE_SSL = config("EMAIL_USE_SSL", cast=bool, default=False)
-EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+# EMAIL_HOST = config("EMAIL_HOST", default="localhost")
+# EMAIL_PORT = config("EMAIL_PORT", cast=int, default=25)
+# EMAIL_USE_TLS = config("EMAIL_USE_TLS", cast=bool, default=False)
+# EMAIL_USE_SSL = config("EMAIL_USE_SSL", cast=bool, default=False)
+# EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+# EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+BREVO_API_KEY = config('BREVO_API_KEY')
 
 # Fallback for development (prints emails in console instead of sending)
 if config("EMAIL_BACKEND_CONSOLE", cast=bool, default=False):
@@ -613,7 +617,7 @@ SPECTACULAR_SETTINGS = {
 }
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
-    "https://*.up.railway.app,https://bondah.org,https://www.bondah.org",
+    "https://*.up.railway.app,https://bondah.org,https://www.bondah.org,https://adminconsole.bondah.org",
 ).split(",")
 
 
@@ -651,10 +655,17 @@ CACHES = {
         },
         "TIMEOUT": 600,  # 10 minutes default
     }
-}
-
-CELERY_BROKER_URL = REDIS_URL  # Redis broker
-CELERY_RESULT_BACKEND = REDIS_URL
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+        }
+    }
+    CELERY_BROKER_URL = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -666,11 +677,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "dating.tasks.expire_visibilities",
         "schedule": crontab(minute=0, hour=0),  # every midnight (00:00)
     },
+    "delete-underage-accounts": {
+        "task": "dating.tasks.run_delete_underage_accounts",
+        "schedule": crontab(minute=0)
+    }
 }
 
 cloudinary.config(
-    cloud_name="drisz93x9",
-    api_key="154685282736747",
-    api_secret=os.environ.get("cloudinary_api_secret"),
+    cloud_name=config("CLOUDINARY_CLOUD_NAME"),
+    api_key=config("CLOUDINARY_API_KEY"),
+    api_secret=config("CLOUDINARY_API_SECRET"),
     secure=True
 )

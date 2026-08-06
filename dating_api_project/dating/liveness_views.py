@@ -36,7 +36,9 @@ from response_serializers import (
 from drf_spectacular.utils import extend_schema
 from rest_framework.generics import GenericAPIView
 
-
+@extend_schema(
+    tags=["Liveness Check"]
+)
 class StartLivenessCheckView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -104,7 +106,9 @@ class StartLivenessCheckView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Liveness Check"]
+)
 class SubmitLivenessVideoView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = SubmitLivenessRequestSerializer
@@ -212,7 +216,9 @@ class SubmitLivenessVideoView(GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@extend_schema(
+    tags=["Liveness Check"]
+)
 class SubmitLivenessImagesView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = SubmitLivenessImagesRequestSerializer
@@ -312,7 +318,9 @@ class SubmitLivenessImagesView(GenericAPIView):
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-
+@extend_schema(
+    tags=["Liveness Check"]
+)
 class LivenessCheckStatusView(GenericAPIView):
     permission_classes = [IsAuthenticated]
 
@@ -337,7 +345,9 @@ class LivenessCheckStatusView(GenericAPIView):
             status=status.HTTP_200_OK,
         )
 
-
+@extend_schema(
+    tags=["Liveness Check"]
+)
 class UserVerificationStatusView(GenericAPIView):
     permission_classes = [IsAuthenticated]
 
@@ -356,7 +366,9 @@ class UserVerificationStatusView(GenericAPIView):
 
         return Response(data, status=status.HTTP_200_OK)
 
-
+@extend_schema(
+    tags=["Liveness Check"]
+)
 class RetryLivenessCheckView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = RetryLivenessRequestSerializer

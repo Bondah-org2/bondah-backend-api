@@ -156,14 +156,16 @@ def find_nearby_users(user: User, max_distance: Optional[int] = None) -> List[Di
     max_distance = max_distance or user.max_distance
 
     # Use database distance calculation
-    user_point = Point(user.longitude, user.latitude)
+    user_point = Point(user.longitude, user.latitude, srid=4326)
     nearby_users = (
         User.objects.filter(
-            latitude__isnull=False, longitude__isnull=False, is_active=True
+            location__is_null =False,
+            is_active=True,
+            country=user.country
         )
         .exclude(id=user.id)
         .annotate(distance=DistanceFunction("location_point", user_point))
-        .filter(distance__lte=max_distance)
+        .filter(distance__lte=Distance(km=max_distance))
         .order_by("distance")
     )
 

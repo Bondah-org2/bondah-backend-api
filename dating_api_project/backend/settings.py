@@ -108,7 +108,7 @@ ROOT_URLCONF = "backend.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -199,12 +199,21 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # For production (Gmail SMTP):
 # EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = os.getenv("EMAIL_HOST")  # Use your server from the screenshot
-EMAIL_PORT = 587  # Port from the screenshot
-EMAIL_USE_TLS = True  # Keep TLS enabled
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+# EMAIL_HOST = os.getenv("EMAIL_HOST")  # Use your server from the screenshot
+# EMAIL_PORT = 587  # Port from the screenshot
+# EMAIL_USE_TLS = True  # Keep TLS enabled
+# EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+# EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+
+# Brevo SMTP Email Configuration
+# EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# EMAIL_HOST = config("EMAIL_HOST")
+# EMAIL_PORT = config("EMAIL_PORT", cast=int)
+# EMAIL_HOST_USER = config("EMAIL_HOST_USER")
+# EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
+# EMAIL_USE_TLS = True
+# DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 
 # Site ID for django-allauth
 SITE_ID = 1
@@ -291,7 +300,7 @@ REST_AUTH = {
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -550,3 +559,20 @@ cloudinary.config(
     api_secret=os.getenv("cloudinary_api_secret"),
     secure=True
 )
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "DEBUG",
+    },
+}
+
+BREVO_API_KEY = config("BREVO_API_KEY")
+ENABLE_EMAIL_SENDING = config("ENABLE_EMAIL_SENDING", default=False, cast=bool)

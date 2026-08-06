@@ -1,3 +1,13 @@
+from rest_framework.decorators import permission_classes
+from django.utils import timezone
+from datetime import timedelta
+from dating.permissions import CanApproveApplications
+from dating.location_utils import find_nearby_users
+from dating.tasks import send_password_reset_email
+from dating.tasks import send_bondmaker_rejection_email
+import logging
+from dating.tasks import send_bondmaker_approval_email
+from dating.tasks import send_otp_email
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.db.models import Sum
@@ -19,6 +29,7 @@ import requests
 from django.core.files.base import ContentFile
 from rest_framework import serializers
 from .pagination import (
+    ActivityFeedPagination,
     BondmakerPagination,
     BondmakerPublicPagination,
     PendingRequestListPagination,
@@ -35,7 +46,6 @@ from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from .utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
-from .firebase_utils import ensure_firestore_user_document
 from .permissions import (IsBondmakerOrReadOnly,
                           CanViewApplications,
                           CanManageTeam,
@@ -46,6 +56,7 @@ import os
 
 # from .location_utils import find_nearby_users, get_location_statistics
 from .models import (
+    Activity,
     NewsletterSubscriber,
     PuzzleVerification,
     Waitlist,
@@ -116,11 +127,12 @@ from deep_translator import GoogleTranslator
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
-from .notification import notify_user, send_kyc_email
+from dating.tasks import notify_user
 from django.conf import settings
-import logging
 from rest_framework import filters
 from .serializers import (
+    ActivityFeedSerializer,
+    MatchQueueSerializer,
     UserSerializer,
     LanguageSettingsSerializer,
     NewsletterSubscriberSerializer,
@@ -156,6 +168,10 @@ from .serializers import (
     SocialAccountSerializer,
     UserProfileWithSocialSerializer,
     OAuthLinkSerializer,
+
+    # Age verifier
+    VerifyAgeSerializer,
+
     # Location Serializers
     LocationUpdateSerializer,
     AddressGeocodeSerializer,
@@ -185,7 +201,12 @@ from .serializers import (
     UserSecurityQuestionCreateSerializer,
     UserSocialHandleSerializer,
     UserSocialHandleCreateSerializer,
+
+    # Chats
     ChatDetailSerializer,
+    CreateChatSerializer,
+    EditMessageSerializer,
+    DeleteMessageSerializer,
     # ChatSerializer,
     # ChatCreateSerializer,
     # CallInitiateSerializer,
@@ -347,6 +368,15 @@ from response_serializers import (
     UserProfileWithSocialSerializer,
     NotificationSettingsResponseSerializer,
     AdminLoginResponseSerializer,
+    PasswordResetVerifyOTPResponseSerializer,
+    RegisterRequestOTPResponseSerializer,
+    RegisterVerifyOTPResponseSerializer,
+    UserRegisterResponseSerializer,
+    UserRegisterErrorSerializer,
+    UserLoginResponseSerializer,
+    UserLoginValidationErrorSerializer,
+    UserLoginUnauthorizedSerializer,
+    UserLoginErrorSerializer,
 )
 from schema_serializers import (
     GetPuzzleRequestSerializer,
@@ -369,6 +399,8 @@ from .story_query import StoryQueryMixin
 from rest_framework.decorators import action
 import cloudinary
 import cloudinary.utils
+from pybreaker import CircuitBreakerError as BreakerError
+from .circuit_breakers import cloudinary_breaker, email_breaker
 from django.db.models import Prefetch
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
@@ -418,6 +450,8 @@ class NewsletterSignupView(generics.CreateAPIView):
                 # Save the newsletter subscription
                 subscriber = serializer.save()
 
+
+                #TODO: Ensure it runs in background
                 # Send automatic welcome email
                 subject = f"Welcome to Bondah Dating{f', {name}' if name else ''}! 🎉"
                 message = f"""
@@ -1115,6 +1149,10 @@ class AdminLogoutView(APIView):
 
 @extend_schema(
     tags=["Admin"],
+    responses={
+        201: OpenApiResponse(description="Admin Created"),
+        403: OpenApiResponse(description="User is not Principal Admin")
+    }
     )
 class CreateAdminMemberView(generics.CreateAPIView):
     serializer_class = CreateTeamMemberSerializer
@@ -1127,6 +1165,12 @@ class CreateAdminMemberView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Admin"],
+@extend_schema(
+    tags=["Admin"],
+    responses={
+        200: UpdateAdminMemberSerializer,
+        403: OpenApiResponse(description="User is not a Principal Admin")
+    }
     )
 class UpdateAdminMemberView(generics.UpdateAPIView):
     queryset = User.objects.filter(is_staff=True)
@@ -1140,16 +1184,18 @@ class UpdateAdminMemberView(generics.UpdateAPIView):
 
 @extend_schema(
     tags=["Admin"],
+@extend_schema(
+    tags=["Admin"],
+    responses={
+        204: OpenApiResponse(description="Member successfully removed"),
+        403: OpenApiResponse(description="User is not a Principal Admin")
+    }
     )
 class RemoveAdminMemberView(generics.DestroyAPIView):
     serializer_class = RemoveAdminMemberSerializer
     queryset = User.objects.filter(is_staff=True)
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPrincipalAdmin]
 
-    def perform_destroy(self, instance):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can remove members")
-        instance.delete()
 
 @extend_schema(
     tags=["Admin"],
@@ -1200,6 +1246,12 @@ class AdminTeamView(generics.ListAPIView):
 @extend_schema(
     tags=["Authentication"],
     )
+    responses={
+        201: RegisterRequestOTPResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 class RegisterRequestOTPView(generics.CreateAPIView):
     serializer_class = RegisterRequestOTPSerializer
     permission_classes = [AllowAny]
@@ -1212,7 +1264,12 @@ class RegisterRequestOTPView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: RegisterVerifyOTPResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1234,7 +1291,12 @@ class VerifyOTPView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        201: UserRegisterResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: UserRegisterErrorSerializer,
+    },
+)
 class ConfirmRegistrationView(generics.CreateAPIView):
     serializer_class = ConfirmRegistrationSerializer
     permission_classes = [AllowAny]
@@ -1252,14 +1314,19 @@ class ConfirmRegistrationView(generics.CreateAPIView):
         # ensure_firestore_user_document(firebase_uid, user)
 
         response_data = {
-            "user": {"id": user.id, "email": user.email},
+            "user": {"id": user.id, "email": user.email, "status": user.status, "is_active": user.is_active},
             "tokens": tokens,
         }
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: RegisterRequestOTPResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 class ResendEmailOTPView(generics.CreateAPIView):
     serializer_class = ResendEmailOTPSerializer
     permission_classes = [AllowAny]
@@ -1271,13 +1338,48 @@ class ResendEmailOTPView(generics.CreateAPIView):
         return Response(data, status=200)
 
 
+@extend_schema(
+    tags=["Onboarding Verification"],
+    request=VerifyAgeSerializer,
+    responses={
+        200: MessageResponseSerializer,
+        400: ValidationErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+    description="Verify user age during onboarding. Requires a valid, verified registration token. User must be at least 18 years old.",
+)
+class VerifyAgeView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request):
+        serializer = VerifyAgeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        user.date_of_birth = serializer.validated_data["date_of_birth"]
+        user.is_active = True
+        user.save()
+
+        return Response(
+            {
+                "message": "Updated successfully",
+                "user": {"id": user.id, "email": user.email, "status": user.status, "is_active": user.is_active},
+            },
+            status=status.HTTP_200_OK
+        )
+
+
 # -------------------------
 # User Login
 # -------------------------
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: UserLoginResponseSerializer,
+        400: UserLoginValidationErrorSerializer,
+        401: UserLoginUnauthorizedSerializer,
+        500: UserLoginErrorSerializer,
+    },
+)
 @method_decorator(
     ratelimit(key="ip", rate="5/m", method="POST", block=False), name="dispatch"
 )
@@ -1435,9 +1537,9 @@ class TokenRefreshView(generics.GenericAPIView):
     tags = ['Authentication'],
     request=PasswordResetSerializer,
     responses={
-        200: PasswordResetSerializer,
-        400: PasswordResetSerializer,
-        500: PasswordResetSerializer,
+        200: StatusMessageSerializer,
+        400: CustomErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
     },
 )
 class PasswordResetView(generics.GenericAPIView):
@@ -1445,7 +1547,9 @@ class PasswordResetView(generics.GenericAPIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get("email")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
 
         # Always respond success (avoid email enumeration)
         response_msg = {
@@ -1456,6 +1560,12 @@ class PasswordResetView(generics.GenericAPIView):
         user = User.objects.filter(email=email).first()
         if not user:
             return Response(response_msg, status=200)
+        
+        # Extract device info from request
+        ip_address = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() \
+            or request.META.get("REMOTE_ADDR", "Unknown")
+        user_agent = request.META.get("HTTP_USER_AGENT", "Unknown device")
+        reset_time = timezone.now().strftime("%B %d, %Y at %I:%M %p UTC")
 
         # Delete old OTPs for this email
         PasswordResetOTP.objects.filter(email=email, is_used=False).delete()
@@ -1469,17 +1579,19 @@ class PasswordResetView(generics.GenericAPIView):
             otp=otp,
         )
 
-        # Send OTP via email
         try:
-            send_mail(
-                subject="Your Password Reset OTP",
-                message=f"Your OTP is {otp}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
+            # Send OTP via email
+            send_password_reset_email.delay(
+                user.email,
+                otp,
+                user_name=user.name,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                reset_time=reset_time,
+            )   
         except Exception as e:
-            print("Email error:", e)
+            logger.error(f"Email error: {e}", exc_info=True)
+            raise
 
         return Response(response_msg, status=200)
 
@@ -1511,9 +1623,11 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         otp = serializer.validated_data["otp"]
+        email = serializer.validated_data["email"]
 
         otp_record = PasswordResetOTP.objects.filter(
             otp=otp,
+            email=email,
             is_used=False,
         ).first()
 
@@ -1540,7 +1654,12 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
+    responses={
+        200: StatusMessageSerializer,
+        400: CustomErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
+)
 class PasswordResetConfirmView(generics.GenericAPIView):
     serializer_class = PasswordResetConfirmSerializer
     permission_classes = [AllowAny]
@@ -1559,7 +1678,11 @@ class PasswordResetConfirmView(generics.GenericAPIView):
 @extend_schema(
     tags = ['Authentication'],
     request=PasswordResetResendSerializer,
-    responses={200: PasswordResetResendSerializer},
+    responses={
+        200: StatusMessageSerializer,
+        400: CustomErrorResponseSerializer,
+        500: CustomErrorResponseSerializer,
+    },
 )
 class PasswordResendOTPView(generics.GenericAPIView):
     serializer_class = PasswordResetSerializer
@@ -1598,12 +1721,18 @@ class PasswordResendOTPView(generics.GenericAPIView):
         )
 
         # Send mail
-        send_mail(
-            subject="Your Password Reset OTP",
-            message=f"Your OTP is {otp}",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-        )
+        try:
+            email_breaker.call(
+                send_mail,
+                subject="Your Password Reset OTP",
+                message=f"Your OTP is {otp}",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+            )
+        except BreakerError:
+            logger.warning("Email circuit breaker open — password reset email not sent to %s", email)
+        except Exception:
+            logger.error("Failed to send password reset email to %s", email, exc_info=True)
 
         return Response(response_msg, status=200)
 
@@ -1661,6 +1790,13 @@ class UserProfileViews(generics.RetrieveUpdateAPIView):
             )
             serializer.is_valid(raise_exception=True)
             updated_user = serializer.save()
+
+            # Check if user is under 18 and flag them
+
+            if updated_user.date_of_birth and updated_user.age < 18:
+                updated_user.is_flagged_for_deletion = True
+                updated_user.scheduled_deletion_at = timezone.now() + timedelta(hours=24)
+                updated_user.save(update_fields=["is_flagged_for_deletion", "scheduled_deletion_at"])
 
             # CLEAR BOTH CACHES AFTER SAVE
             cache.delete(f"my_profile:{instance.id}")
@@ -2143,6 +2279,9 @@ class SocialLoginView(generics.GenericAPIView):
 
 @extend_schema(
     tags=["Authentication"],
+    responses={
+        401: OpenApiResponse(description="User Not Authenticated")
+    }
     )
 
 class DeviceRegistrationView(generics.CreateAPIView):
@@ -2553,6 +2692,12 @@ class NearbyUsersView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not self.request.user.country:
+            return Response(
+                {"message": "Enable location access to see users in your region"},
+                status=status.HTTP_200_OK
+            )
+
         max_distance = request.GET.get("max_distance")
         if max_distance:
             try:
@@ -2726,6 +2871,7 @@ class UserRoleSelectionView(GenericAPIView):
             defaults={"selected_role": selected_role},
         )
 
+        # TODO: IF USER CHOOSE BONDMAKER, HE OUGHT TO UNDERGO SERIES OF VERIFICATION STEPS
         # If user chose bondmaker, create or reuse pending verification
         # if selected_role == "bondmaker":
         #     DocumentVerification.objects.get_or_create(
@@ -2892,7 +3038,7 @@ class UserProfileDetailView(generics.RetrieveAPIView):
 
         data[
             "is_online"
-        ] = viewed_user.last_seen and viewed_user.last_seen >= now() - timedelta(
+        ] = viewed_user.last_seen and viewed_user.last_seen >= timezone.now() - timedelta(
             minutes=3
         )
 
@@ -2913,6 +3059,18 @@ class UserProfileDetailView(generics.RetrieveAPIView):
             viewer=request.user,
             viewed_user=viewed_user,
             defaults={"source": "direct"},
+        )
+        # After tracking profile view, add to activity log
+        Activity.objects.create(
+            actor=request.user,
+            action="profile_viewed",
+            recipient=viewed_user,
+            metadata={
+                "viewed_user_id": viewed_user.id,
+                "viewed_username": viewed_user.name,
+                "viewer_user_id": request.user.id,
+                "viewer_username": request.user.name,
+            },
         )
 
         return Response(data)
@@ -3042,15 +3200,27 @@ class ChatListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return (
-            Chat.objects.filter(
-                participants=self.request.user,
-                is_active=True
-            )
+        user = self.request.user
+        chat_type = self.request.query_params.get("chat_type")
+        is_active = self.request.query_params.get("status")
+
+        qs = (
+            Chat.objects.filter(participants=user, is_active=True)
             .select_related("created_by", "user_match")
             .prefetch_related("participants")
             .order_by("-last_message_at")
         )
+
+        if chat_type in ("direct", "matchmaker_intro"):
+            qs = qs.filter(chat_type=chat_type)
+
+        # status=archived maps to is_active=False
+        if is_active == "archived":
+            qs = Chat.objects.filter(
+                participants=user, is_active=False
+            ).select_related("created_by").prefetch_related("participants").order_by("-last_message_at")
+
+        return qs
 
 @extend_schema(
     tags=["Chat"],
@@ -3066,7 +3236,17 @@ class ChatDetailView(generics.RetrieveAPIView):
 
 @extend_schema(
     tags=["Chat"],
-    )
+    request=MessageSerializer,
+    responses={
+        201: MessageSerializer,
+        400: ValidationErrorResponseSerializer,
+        404: OpenApiTypes.OBJECT,
+    },
+    description=(
+        "Send a message to a chat. Supports text, voice notes, images, videos, and documents. "
+        "For media messages, upload the file to Cloudinary first and pass the returned URL as media_url."
+    ),
+)
 class SendMessageView(generics.CreateAPIView):
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
@@ -3080,38 +3260,152 @@ class SendMessageView(generics.CreateAPIView):
             participants=self.request.user
         )
 
-        serializer.save(chat=chat, sender=self.request.user, message_type="text")
+        serializer.save(chat=chat, sender=self.request.user)
 
 @extend_schema(
     tags=["Chat"],
     )
 class ChatMessagesView(generics.ListAPIView):
     serializer_class = MessageSerializer
+@extend_schema(tags=["Chat"])
+class MessageDetailView(APIView):
     permission_classes = [IsAuthenticated]
-    pagination_class = ChatMessagePagination
 
-    def get_queryset(self):
-        chat_id = self.kwargs["chat_id"]
-
+    @extend_schema(
+        request=EditMessageSerializer,
+        responses={
+            200: MessageSerializer,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
+        description=(
+            "Edit a message you sent. Only the original sender can edit. "
+            "Updates the content and marks the message as edited."
+        ),
+    )
+    def patch(self, request, chat_id, message_id):
         chat = get_object_or_404(
             Chat,
             id=chat_id,
             participants=self.request.user
         )
+        message = get_object_or_404(Message, chat=chat, id=message_id)
 
-        return chat.messages.select_related("sender").order_by("timestamp")
+        if request.user != message.sender:
+            return Response(
+                {
+                    "detail": (
+                        "Only the sender can edit "
+                        "this message."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = EditMessageSerializer(message, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(MessageSerializer(message).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=DeleteMessageSerializer,
+        responses={
+            204: None,
+            403: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+        },
+        description=(
+            "Delete a message. "
+            "Use delete_type='for_me' to hide the message only for yourself — "
+            "it remains visible to other participants. "
+            "Use delete_type='for_everyone' to permanently delete the message for all participants — "
+            "only the original sender can do this."
+        ),
+    )
+    def delete(self, request, chat_id, message_id):
+        chat = get_object_or_404(
+            Chat,
+            id=chat_id,
+            participants=self.request.user
+        )
+        message = get_object_or_404(Message, chat=chat, id=message_id)
+        serializer = DeleteMessageSerializer(message, data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        delete_type = serializer.validated_data["delete_type"]
+
+        if delete_type == "for_me":
+            message.deleted_for.add(request.user)
+        
+        elif delete_type == "for_everyone":
+            if message.sender != request.user:
+                return Response(
+                    {
+                        "detail": (
+                            "Only the sender can delete "
+                            "for everyone."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            message.delete()
+        
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+@extend_schema(tags=["Chat"])
+class ChatMessagesView(generics.ListAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ChatMessagePagination
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
 
-        queryset.filter(is_read=False).exclude(
+        queryset.filter(
+            is_read=False
+        ).exclude(
             sender=request.user
         ).update(
             is_read=True,
             read_at=timezone.now()
         )
 
-        return super().list(request, *args, **kwargs)
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=["Chat"],
+    request=CreateChatSerializer,
+    responses={
+        201: ChatDetailSerializer,
+        200: ChatDetailSerializer,
+        400: ValidationErrorResponseSerializer,
+    },
+    description=(
+        "Create a new direct or matchmaker_intro chat."
+        " Returns existing chat (200) if a direct chat already exists between the two users."
+    )
+)
+class CreateChatView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = CreateChatSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        chat, created = serializer.save()
+        out = ChatDetailSerializer(chat)
+        return Response(
+            out.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
+        
 
     
 
@@ -5589,6 +5883,7 @@ class SendNewsletterWelcomeEmailView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # TODO: MAKE IT RUN IN BACKGROUND
         # Send the welcome email
         send_mail(
             subject="Welcome to Bondah",
@@ -5613,6 +5908,7 @@ class SendWaitlistConfirmationEmailView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # TODO: MAKE IT RUN IN BG
         send_mail(
             "Waitlist confirmation",
             "You are on the waitlist!",
@@ -5642,6 +5938,20 @@ class AdminWaitlistListView(GenericAPIView):
     )
     def get(self, request, *args, **kwargs):
         entries = self.get_queryset()
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return Response(
+                {
+                    "message": "Waitlist retrieved",
+                    "status": "success",
+                    "count": self.page.paginator.count,
+                    "next": self.get_next_link(),
+                    "previous": self.get_previous_link(),
+                    "data": serializer.data,
+                }
+            )
+
         serializer = self.get_serializer(entries, many=True)
         return Response(
             {
@@ -5667,6 +5977,20 @@ class AdminNewsletterListView(GenericAPIView):
     )
     def get(self, request, *args, **kwargs):
         entries = self.get_queryset()
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return Response(
+                {
+                    "message": "Subscribers retrieved",
+                    "status": "success",
+                    "count": self.page.paginator.count,
+                    "next": self.get_next_link(),
+                    "previous": self.get_previous_link(),
+                    "data": serializer.data,
+                }
+            )
+
         serializer = self.get_serializer(entries, many=True)
         return Response(
             {
@@ -5682,7 +6006,7 @@ class AdminNewsletterListView(GenericAPIView):
     # tags=["Bondmaker"],
     )
 class AdminBondmakerReviewView(GenericAPIView):
-    permission_classes = [CanViewApplications]
+    permission_classes = [CanApproveApplications]
 
     class InputSerializer(serializers.Serializer):
         action = serializers.ChoiceField(choices=["approve", "reject"])
@@ -5704,13 +6028,14 @@ class AdminBondmakerReviewView(GenericAPIView):
             document_verification=document
         ).last()
 
-        if not selfie:
+        # Document is the source of truth; selfie is optional
+        if document.status != "pending":
             return Response(
-                {"error": "Selfie verification not found"},
+                {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if document.status != "pending" or selfie.status != "pending":
+        if selfie and selfie.status != "pending":
             return Response(
                 {"error": "KYC already reviewed"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -5723,17 +6048,18 @@ class AdminBondmakerReviewView(GenericAPIView):
             document.verified_at = timezone.now()
             document.save()
 
-            selfie.status = "approved"
-            selfie.is_match = True
-            selfie.verified_at = timezone.now()
-            selfie.save()
+            if selfie:
+                selfie.status = "approved"
+                selfie.is_match = True
+                selfie.verified_at = timezone.now()
+                selfie.save()
 
             user.is_matchmaker = True
             user.save(update_fields=["is_matchmaker"])
 
             #  Notify user
-            notify_user(
-                user=user,
+            notify_user.delay(
+                user_id=user.id,
                 title="Bondmaker Application Approved 🎉",
                 message="Congratulations! Your bondmaker application has been approved.",
                 data={
@@ -5742,8 +6068,14 @@ class AdminBondmakerReviewView(GenericAPIView):
                 },
             )
 
-            # Eend Email
-            send_kyc_email(user, status="approved")
+            try:
+                # Send Email to approved BondMaker
+                send_bondmaker_approval_email.delay(
+                    user.name,
+                    user.email
+                )
+            except Exception as e:
+                logger.error("An error occured while sending mail to just approved bondmaker", exc_info=True)
 
             return Response({
                 "message": "KYC approved successfully",
@@ -5756,16 +6088,17 @@ class AdminBondmakerReviewView(GenericAPIView):
             document.rejection_reason = reason or "Rejected by admin"
             document.save()
 
-            selfie.status = "rejected"
-            selfie.is_match = False
-            selfie.save()
+            if selfie:
+                selfie.status = "rejected"
+                selfie.is_match = False
+                selfie.save()
 
             user.is_matchmaker = False
             user.save(update_fields=["is_matchmaker"])
 
             # Notify user
-            notify_user(
-                user=user,
+            notify_user.delay(
+                user_id=user.id,
                 title="Bondmaker Application Rejected",
                 message=f"Your application was rejected. Reason: {reason or 'Not specified'}",
                 data={
@@ -5774,8 +6107,15 @@ class AdminBondmakerReviewView(GenericAPIView):
                 },
             )
 
-            # 📧 Email
-            send_kyc_email(user, status="rejected", reason=reason)
+            try:
+                # Send Email to approved BondMaker
+                send_bondmaker_rejection_email.delay(
+                    user.name,
+                    user.email,
+                    reason
+                )
+            except Exception as e:
+                logger.error("An error occured while sending mail to just rejected bondmaker", exc_info=True)
 
             return Response({
                 "message": "KYC rejected",
@@ -6312,6 +6652,17 @@ class GlobalPublicUsersListView(generics.ListAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response(
+                {
+                    "message": "Enable location access to see users in your region",
+                    "results": [],
+                },
+                status=status.HTTP_200_OK,
+            )
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         return (
             User.objects.filter(
@@ -6319,6 +6670,7 @@ class GlobalPublicUsersListView(generics.ListAPIView):
                 is_matchmaker=False,
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
+                country=self.request.user.country,
             )
             .exclude(id=self.request.user.id)
             .distinct()
@@ -6418,8 +6770,8 @@ class MatchRequestCreateView(generics.GenericAPIView):
 
         # Update Notification Table
         # Send push notification to bondmaker
-        notify_user(
-            user=match_request.bondmaker,
+        notify_user.delay(
+            user_id=match_request.bondmaker.id,
             title="New Match Request",
             message=f"{request.user.name} liked {user_match.user2.name}.",
             data={"match_request_id": match_request.id},
@@ -6433,6 +6785,24 @@ class MatchRequestCreateView(generics.GenericAPIView):
             },
             status=201,
         )
+
+@extend_schema(
+    tags=["Bondmaker"],
+    )
+class MatchQueueView(generics.ListAPIView):
+    """Pending match requests awaiting this bondmaker's approve/reject decision."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MatchQueueSerializer
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        return (
+            MatchRequest.objects.filter(bondmaker=self.request.user, status="pending")
+            .select_related("requester", "user_match", "user_match__user2")
+            .order_by("-created_at")
+        )
+
 
 @extend_schema(
     tags=["Bondmaker"],
@@ -6454,12 +6824,17 @@ class BondmakerMatchActionView(generics.GenericAPIView):
 
         action = serializer.validated_data["action"]
 
-        # Fetch financial source of truth
+        # For mark_successful, match must be accepted. For others, pending.
+        if action == "mark_successful":
+            allowed_status = "accepted"
+        else:
+            allowed_status = "pending"
+
         match_request = get_object_or_404(
             MatchRequest.objects.select_related("user_match"),
             id=match_request_id,
             bondmaker=request.user,
-            status="pending",
+            status=allowed_status,
         )
 
         if action == "accepted":
@@ -6477,6 +6852,15 @@ class BondmakerMatchActionView(generics.GenericAPIView):
             response_data = {
                 "message": "Match rejected successfully",
             }
+
+        elif action == "mark_successful":
+            with transaction.atomic():
+                match_request.status = "completed"
+                match_request.save(update_fields=["status"])
+                if hasattr(match_request, "user_match"):
+                    match_request.user_match.status = "matched"
+                    match_request.user_match.save(update_fields=["status"])
+            response_data = {"message": "Match marked as successful."}
 
         return Response(response_data, status=status.HTTP_200_OK)
 
@@ -6629,8 +7013,9 @@ class UserInteractionView(generics.CreateAPIView):
             except ValidationError as e:
                 raise ValidationError({"detail": str(e)})
 
-            notify_user(
-                user=bondmaker,
+            # TODO: MOVE TO BACKGROUND
+            notify_user.delay(
+                user_id=bondmaker.id,
                 title="New Match Request",
                 message=f"{user.name} liked {target_user.name}. Review request.",
                 data={
@@ -6687,6 +7072,92 @@ class UserInteractionView(generics.CreateAPIView):
         )
 
 @extend_schema(
+    tags=["Explore"],
+    parameters=[
+        OpenApiParameter("min_age", int, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("max_age", int, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("gender", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("max_distance", int, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("religion", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("genotype", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("ethnicity", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("have_kids", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("want_kids", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("education_level", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("relationship_status", str, OpenApiParameter.QUERY, required=False),
+        OpenApiParameter("online_only", bool, OpenApiParameter.QUERY, required=False),
+    ],
+    responses={200: StaticUserProfileSerializer(many=True)},
+    description=(
+        "Browse/explore users with comprehensive filters. "
+        "Supports age range, gender, distance, lifestyle, and demographic filters."
+    ),
+)
+class ExploreUsersView(generics.ListAPIView):
+    serializer_class = StaticUserProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        params = self.request.query_params
+
+        qs = (
+            User.objects.filter(is_active=True)
+            .exclude(id=user.id)
+            .exclude(is_matchmaker=True)
+        )
+
+        # Age filters using date_of_birth
+        min_age = params.get("min_age")
+        max_age = params.get("max_age")
+        if min_age:
+            from datetime import date
+            max_dob = date.today().replace(year=date.today().year - int(min_age))
+            qs = qs.filter(date_of_birth__lte=max_dob)
+        if max_age:
+            from datetime import date
+            min_dob = date.today().replace(year=date.today().year - int(max_age))
+            qs = qs.filter(date_of_birth__gte=min_dob)
+
+        # Simple field filters
+        simple_filters = {
+            "gender": "gender",
+            "religion": "religion",
+            "genotype": "genotype",
+            "ethnicity": "ethnicity",
+            "have_kids": "have_kids",
+            "want_kids": "want_kids",
+            "education_level": "education_level",
+        }
+        for param, field in simple_filters.items():
+            value = params.get(param)
+            if value:
+                qs = qs.filter(**{field: value})
+
+        # Online only
+        if params.get("online_only") in ("true", "1"):
+            qs = qs.filter(last_seen__gte=timezone.now() - timedelta(minutes=3))
+
+        # Distance filter
+        max_distance = params.get("max_distance")
+        if max_distance and user.has_location:
+            qs = qs.annotate(
+                distance_km=6371 * ACos(
+                    Cos(Radians(F("latitude"))) * Cos(float(user.latitude) * 3.14159265359 / 180)
+                    * Cos(Radians(F("longitude")) - float(user.longitude) * 3.14159265359 / 180)
+                    + Sin(Radians(F("latitude"))) * Sin(float(user.latitude) * 3.14159265359 / 180)
+                )
+            ).filter(distance_km__lte=float(max_distance))
+
+        return qs.order_by("-last_seen")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
+
+
+@extend_schema(
     tags=["SwipeDeck"],
     )
 class UserSwipeDeckView(generics.ListAPIView):
@@ -6701,6 +7172,13 @@ class UserSwipeDeckView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = UserSwipeDeckPagination
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response({
+                "message": "Enable location access to see users in your region"
+            }, status=status.HTTP_200_OK)
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         user = self.request.user
         max_distance = self.request.query_params.get("max_distance", None)
@@ -6711,6 +7189,7 @@ class UserSwipeDeckView(generics.ListAPIView):
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
                 visibility_settings__expires_at__gt=timezone.now(),
+                country=user.country
             )
             .exclude(id=user.id)
             .distinct()
@@ -6806,16 +7285,47 @@ class BondmakerSearchView(generics.ListAPIView):
         "bio",
         "city",
         "state",
-        "country",
+        # "country",
         "specialisations__category",
     ]
     ordering_fields = ["accepted_match_count"]
     ordering = ["-accepted_match_count"]
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.country:
+            return Response({
+                "message": "Enable location access to see users in your region"
+            }, status=status.HTTP_200_OK)
+
+        response = super().list(request, *args, **kwargs)
+
+        # If results are empty, check whether it's an out-of-region issue
+        results = response.data.get("results", response.data)
+        if not results:
+            search_query = request.query_params.get("search", "")
+            if search_query:
+                out_of_region = User.objects.filter(
+                    is_matchmaker=True,
+                    username__icontains=search_query
+                ).exclude(country=request.user.country).exists()
+
+                if out_of_region:
+                    return Response({
+                        "message": f"This bondmaker is not available in your region ({request.user.country}).",
+                        "results": []
+                    }, status=status.HTTP_200_OK)
+
+            return Response({
+                "message": "No bondmakers found in your region matching your search.",
+                "results": []
+            }, status=status.HTTP_200_OK)
+
+        return response
+
     def get_queryset(self):
         user = self.request.user
 
-        queryset = User.objects.filter(is_matchmaker=True).prefetch_related(
+        queryset = User.objects.filter(is_matchmaker=True, country=user.country).prefetch_related(
             "specialisations"
         )
 
@@ -6829,7 +7339,7 @@ class BondmakerSearchView(generics.ListAPIView):
         # Location (query param OR fallback to user)
         city = self.request.query_params.get("city") or user.city
         state = self.request.query_params.get("state") or user.state
-        country = self.request.query_params.get("country") or user.country
+        # country = self.request.query_params.get("country") or user.country
 
         if city:
             queryset = queryset.filter(city__iexact=city)
@@ -6837,8 +7347,8 @@ class BondmakerSearchView(generics.ListAPIView):
         if state:
             queryset = queryset.filter(state__iexact=state)
 
-        if country:
-            queryset = queryset.filter(country__iexact=country)
+        # if country:
+        #     queryset = queryset.filter(country__iexact=country)
 
         # Category filter
         category = self.request.query_params.get("category")
@@ -7092,6 +7602,15 @@ class BondCirclePostCreateView(generics.CreateAPIView):
         serializer.save(author=self.request.user, circle=circle)
 
 @extend_schema(
+    tags=["Bond Story"],
+)
+class BondCircleListView(generics.ListAPIView):
+    serializer_class = BondCircleSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = BondCircle.objects.select_related("bondmaker").order_by("-created_at")
+
+
+@extend_schema(
     tags=["Comment"],
     )
 class CreateCommentView(generics.CreateAPIView):
@@ -7118,6 +7637,9 @@ class TogglePostLikeView(GenericAPIView):
 
 @extend_schema(
     tags=["Admin"],
+    responses={
+        403: OpenApiResponse(description="User does not have admin priviledges.")
+    }
     )
 class AdminOverviewView(GenericAPIView):
     """
@@ -7129,13 +7651,6 @@ class AdminOverviewView(GenericAPIView):
     permission_classes = [CanViewOverview]
 
     def get(self, request, *args, **kwargs):
-        # Admin-only protection
-        if not request.user.is_staff and not request.user.is_superuser:
-            return Response(
-                {"detail": "You do not have permission to access this resource."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         days = int(request.query_params.get("days", 7))
 
         service = OverviewAnalyticsService(days=days)
@@ -7143,6 +7658,7 @@ class AdminOverviewView(GenericAPIView):
 
         serializer = self.get_serializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 @extend_schema(
     tags=["Upload"],
@@ -7154,10 +7670,24 @@ class CloudinarySignatureView(GenericAPIView):
     def get(self, request, *args, **kwargs):
         timestamp = int(time.time())
 
-        signature = cloudinary.utils.api_sign_request(
-            {"timestamp": timestamp},
-            cloudinary.config().api_secret
-        )
+        try:
+            signature = cloudinary_breaker.call(
+                cloudinary.utils.api_sign_request,
+                {"timestamp": timestamp},
+                cloudinary.config().api_secret,
+            )
+        except BreakerError:
+            logger.warning("Cloudinary circuit breaker is open")
+            return Response(
+                {"error": "Upload service temporarily unavailable. Please try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:
+            logger.error("Cloudinary signature generation failed", exc_info=True)
+            return Response(
+                {"error": "Upload service error."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         data = {
             "timestamp": timestamp,
@@ -7203,3 +7733,17 @@ class UserSelfieListView(generics.ListAPIView):
 
     def get_queryset(self):
         return SelfieVerification.objects.filter(user=self.request.user)
+
+
+# ======================================== ACTIVITY FEEDS
+@extend_schema(
+    tags=["Activity Feeds"]
+)
+class ActivityFeedView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ActivityFeedSerializer
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        return Activity.objects.filter(recipient=self.request.user)
+    

@@ -2,9 +2,15 @@
 
 from django.utils import timezone
 from django.core.cache import cache
-from django.db.models import Count
+from django.db.models import Count, Q
 
-from ..models import MatchRequest, Visibility, BondmakerSubscription, UserProfileView
+from ..models import (
+    Activity,
+    MatchRequest,
+    Visibility,
+    BondmakerSubscription,
+    UserProfileView,
+)
 
 CACHE_TIMEOUT = 600  # seconds (10 minutes)
 MATCHES_PER_LEVEL = 50
@@ -112,43 +118,31 @@ class BondmakerDashboardService:
     # RECENT ACTIVITY
     # ==========================
     def _get_recent_activity(self):
-        recent_activity = []
-
-        client_ids = BondmakerSubscription.objects.filter(
-            bondmaker=self.user, active=True, end_date__gt=self.now
-        ).values_list("user_id", flat=True)
-
-        # Recent profile views
-        recent_views = (
-            UserProfileView.objects.filter(viewed_user_id__in=client_ids)
-            .select_related("viewer", "viewed_user")
-            .order_by("-viewed_at")[:5]
+        """
+        Snapshot for the dashboard: events about the bondmaker themself
+        (e.g. match_made) plus events about their active clients
+        (profile views, gifts, likes) — sourced from the single Activity
+        log instead of querying each event table separately.
+        """
+        client_ids = list(
+            BondmakerSubscription.objects.filter(
+                bondmaker=self.user, active=True, end_date__gt=self.now
+            ).values_list("user_id", flat=True)
         )
-        for view in recent_views:
-            recent_activity.append(
-                {
-                    "type": "profile_view",
-                    "viewer_name": view.viewer.name or view.viewer.username,
-                    "viewer_country": view.viewer.country,
-                    "viewed_client_name": view.viewed_user.name
-                    or view.viewed_user.username,
-                    "source": view.source,
-                    "time": view.viewed_at,
-                }
-            )
 
-        # Recent accepted matches
-        recent_matches = (
-            MatchRequest.objects.filter(bondmaker=self.user, status="accepted")
-            .select_related("requester")
+        activities = (
+            Activity.objects.filter(
+                Q(recipient=self.user) | Q(recipient_id__in=client_ids)
+            )
+            .select_related("actor", "recipient")
             .order_by("-created_at")[:5]
         )
-        for match in recent_matches:
-            recent_activity.append(
-                {
-                    "type": "match_accepted",
-                    "requester_name": match.requester.name or match.requester.username,
-                    "coins_charged": match.coins_charged,
-                    "time": match.created_at,
-                }
-            )
+
+        return [
+            {
+                "type": activity.action,
+                "message": activity.render_message(),
+                "time": activity.created_at,
+            }
+            for activity in activities
+        ]
