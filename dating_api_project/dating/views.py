@@ -1168,8 +1168,6 @@ class CreateAdminMemberView(generics.CreateAPIView):
 
 @extend_schema(
     tags=["Admin"],
-@extend_schema(
-    tags=["Admin"],
     responses={
         200: UpdateAdminMemberSerializer,
         403: OpenApiResponse(description="User is not a Principal Admin")
@@ -1185,8 +1183,6 @@ class UpdateAdminMemberView(generics.UpdateAPIView):
             raise PermissionError("Only Principal Admin can update members")
         serializer.save()
 
-@extend_schema(
-    tags=["Admin"],
 @extend_schema(
     tags=["Admin"],
     responses={
@@ -1248,7 +1244,6 @@ class AdminTeamView(generics.ListAPIView):
 
 @extend_schema(
     tags=["Authentication"],
-    )
     responses={
         201: RegisterRequestOTPResponseSerializer,
         400: ValidationErrorResponseSerializer,
