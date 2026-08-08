@@ -22,8 +22,8 @@ JWT_SECRET_KEY = config("JWT_SECRET_KEY")
 # Load environment variables
 load_dotenv()
 print("🔥 USING PRODUCTION SETTINGS 🔥")
- Firebase Configuration
- For Railway deployment - JSON content from environment variable
+# Firebase Configuration
+# For Railway deployment - JSON content from environment variable
 FIREBASE_CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
 # For local development - path to JSON file
