@@ -1,3 +1,5 @@
+from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import make_password
 import random
 import string
 from django.db import models
@@ -80,6 +82,7 @@ class AdminRole(models.Model):
 class User(AbstractUser):
     name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
+    pending_email = models.EmailField(unique=True, null=True, blank=True)
     gender = models.CharField(
         max_length=20,
         choices=[
@@ -1413,20 +1416,31 @@ class UserMatch(models.Model):
         ]
 
 
+class PasswordResetPurpose(models.TextChoices):
+    PASSWORD_RESET = "password_reset", "Password Reset"
+    LOGIN_INFO_CHANGE = "login_info_change", "Login Info Change"
+
+
 class PasswordResetOTP(models.Model):
     email = models.EmailField()
     otp = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     is_used = models.BooleanField(default=False)
     reset_token = models.UUIDField(default=uuid.uuid4, editable=False, null=True, blank=True)
+    purpose = models.CharField(
+        max_length=30,
+        choices=PasswordResetPurpose.choices,
+        default=PasswordResetPurpose.PASSWORD_RESET
+    )
 
     def is_expired(self):
         return timezone.now() > self.created_at + timedelta(minutes=10)
 
     @classmethod
-    def can_resend_for_email(cls, email):
+    def can_resend_for_email(cls, email, purpose):
         recent_attempts = cls.objects.filter(
             email=email,
+            purpose=purpose,
             created_at__gte=timezone.now() - timedelta(minutes=1),
         ).count()
         return recent_attempts < 3
@@ -1434,6 +1448,30 @@ class PasswordResetOTP(models.Model):
     @staticmethod
     def generate_otp():
         return "".join(random.choices(string.digits, k=6))
+
+
+class SecurityPin(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="security_pin"
+    )
+    pin_hash = models.CharField(
+        max_length=128
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def set_pin(self, raw_pin):
+        self.pin_hash = make_password(raw_pin)
+
+    def check_pin(self, raw_pin):
+        return check_password(raw_pin, self.pin_hash)
+
+    @staticmethod
+    def generate_pin():
+        return "".join(random.choices(string.digits, k=6))
+    
 
 
 class Notification(models.Model):

@@ -1,3 +1,4 @@
+from .models.users import PasswordResetPurpose
 from random import choices
 import logging
 from dating.tasks import send_otp_email
@@ -90,6 +91,7 @@ from .models import (
     MatchRequest,
     Notification,
     PasswordResetOTP,
+    SecurityPin,
     Specialisation,
     BondCirclePost,
     BondCirclePostComment,
@@ -1345,6 +1347,7 @@ class CustomLoginSerializer(serializers.Serializer):
 
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    purpose = serializers.CharField(default=PasswordResetPurpose.PASSWORD_RESET)
 
 
 
@@ -1352,6 +1355,7 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     reset_token = serializers.UUIDField()
     new_password = serializers.CharField(validators=[validate_password])
     new_password_confirm = serializers.CharField()
+    purpose = serializers.CharField(default=PasswordResetPurpose.PASSWORD_RESET)
 
 
     def validate(self, attrs):
@@ -1363,12 +1367,14 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
     def save(self, **kwargs):
         reset_token = self.validated_data["reset_token"]
+        purpose = self.validated_data["purpose"]
 
         # Atomic operation to ensure the token is used only once
         with transaction.atomic():
             otp_record = get_object_or_404(
                 PasswordResetOTP,
                 reset_token=reset_token,
+                purpose=purpose,
                 is_used=True,  # Should already be used in OTP verification
             )
 
@@ -1390,6 +1396,85 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         return user
 
 
+class ChangeLoginInfoSerializer(serializers.Serializer):
+    current_password = serializers.CharField(required=True)
+    new_email = serializers.EmailField(required=False)
+    new_password = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        current_password = attrs.get("current_password")
+        new_email = attrs.get("new_email")
+        new_password = attrs.get("new_password")
+
+        request = self.context["request"]
+        
+        if not request.user.check_password(current_password):
+            raise serializers.ValidationError({"current_password": "Incorrect password."})
+        
+        if new_email and User.objects.filter(email=new_email).exclude(id=request.user.id).exists():
+            raise serializers.ValidationError({"new_email": "Email already in use."})
+
+        if new_password:
+            try:
+                validate_password(new_password, user=request.user)
+            except ValidationError as exc:
+                raise serializers.ValidationError({"new_password": list(exc.messages)})
+
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.context["request"].user
+        new_email = self.validated_data.get("new_email")
+        new_password = self.validated_data.get("new_password")
+
+        if new_email:
+            user.pending_email = new_email
+
+        if new_password:
+            user.set_password(new_password)
+
+        user.save()
+        return user
+        
+        if new_password:
+            self.request.user.set_password(new_password)
+        
+        self.request.user.save()
+        
+        return self.request.user
+
+
+class SecurityPinSetupSerializer(serializers.Serializer):
+    pin = serializers.CharField(min_length=4, max_length=4)
+    confirm_pin = serializers.CharField(min_length=4, max_length=4)
+
+    def validate(self, attrs):
+        pin = attrs.get("pin")
+        confirm_pin = attrs.get("confirm_pin")
+
+        if not pin.isdigit():
+            raise serializers.ValidationError({"pin": "PIN must be exactly 4 digits."})
+
+        if pin != confirm_pin:
+            raise serializers.ValidationError({"confirm_pin": "PINs do not match."})
+
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.context["request"].user
+        pin = self.validated_data["pin"]
+
+        security_pin, _ = SecurityPin.objects.get_or_create(user=user)
+        security_pin.set_pin(pin)
+        security_pin.save()
+
+        return security_pin
+
+
+class TwoStepVerifyOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField()
+
+
 class PasswordResetResendSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
@@ -1397,6 +1482,7 @@ class PasswordResetResendSerializer(serializers.Serializer):
 class OTPSerializer(serializers.Serializer):
     otp = serializers.CharField()
     email = serializers.EmailField()
+    purpose = serializers.CharField(default=PasswordResetPurpose.PASSWORD_RESET)
 
 
 class UserProfileSerializer(serializers.ModelSerializer):

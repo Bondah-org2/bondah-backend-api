@@ -77,6 +77,7 @@ from .models import (
     MatchRequest,
     Notification,
     PasswordResetOTP,
+    SecurityPin,
     ProductRevenueRecord,
     Report,
     RevenueRecord,
@@ -1477,8 +1478,14 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(PasswordResetOTP)
 class PasswordResetOTPAdmin(admin.ModelAdmin):
-    list_display = ("id", "email", "otp", "is_used", "created_at")
+    list_display = ("id", "email", "otp", "is_used", "created_at", "purpose")
     search_fields = ("email",)
+
+
+@admin.register(SecurityPin)
+class SecurityPinAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "created_at", "updated_at")
+    search_fields = ("user__email",)
 
 
 @admin.register(ProductRevenueRecord)

@@ -1,3 +1,4 @@
+from dating.serializers import TwoStepVerifyOTPSerializer
 from rest_framework.decorators import permission_classes
 from django.utils import timezone
 from datetime import timedelta
@@ -106,6 +107,7 @@ from .models import (
     MatchRequest,
     VirtualGift,
     PasswordResetOTP,
+    PasswordResetPurpose,
     Story,
     StoryInteraction,
     StoryView,
@@ -156,6 +158,7 @@ from .serializers import (
     CustomLoginSerializer,
     PasswordResetSerializer,
     PasswordResetConfirmSerializer,
+    ChangeLoginInfoSerializer,
     UserProfileSerializer,
     UserProfileDetailSerializer,
     SocialLoginSerializer,
@@ -311,6 +314,7 @@ from .serializers import (
     DocumentVerificationListSerializer,
     AdminBondmakerDetailSerializer,
     AdminBondmakerStatsSerializer,
+    SecurityPinSetupSerializer,
 
     BondmakersLeaderboardSerializer,
 )
@@ -1533,6 +1537,264 @@ class TokenRefreshView(generics.GenericAPIView):
 
 @extend_schema(
     tags = ['Authentication'],
+    request=ChangeLoginInfoSerializer,
+    responses={
+        200: inline_serializer(
+            name="ChangeLoginInfoResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+                "requires_verification": serializers.BooleanField(),
+            },
+        ),
+        400: inline_serializer(
+            name="ChangeLoginInfoErrorResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+    },
+)
+class ChangeLoginInfoView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChangeLoginInfoSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(
+            data=request.data,
+            context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        if user.pending_email:
+            PasswordResetOTP.objects.filter(
+                email=user.pending_email,
+                is_used=False,
+                purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE,
+            ).delete()
+
+            otp = PasswordResetOTP.generate_otp()
+            PasswordResetOTP.objects.create(
+                email=user.pending_email,
+                otp=otp,
+                purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE,
+            )
+
+            send_otp_email.delay(
+                user.pending_email,
+                otp,
+                user_name=user.name,
+                subject="Confirm your new email address",
+            )
+
+            return Response(
+                {
+                    "message": "Login info updated. A verification code has been sent to your new email.",
+                    "status": "success",
+                    "requires_verification": True,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "message": "Login info updated successfully.",
+                "status": "success",
+                "requires_verification": False,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Authentication"],
+    request=SecurityPinSetupSerializer,
+    responses={
+        200: inline_serializer(
+            name="SecurityPinSetupResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+        400: inline_serializer(
+            name="SecurityPinSetupErrorResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+    },
+)
+class SecurityPinSetupView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = SecurityPinSetupSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            {"message": "PIN set successfully.", "status": "success"},
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=['Authentication'],
+    request=TwoStepVerifyOTPSerializer,
+    responses={
+        200: inline_serializer(
+            name="TwoStepVerifyOTPResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+                "email": serializers.EmailField(),
+            },
+        ),
+        400: inline_serializer(
+            name="TwoStepVerifyOTPErrorResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+    },
+)
+@method_decorator(
+    ratelimit(key="user", rate="5/m", method="POST", block=False), name="dispatch"
+)
+class TwoStepVerifyOTPView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = TwoStepVerifyOTPSerializer
+
+    def post(self, request, *args, **kwargs):
+        if getattr(request, "limited", False):
+            return Response(
+                {"message": "Too many requests. Try again in a minute.", "status": "error"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        
+        user = request.user
+        if not user.pending_email:
+            return Response(
+                {"message": "No pending email change to verify.", "status": "error"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        otp = serializer.validated_data["otp"]
+
+        otp_record = PasswordResetOTP.objects.filter(
+            otp=otp,
+            is_used=False,
+            email=user.pending_email,
+            purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE
+        ).first()
+
+        if not otp_record or otp_record.is_expired():
+            return Response(
+                {"message": "Invalid or expired OTP", "status": "error"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            otp_record.is_used = True
+            otp_record.save()
+
+            user.email = user.pending_email
+            user.pending_email = None
+            user.save()
+        
+        return Response(
+            {
+                "message": "Email updated successfully",
+                "status": "success",
+                "email": user.email,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Authentication"],
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="TwoStepResendResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+        400: inline_serializer(
+            name="TwoStepResendErrorResponse",
+            fields={
+                "message": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+    },
+)
+class TwoStepResendOTPView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        if not user.pending_email:
+            return Response(
+                {"message": "No pending email change to verify.", "status": "error"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        if not PasswordResetOTP.can_resend_for_email(
+            user.pending_email,
+            PasswordResetPurpose.LOGIN_INFO_CHANGE
+        ):
+            return Response(
+                {"message": "Too many requests. Try again in a minute.", "status": "error"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        PasswordResetOTP.objects.filter(
+            email=user.pending_email,
+            is_used=False,
+            purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE
+        ).update(is_used=True)
+
+        otp = PasswordResetOTP.generate_otp()
+
+        PasswordResetOTP.objects.create(
+            email=user.pending_email,
+            otp=otp,
+            purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE
+        )
+
+        send_otp_email.delay(
+            user.pending_email,
+            otp,
+            user_name=user.name,
+            subject="Confirm your new email address",
+        )
+
+        return Response(
+            {
+                "message": "A new verification code has been sent to your new email.",
+                "status": "success",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags = ['Authentication'],
     request=PasswordResetSerializer,
     responses={
         200: StatusMessageSerializer,
@@ -1548,6 +1810,7 @@ class PasswordResetView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
+        purpose = serializer.validated_data["purpose"]
 
         # Always respond success (avoid email enumeration)
         response_msg = {
@@ -1566,7 +1829,7 @@ class PasswordResetView(generics.GenericAPIView):
         reset_time = timezone.now().strftime("%B %d, %Y at %I:%M %p UTC")
 
         # Delete old OTPs for this email
-        PasswordResetOTP.objects.filter(email=email, is_used=False).delete()
+        PasswordResetOTP.objects.filter(email=email, is_used=False, purpose=purpose).delete()
 
         # Generate new OTP
         otp = PasswordResetOTP.generate_otp()
@@ -1575,6 +1838,7 @@ class PasswordResetView(generics.GenericAPIView):
         PasswordResetOTP.objects.create(
             email=email,
             otp=otp,
+            purpose=purpose,
         )
 
         try:
@@ -1622,11 +1886,13 @@ class PasswordResetVerifyOTPView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         otp = serializer.validated_data["otp"]
         email = serializer.validated_data["email"]
+        purpose = serializer.validated_data["purpose"]
 
         otp_record = PasswordResetOTP.objects.filter(
             otp=otp,
             email=email,
             is_used=False,
+            purpose=purpose,
         ).first()
 
         if not otp_record or otp_record.is_expired():
@@ -1688,6 +1954,7 @@ class PasswordResendOTPView(generics.GenericAPIView):
 
     def post(self, request):
         email = request.data.get("email")
+        purpose = request.data.get("purpose")
 
         response_msg = {
             "message": "If the email exists, OTP has been sent",
@@ -1699,7 +1966,7 @@ class PasswordResendOTPView(generics.GenericAPIView):
             return Response(response_msg, status=200)
 
         # Rate limit check
-        if not PasswordResetOTP.can_resend_for_email(email):
+        if not PasswordResetOTP.can_resend_for_email(email, purpose):
             return Response(
                 {"message": "Too many requests. Try again in a minute."},
                 status=400,
@@ -1707,7 +1974,7 @@ class PasswordResendOTPView(generics.GenericAPIView):
 
         # Mark previous OTPs as used (do NOT delete — for audit trail)
         PasswordResetOTP.objects.filter(
-            email=email, is_used=False
+            email=email, is_used=False, purpose=purpose
         ).update(is_used=True)
 
         # Generate new OTP
@@ -1716,6 +1983,7 @@ class PasswordResendOTPView(generics.GenericAPIView):
         PasswordResetOTP.objects.create(
             email=email,
             otp=otp,
+            purpose=purpose,
         )
 
         # Send mail
