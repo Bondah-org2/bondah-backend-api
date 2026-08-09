@@ -40,6 +40,10 @@ from .views import (
     UserLoginView,
     UserLogoutView,
     TokenRefreshView,
+    ChangeLoginInfoView,
+    TwoStepVerifyOTPView,
+    TwoStepResendOTPView,
+    SecurityPinSetupView,
     PasswordResetView,
     PasswordResetConfirmView,
     UserProfileViews,
@@ -386,8 +390,10 @@ urlpatterns = [
     path("auth/login/", UserLoginView.as_view(), name="user-login"),
     path("auth/logout/", UserLogoutView.as_view(), name="user-logout"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
-
-
+    path("auth/change-login-info/", ChangeLoginInfoView.as_view(), name="change-login-info"),
+    path("auth/two-step-verification/verify/", TwoStepVerifyOTPView.as_view(), name="two-step-verify"),
+    path("auth/two-step-verification/resend/", TwoStepResendOTPView.as_view(), name="two-step-resend"),
+    path("auth/security-pin/setup/", SecurityPinSetupView.as_view(), name="security-pin-setup"),
     path("auth/password-reset/", PasswordResetView.as_view(), name="password-reset"),
     path(
         "auth/password-reset-confirm/",

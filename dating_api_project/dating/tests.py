@@ -5,7 +5,7 @@ and Apple authentication, account linking, account unlinking, and social
 accounts list endpoints.
 """
 
-from dating.models import PasswordResetOTP
+from dating.models import PasswordResetOTP, PasswordResetPurpose, SecurityPin
 from datetime import timedelta
 from django.utils import timezone
 from dating.models import EmailVerification
@@ -614,6 +614,251 @@ class PasswordResetFlowTests(APITestCase):
             self.assertTrue(
                 BlacklistedToken.objects.filter(token=token).exists()
             )
+
+
+# -------------------------
+# Change Login Info / Two-Step Verification / Security PIN
+# -------------------------
+
+
+@override_settings(**TEST_OVERRIDES)
+class ChangeLoginInfoFlowTests(APITestCase):
+    """Tests for the change-login-info -> two-step-verification flow."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="login_info_user@example.com",
+            password="CurrentPassword123!",
+            name="Login Info User",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.change_url = reverse("change-login-info")
+        self.verify_url = reverse("two-step-verify")
+        self.resend_url = reverse("two-step-resend")
+        self.password_reset_url = reverse("password-reset")
+        self.password_reset_verify_url = reverse("password-reset-verify")
+
+    def test_wrong_current_password_rejected(self):
+        response = self.client.post(
+            self.change_url,
+            {"current_password": "WrongPassword!", "new_email": "new@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_password_only_change_applies_immediately_no_otp(self):
+        """A password-only change requires no two-step verification."""
+        response = self.client.post(
+            self.change_url,
+            {
+                "current_password": "CurrentPassword123!",
+                "new_password": "BrandNewPassword456!",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["requires_verification"])
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("BrandNewPassword456!"))
+
+    def test_duplicate_email_rejected(self):
+        User.objects.create_user(
+            email="taken@example.com", password="Whatever123!", name="Other User"
+        )
+        response = self.client.post(
+            self.change_url,
+            {"current_password": "CurrentPassword123!", "new_email": "taken@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_email_change_stages_pending_email_and_sends_otp(self, mock_email):
+        response = self.client.post(
+            self.change_url,
+            {"current_password": "CurrentPassword123!", "new_email": "new@example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["requires_verification"])
+        mock_email.assert_called_once()
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pending_email, "new@example.com")
+        self.assertNotEqual(self.user.email, "new@example.com")
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_two_step_verify_commits_pending_email(self, mock_email):
+        self.client.post(
+            self.change_url,
+            {"current_password": "CurrentPassword123!", "new_email": "new@example.com"},
+            format="json",
+        )
+        otp_record = PasswordResetOTP.objects.filter(
+            email="new@example.com",
+            purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE,
+            is_used=False,
+        ).latest("created_at")
+
+        response = self.client.post(
+            self.verify_url, {"otp": otp_record.otp}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["email"], "new@example.com")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "new@example.com")
+        self.assertIsNone(self.user.pending_email)
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_two_step_verify_wrong_otp_rejected(self, mock_email):
+        self.client.post(
+            self.change_url,
+            {"current_password": "CurrentPassword123!", "new_email": "new@example.com"},
+            format="json",
+        )
+        response = self.client.post(
+            self.verify_url, {"otp": "000000"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pending_email, "new@example.com")
+
+    def test_two_step_verify_without_pending_email_rejected(self):
+        response = self.client.post(
+            self.verify_url, {"otp": "123456"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("dating.tasks.send_otp_email.delay")
+    def test_two_step_resend_invalidates_previous_otp(self, mock_email):
+        self.client.post(
+            self.change_url,
+            {"current_password": "CurrentPassword123!", "new_email": "new@example.com"},
+            format="json",
+        )
+        first_otp = PasswordResetOTP.objects.filter(
+            email="new@example.com",
+            purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE,
+        ).latest("created_at")
+
+        response = self.client.post(self.resend_url, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        first_otp.refresh_from_db()
+        self.assertTrue(first_otp.is_used)
+
+        newest_otp = PasswordResetOTP.objects.filter(
+            email="new@example.com",
+            purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE,
+            is_used=False,
+        ).latest("created_at")
+        self.assertNotEqual(newest_otp.otp, first_otp.otp)
+
+    @patch("dating.tasks.send_otp_email.delay")
+    @patch("dating.tasks.send_password_reset_email.delay")
+    def test_otp_purpose_isolation(self, mock_reset_email, mock_otp_email):
+        """A login-info-change OTP cannot verify a password reset, and vice versa."""
+        # Stage a login-info-change OTP for the new email.
+        self.client.post(
+            self.change_url,
+            {"current_password": "CurrentPassword123!", "new_email": "new@example.com"},
+            format="json",
+        )
+        login_info_otp = PasswordResetOTP.objects.filter(
+            email="new@example.com",
+            purpose=PasswordResetPurpose.LOGIN_INFO_CHANGE,
+            is_used=False,
+        ).latest("created_at")
+
+        # Request a password-reset OTP for the same (current) account email.
+        self.client.post(
+            self.password_reset_url, {"email": self.user.email}, format="json"
+        )
+        password_reset_otp = PasswordResetOTP.objects.filter(
+            email=self.user.email,
+            purpose=PasswordResetPurpose.PASSWORD_RESET,
+            is_used=False,
+        ).latest("created_at")
+
+        # The login-info-change OTP must not verify a password reset.
+        cross_response_1 = self.client.post(
+            self.password_reset_verify_url,
+            {"otp": login_info_otp.otp, "email": self.user.email},
+            format="json",
+        )
+        self.assertEqual(cross_response_1.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # The password-reset OTP must not verify a login-info change.
+        cross_response_2 = self.client.post(
+            self.verify_url, {"otp": password_reset_otp.otp}, format="json"
+        )
+        self.assertEqual(cross_response_2.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Both OTPs remain valid for their own purpose.
+        own_response = self.client.post(
+            self.verify_url, {"otp": login_info_otp.otp}, format="json"
+        )
+        self.assertEqual(own_response.status_code, status.HTTP_200_OK)
+
+
+@override_settings(**TEST_OVERRIDES)
+class SecurityPinTests(APITestCase):
+    """Tests for the security PIN setup endpoint."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="pin_user@example.com",
+            password="SomePassword123!",
+            name="Pin User",
+        )
+        self.client.force_authenticate(user=self.user)
+        self.setup_url = reverse("security-pin-setup")
+
+    def test_set_pin_success(self):
+        response = self.client.post(
+            self.setup_url, {"pin": "1234", "confirm_pin": "1234"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        pin = SecurityPin.objects.get(user=self.user)
+        self.assertTrue(pin.check_pin("1234"))
+        self.assertFalse(pin.check_pin("4321"))
+
+    def test_mismatched_pins_rejected(self):
+        response = self.client.post(
+            self.setup_url, {"pin": "1234", "confirm_pin": "5678"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(SecurityPin.objects.filter(user=self.user).exists())
+
+    def test_non_digit_pin_rejected(self):
+        response = self.client.post(
+            self.setup_url, {"pin": "12ab", "confirm_pin": "12ab"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_wrong_length_pin_rejected(self):
+        response = self.client.post(
+            self.setup_url, {"pin": "123", "confirm_pin": "123"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_resetting_pin_updates_existing_record(self):
+        self.client.post(
+            self.setup_url, {"pin": "1234", "confirm_pin": "1234"}, format="json"
+        )
+        self.client.post(
+            self.setup_url, {"pin": "5678", "confirm_pin": "5678"}, format="json"
+        )
+
+        self.assertEqual(SecurityPin.objects.filter(user=self.user).count(), 1)
+        pin = SecurityPin.objects.get(user=self.user)
+        self.assertTrue(pin.check_pin("5678"))
+        self.assertFalse(pin.check_pin("1234"))
 
 
 # -------------------------

@@ -79,6 +79,8 @@ from .users import (
     UserRoleSelection,
     MatchRequest,
     PasswordResetOTP,
+    PasswordResetPurpose,
+    SecurityPin,
     Notification,
     Report,
     Specialisation,
@@ -174,6 +176,8 @@ __all__ = [
     "Visibility",
     "MatchRequest",
     "PasswordResetOTP",
+    "PasswordResetPurpose",
+    "SecurityPin",
     "Notification",
     "Report",
     # Username
