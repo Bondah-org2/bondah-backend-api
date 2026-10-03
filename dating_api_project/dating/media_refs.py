@@ -8,6 +8,8 @@ is not already used elsewhere. Values already on the record (including legacy
 Cloudinary URLs) may be kept as they are.
 """
 
+from urllib.parse import urlparse
+
 from rest_framework import serializers
 
 from .models import MediaUpload
@@ -24,12 +26,35 @@ def _as_list(value):
     return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
+def _restore_existing(item, existing_refs):
+    """
+    Clients only ever see signed links, so when they send a field back
+    unchanged (e.g. the untouched photos of a gallery) the item is a link, not
+    the stored reference. Map a link whose path ends with the object key of a
+    reference already on this record back to that reference. Keys are random,
+    so this can only ever match the record's own files.
+    """
+    if not isinstance(item, str) or media_storage.is_ref(item):
+        return item
+    path = urlparse(item).path
+    for ref in existing_refs:
+        if path.endswith("/" + media_storage.key_from_ref(ref)):
+            return ref
+    return item
+
+
 def validate_refs(value, *, owner, purposes, existing=(), chat=None):
     """
     Check every new reference in `value` (a string or a list of strings).
-    Returns the value unchanged when valid; raises ValidationError otherwise.
+    Returns the value with signed links to existing files mapped back to their
+    references; raises ValidationError when anything is not allowed.
     """
     existing = set(_as_list(existing))
+    existing_refs = [item for item in existing if media_storage.is_ref(item)]
+    if isinstance(value, (list, tuple)):
+        value = [_restore_existing(item, existing_refs) for item in value]
+    else:
+        value = _restore_existing(value, existing_refs)
     items = _as_list(value)
     if len(items) != len(set(items)):
         raise serializers.ValidationError("The same file was included twice.")
@@ -82,7 +107,7 @@ class MediaRefsMixin:
                 continue
             existing = getattr(self.instance, field, None) if self.instance else None
             try:
-                validate_refs(
+                attrs[field] = validate_refs(
                     attrs[field],
                     owner=owner,
                     purposes=purposes,

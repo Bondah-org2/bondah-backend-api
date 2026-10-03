@@ -722,3 +722,54 @@ class ChatReportTests(ChatFixtureMixin, APITestCase):
         )
         for response in (missing, foreign, self_report):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# Push targets follow whoever is signed in on a device
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**TEST_OVERRIDES)
+class DevicePushSafetyTests(APITestCase):
+    def setUp(self):
+        self.alice = make_user("alice@example.com", "Alice")
+        self.bob = make_user("bob@example.com", "Bob")
+        self.payload = {
+            "device_id": "install-1",
+            "device_type": "ios",
+            "push_token": "ExponentPushToken[abc]",
+            "token_type": "expo",
+        }
+
+    def register(self, user):
+        self.client.force_authenticate(user=user)
+        return self.client.post(reverse("device-register"), self.payload, format="json")
+
+    def test_second_account_on_same_phone_takes_over_the_device(self):
+        self.assertEqual(self.register(self.alice).status_code, status.HTTP_200_OK)
+        response = self.register(self.bob)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        device = DeviceRegistration.objects.get(device_id="install-1")
+        self.assertEqual(device.user_id, self.bob.id)
+        self.assertFalse(DeviceRegistration.objects.filter(user=self.alice).exists())
+
+    def test_logout_stops_pushes_to_that_phone(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        self.register(self.alice)
+        refresh = str(RefreshToken.for_user(self.alice))
+        self.client.force_authenticate(user=None)
+        response = self.client.post(
+            reverse("user-logout"),
+            {"refresh_token": refresh},
+            format="json",
+            HTTP_X_DEVICE_ID="install-1",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(DeviceRegistration.objects.get(device_id="install-1").is_active)
+
+    def test_logout_with_bad_token_is_400(self):
+        response = self.client.post(
+            reverse("user-logout"), {"refresh_token": "not-a-token"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

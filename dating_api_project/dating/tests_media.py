@@ -353,6 +353,29 @@ class ProfileMediaTests(MediaTestMixin, APITestCase):
         self.assertTrue(all(g.startswith("https://r2.test/get/") for g in gallery[1:]))
 
 
+    def test_unchanged_items_sent_back_as_signed_links_are_kept(self):
+        refs = [self.upload(self.alice, "profile_gallery") for _ in range(3)]
+        first = self.client.patch(self.url, {"profile_gallery": refs}, format="json")
+        signed = first.json()["user"]["profile_gallery"]
+        self.alice.refresh_from_db()
+
+        # Reorder using the links the app received, and add one new photo
+        new_ref = self.upload(self.alice, "profile_gallery")
+        response = self.client.patch(
+            self.url, {"profile_gallery": [signed[2], signed[0], new_ref]}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.profile_gallery, [refs[2], refs[0], new_ref])
+
+    def test_signed_link_to_someone_elses_file_is_still_rejected(self):
+        bobs = self.upload(self.bob, "profile_gallery")
+        link = f"https://r2.test/get/{media_storage.key_from_ref(bobs)}?sig=1"
+        self.client.force_authenticate(user=self.alice)
+        response = self.client.patch(self.url, {"profile_gallery": [link]}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 @override_settings(**TEST_OVERRIDES)
 class VerificationMediaTests(MediaTestMixin, APITestCase):
     def test_document_and_selfie_take_verification_refs_only(self):
