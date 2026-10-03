@@ -1,0 +1,69 @@
+# Production stack for a single VPS.
+#   docker compose up -d --build
+# The API listens on 127.0.0.1:8000; nginx on the host terminates TLS and
+# proxies to it (see deploy/nginx/bondah.conf and docs/deployment.md).
+
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DJANGO_SETTINGS_MODULE: config.settings.prod
+    DATABASE_URL: postgres://${POSTGRES_USER:-bondah}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-bondah}
+    REDIS_URL: redis://redis:6379/0
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  web:
+    <<: *app
+    command: web
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    <<: *app
+    command: worker
+
+  beat:
+    <<: *app
+    command: beat
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bondah}
+      POSTGRES_USER: ${POSTGRES_USER:-bondah}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bondah} -d ${POSTGRES_DB:-bondah}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

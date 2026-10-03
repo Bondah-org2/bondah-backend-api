@@ -1,2 +1,42 @@
-lvenv/dating_api_project/bondah/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+lvenv/
+bvenv/
+ovenv/
 bondah/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+firebase-service-account.json
+dating/google_play_key.json
+secrets/
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+*.log
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
