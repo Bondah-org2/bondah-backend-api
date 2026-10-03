@@ -1,3 +1,8 @@
+from .media_views import (
+    MediaUploadCompleteView,
+    MediaUploadCreateView,
+    MediaUploadDetailView,
+)
 from django.urls import path, include
 from . import liveness_views
 from rest_framework.routers import DefaultRouter
@@ -90,6 +95,8 @@ from .views import (
     ChatSyncView,
     ChatMarkReadView,
     ChatTypingView,
+    ChatClearView,
+    ChatReportView,
     MessageDetailView,
     # MessageListView,
     # MessageDetailView,
@@ -205,7 +212,6 @@ from .views import (
     PostViewSet,
     PostCommentViewSet,
     AdminOverviewView,
-    CloudinarySignatureView,
     ChatMessagesView,
     SelfieSubmissionView,
     UserSelfieListView,
@@ -1044,6 +1050,8 @@ urlpatterns = [
     path("chats/<int:chat_id>/sync/", ChatSyncView.as_view(), name="chat-sync"),
     path("chats/<int:chat_id>/read/", ChatMarkReadView.as_view(), name="chat-read"),
     path("chats/<int:chat_id>/typing/", ChatTypingView.as_view(), name="chat-typing"),
+    path("chats/<int:chat_id>/clear/", ChatClearView.as_view(), name="chat-clear"),
+    path("chats/<int:chat_id>/report/", ChatReportView.as_view(), name="chat-report"),
     path("chats/<int:chat_id>/messages/", ChatMessagesView.as_view(), name="chat-messages"),
     path(
         "chats/<int:chat_id>/messages/<int:message_id>/",
@@ -1055,8 +1063,18 @@ urlpatterns = [
     path("", include(router.urls)),
     path("", include(posts_router.urls)),
 
-    # Cloudinary Signature request view
-    path("cloudinary-signature/", CloudinarySignatureView.as_view(), name="cloudinary"),
+    # Private R2 uploads
+    path("media/uploads/", MediaUploadCreateView.as_view(), name="media-upload-create"),
+    path(
+        "media/uploads/<uuid:upload_id>/complete/",
+        MediaUploadCompleteView.as_view(),
+        name="media-upload-complete",
+    ),
+    path(
+        "media/uploads/<uuid:upload_id>/",
+        MediaUploadDetailView.as_view(),
+        name="media-upload-detail",
+    ),
 
     path("selfie/submit/", SelfieSubmissionView.as_view()),
     path("selfie/", UserSelfieListView.as_view()),

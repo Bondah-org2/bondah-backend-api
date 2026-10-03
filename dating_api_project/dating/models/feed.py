@@ -1,4 +1,5 @@
 from django.db import models
+from .fields import MediaRefField
 from django.utils import timezone
 
 from .users import User
@@ -25,9 +26,11 @@ class Post(models.Model):
 
     # Media attachments
     image_urls = models.JSONField(default=list, help_text="List of image URLs")
-    video_url = models.URLField(blank=True, null=True, help_text="URL to video file")
-    video_thumbnail = models.URLField(
-        blank=True, null=True, help_text="Video thumbnail URL"
+    video_url = models.JSONField(
+        default=list, blank=True, help_text="List of video references"
+    )
+    video_thumbnail = models.JSONField(
+        default=list, blank=True, help_text="List of video thumbnail references"
     )
 
     # Post metadata
@@ -506,11 +509,11 @@ class DocumentVerification(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
 
     # Document images
-    front_image_url = models.URLField(
-        blank=True, null=True, help_text="URL to front image of document"
+    front_image_url = MediaRefField(
+        blank=True, null=True, help_text="Front image of document"
     )
-    back_image_url = models.URLField(
-        blank=True, null=True, help_text="URL to back image of document"
+    back_image_url = MediaRefField(
+        blank=True, null=True, help_text="Back image of document"
     )
 
     # Extracted data from OCR
@@ -598,7 +601,7 @@ class SelfieVerification(models.Model):
     )
 
     # Selfie image / video
-    selfie_image_url = models.URLField(blank=True, null=True)
+    selfie_image_url = MediaRefField(blank=True, null=True)
 
     is_match = models.BooleanField(default=False)
 

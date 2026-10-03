@@ -25,6 +25,7 @@ from .chat import (
     BondCirclePostComment,
     BondCirclePostLike,
 )
+from .media import MediaRefField, MediaUpload
 from .feed import (
     Post,
     PostComment,
@@ -105,6 +106,8 @@ __all__ = [
     "Call",
     "ChatParticipant",
     "ChatDeviceCursor",
+    "MediaRefField",
+    "MediaUpload",
     "ChatReport",
     "LivenessVerification",
     "UserVerificationStatus",

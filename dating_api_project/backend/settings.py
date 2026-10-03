@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from clean_enums import cleanup_openapi_schema
 from celery.schedules import crontab
 import json
-import cloudinary
 
 # Firebase Configuration
 import firebase_admin
@@ -272,6 +271,11 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_RENDERER_CLASSES": [
+        # Turns stored r2:// media references into short-lived signed URLs
+        "dating.renderers.MediaSigningJSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -547,18 +551,15 @@ CELERY_TIMEZONE = "UTC"
 
 
 CELERY_BEAT_SCHEDULE = {
+    "cleanup-stale-media-uploads-hourly": {
+        "task": "dating.tasks.cleanup_stale_media_uploads",
+        "schedule": crontab(minute=30),
+    },
     "expire-visibilities-every-hour": {
         "task": "dating.tasks.expire_visibilities",
         "schedule": crontab(minute=0, hour=0),  # every midnight
     },
 }
-
-cloudinary.config(
-    cloud_name="drisz93x9",
-    api_key="154685282736747",
-    api_secret=os.getenv("cloudinary_api_secret"),
-    secure=True
-)
 
 LOGGING = {
     "version": 1,
@@ -576,3 +577,23 @@ LOGGING = {
 
 BREVO_API_KEY = config("BREVO_API_KEY")
 ENABLE_EMAIL_SENDING = config("ENABLE_EMAIL_SENDING", default=False, cast=bool)
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare R2 media storage (private bucket, signed URLs only)
+# Keys must come from the environment; never commit them.
+# ---------------------------------------------------------------------------
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "414e15d4af5a08a7924ffdea15875d74")
+R2_BUCKET = os.getenv("R2_BUCKET", "bondah-media")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+R2_ENDPOINT_URL = os.getenv(
+    "R2_ENDPOINT_URL", f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+)
+# Lifetime of upload links handed to the app
+R2_UPLOAD_URL_TTL_SECONDS = int(os.getenv("R2_UPLOAD_URL_TTL_SECONDS", "900"))
+# Lifetime of view links in API responses (identity documents use the short one)
+R2_DOWNLOAD_URL_TTL_SECONDS = int(os.getenv("R2_DOWNLOAD_URL_TTL_SECONDS", "3600"))
+R2_SENSITIVE_DOWNLOAD_URL_TTL_SECONDS = int(
+    os.getenv("R2_SENSITIVE_DOWNLOAD_URL_TTL_SECONDS", "600")
+)

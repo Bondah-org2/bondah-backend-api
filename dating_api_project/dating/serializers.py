@@ -1,6 +1,7 @@
 from .models.users import PasswordResetPurpose
 from random import choices
 import logging
+import math
 from dating.tasks import send_otp_email
 from dating.tasks import notify_user
 from rest_framework import serializers
@@ -23,7 +24,10 @@ from datetime import date
 from rest_framework.validators import UniqueValidator
 from django.db.models import Q
 from .constants import QUESTION_UI_CONFIG
+from .media_refs import MediaRefsMixin, validate_refs
+from .services import media_storage
 from .models import (
+    MediaUpload,
     Activity,
     User,
     NewsletterSubscriber,
@@ -665,11 +669,16 @@ class AdminBondmakerDetailSerializer(serializers.ModelSerializer):
         return SelfieVerificationSerializer(selfie).data if selfie else None
 
 
-class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
+class DocumentVerificationCreateSerializer(MediaRefsMixin, serializers.ModelSerializer):
     """Serializer for creating document verification requests"""
 
-    front_image_url = serializers.URLField()
-    back_image_url = serializers.URLField(required=False, allow_blank=True)
+    media_ref_fields = {
+        "front_image_url": ("id_document",),
+        "back_image_url": ("id_document",),
+    }
+
+    front_image_url = serializers.CharField(max_length=500)
+    back_image_url = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
     class Meta:
         model = DocumentVerification
@@ -678,67 +687,6 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
                   "front_image_url",
                   "back_image_url",
                   ]
-
-    def validate_front_image_url(self, value):
-        """Validate front image URL for security"""
-        return self._validate_image_url(value, "front_image_url")
-
-    def validate_back_image_url(self, value):
-        """Validate back image URL for security"""
-        if value:
-            return self._validate_image_url(value, "back_image_url")
-        return value
-
-    def _validate_image_url(self, url, field_name):
-        """Common validation for image URLs"""
-        import re
-        from urllib.parse import urlparse
-
-        # Check URL format
-        try:
-            parsed = urlparse(url)
-            if not parsed.scheme or not parsed.netloc:
-                raise serializers.ValidationError(f"Invalid {field_name} URL format.")
-        except Exception:
-            raise serializers.ValidationError(f"Invalid {field_name} URL format.")
-
-        # Allow only HTTPS
-        if parsed.scheme != "https":
-            raise serializers.ValidationError(f"{field_name} must use HTTPS protocol.")
-
-        # Check for suspicious patterns
-        suspicious_patterns = [
-            r"\.exe$",
-            r"\.bat$",
-            r"\.cmd$",
-            r"\.scr$",
-            r"\.pif$",
-            r"\.com$",
-            r"\.vbs$",
-            r"\.js$",
-            r"\.jar$",
-            r"<script",
-            r"javascript:",
-            r"data:",
-            r"vbscript:",
-        ]
-
-        url_lower = url.lower()
-        for pattern in suspicious_patterns:
-            if re.search(pattern, url_lower):
-                raise serializers.ValidationError(
-                    f"Potentially malicious content detected in {field_name}."
-                )
-
-        # Check file extensions (allow common image formats)
-        allowed_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
-        path_lower = parsed.path.lower()
-        if not any(path_lower.endswith(ext) for ext in allowed_extensions):
-            raise serializers.ValidationError(
-                f"{field_name} must be a valid image file (jpg, png, gif, webp, bmp)."
-            )
-
-        return url
 
     def validate(self, attrs):
         user = self.context["request"].user
@@ -751,7 +699,8 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
                 "You already have an active verification request"
             )
 
-        return attrs
+        # Runs the media reference checks from MediaRefsMixin
+        return super().validate(attrs)
 
     def create(self, validated_data):
         """Create document verification with current user"""
@@ -2307,8 +2256,15 @@ class ResendOTPSerializer(serializers.Serializer):
 # =============================================================================
 
 
-class UserProfileDetailSerializer(serializers.ModelSerializer):
+class UserProfileDetailSerializer(MediaRefsMixin, serializers.ModelSerializer):
     """Detailed user profile serializer for viewing other users"""
+
+    media_ref_fields = {
+        "profile_picture": ("profile_picture",),
+        "profile_gallery": ("profile_gallery",),
+        "bondmaker_profile_picture": ("bondmaker_profile_picture",),
+        "bondmaker_cover_picture": ("bondmaker_cover_picture",),
+    }
 
     profile_views_count = serializers.SerializerMethodField()
     is_online = serializers.SerializerMethodField()
@@ -2323,7 +2279,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
     hobbies = serializers.ListField(child=serializers.CharField())
     interests = serializers.ListField(child=serializers.CharField())
     traits = serializers.ListField(child=serializers.CharField())
-    profile_gallery = serializers.ListField(child=serializers.URLField())
+    profile_gallery = serializers.ListField(child=serializers.CharField(max_length=500))
     speciality = serializers.SlugRelatedField(
         slug_field="category",
         queryset=Specialisation.objects.all(),
@@ -2918,8 +2874,9 @@ class MessageSerializer(serializers.ModelSerializer):
     """
     Read and write shape of a chat message.
 
-    Writes: message_type, content, media_url, voice_note_duration,
-    client_message_id (idempotency key) and reply_to_id.
+    Writes: message_type, content, media_ref (+ thumbnail_ref for videos),
+    client_message_id (idempotency key) and reply_to_id. Media refs come from
+    media/uploads/ and must belong to the sender and this chat.
     Reads add the sync fields (seq, change_seq), sender, reply preview and state.
     """
 
@@ -2935,10 +2892,14 @@ class MessageSerializer(serializers.ModelSerializer):
         allow_blank=True,
         max_length=MESSAGE_TEXT_MAX_LENGTH,
     )
-    media_url = serializers.URLField(required=False, allow_null=True, write_only=True)
-    voice_note_duration = serializers.IntegerField(
-        required=False, allow_null=True, min_value=1, max_value=VOICE_NOTE_MAX_SECONDS
+    media_ref = serializers.CharField(
+        required=False, allow_null=True, write_only=True, max_length=500
     )
+    thumbnail_ref = serializers.CharField(
+        required=False, allow_null=True, write_only=True, max_length=500
+    )
+    # Taken from the verified upload; any value sent by the client is ignored
+    voice_note_duration = serializers.IntegerField(read_only=True)
     client_message_id = serializers.UUIDField(required=False, allow_null=True)
     reply_to_id = serializers.IntegerField(
         required=False, allow_null=True, write_only=True
@@ -2958,11 +2919,13 @@ class MessageSerializer(serializers.ModelSerializer):
             "sender_name",
             "message_type",
             "content",
-            "media_url",
+            "media_ref",
+            "thumbnail_ref",
             "voice_note_url",
             "voice_note_duration",
             "image_url",
             "video_url",
+            "video_thumbnail_url",
             "document_url",
             "document_name",
             "reply_to_id",
@@ -2991,6 +2954,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "voice_note_url",
             "image_url",
             "video_url",
+            "video_thumbnail_url",
             "document_url",
             "document_name",
         ]
@@ -3016,39 +2980,77 @@ class MessageSerializer(serializers.ModelSerializer):
         }
 
     def get_hidden(self, obj) -> bool:
-        """True when the requesting user deleted this message for themselves."""
+        """True when the requesting user deleted this message or cleared the chat."""
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return False
+        cleared_before_seq = self.context.get("cleared_before_seq") or 0
+        if obj.seq is not None and obj.seq <= cleared_before_seq:
+            return True
         return any(u.pk == request.user.pk for u in obj.deleted_for.all())
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # Never leak the content of a message the requester removed for themselves
         if data.get("hidden"):
-            for field in ("content", "voice_note_url", "image_url", "video_url"):
+            for field in (
+                "content",
+                "voice_note_url",
+                "image_url",
+                "video_url",
+                "video_thumbnail_url",
+            ):
                 data[field] = None
         return data
+
+    MEDIA_PURPOSE_BY_TYPE = {
+        "image": "chat_image",
+        "video": "chat_video",
+        "voice_note": "chat_voice_note",
+    }
+
+    def _check_chat_ref(self, field, ref, purpose):
+        chat = self.context.get("chat")
+        request = self.context.get("request")
+        try:
+            validate_refs(ref, owner=request.user, purposes=(purpose,), chat=chat)
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({field: exc.detail})
+        return MediaUpload.objects.get(object_key=media_storage.key_from_ref(ref))
 
     def validate(self, attrs):
         message_type = attrs.get("message_type", "text")
         content = (attrs.get("content") or "").strip()
-        media_url = attrs.get("media_url")
+        media_ref = attrs.pop("media_ref", None)
+        thumbnail_ref = attrs.pop("thumbnail_ref", None)
 
-        if message_type == "text" and not content:
-            raise serializers.ValidationError(
-                {"content": "Text messages require content."}
+        if message_type == "text":
+            if not content:
+                raise serializers.ValidationError(
+                    {"content": "Text messages require content."}
+                )
+            if media_ref or thumbnail_ref:
+                raise serializers.ValidationError(
+                    {"media_ref": "Text messages can't carry media."}
+                )
+        else:
+            if not media_ref:
+                raise serializers.ValidationError(
+                    {"media_ref": f"{message_type} messages require a media_ref."}
+                )
+            upload = self._check_chat_ref(
+                "media_ref", media_ref, self.MEDIA_PURPOSE_BY_TYPE[message_type]
             )
-        if message_type != "text" and not media_url:
-            raise serializers.ValidationError(
-                {"media_url": f"{message_type} messages require a media_url."}
-            )
-        if message_type == "voice_note" and not attrs.get("voice_note_duration"):
-            raise serializers.ValidationError(
-                {"voice_note_duration": "Voice notes require a duration in seconds."}
-            )
-        if message_type != "voice_note":
-            attrs.pop("voice_note_duration", None)
+            attrs[{"image": "image_url", "video": "video_url", "voice_note": "voice_note_url"}[message_type]] = media_ref
+            if message_type == "voice_note":
+                attrs["voice_note_duration"] = max(1, math.ceil(upload.duration_seconds or 0))
+            if thumbnail_ref:
+                if message_type != "video":
+                    raise serializers.ValidationError(
+                        {"thumbnail_ref": "Only videos can have a thumbnail."}
+                    )
+                self._check_chat_ref("thumbnail_ref", thumbnail_ref, "chat_image")
+                attrs["video_thumbnail_url"] = thumbnail_ref
 
         attrs["content"] = content or None
 
@@ -3071,14 +3073,6 @@ class MessageSerializer(serializers.ModelSerializer):
         """Validated data mapped onto Message model fields (used by the chat service)."""
         data = dict(self.validated_data)
         data.pop("client_message_id", None)
-        media_url = data.pop("media_url", None)
-        field_map = {
-            "voice_note": "voice_note_url",
-            "image": "image_url",
-            "video": "video_url",
-        }
-        if media_url and data.get("message_type") in field_map:
-            data[field_map[data["message_type"]]] = media_url
         return data
 
 
@@ -3100,6 +3094,15 @@ class TypingSerializer(serializers.Serializer):
     is_typing = serializers.BooleanField(default=True)
 
 
+class ChatReportCreateSerializer(serializers.Serializer):
+    report_type = serializers.ChoiceField(choices=[c[0] for c in ChatReport.REPORT_TYPES])
+    description = serializers.CharField(
+        max_length=2000, required=False, allow_blank=True, default=""
+    )
+    message_id = serializers.IntegerField(required=False, allow_null=True)
+    reported_user_id = serializers.IntegerField(required=False, allow_null=True)
+
+
 class ChatReceiptSerializer(serializers.Serializer):
     user_id = serializers.IntegerField()
     last_delivered_seq = serializers.IntegerField()
@@ -3112,6 +3115,7 @@ class ChatSyncResponseSerializer(serializers.Serializer):
     events = MessageSerializer(many=True)
     has_more = serializers.BooleanField()
     next_after_seq = serializers.IntegerField()
+    cleared_before_seq = serializers.IntegerField()
     receipts = ChatReceiptSerializer(many=True)
     typing_user_ids = serializers.ListField(child=serializers.IntegerField())
     presence = serializers.DictField()
@@ -3170,7 +3174,12 @@ class ChatDetailSerializer(serializers.ModelSerializer):
         ).prefetch_related("deleted_for")
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            qs = qs.exclude(deleted_for=request.user)
+            cleared = (
+                ChatParticipant.objects.filter(chat=obj, user=request.user)
+                .values_list("cleared_before_seq", flat=True)
+                .first()
+            ) or 0
+            qs = qs.exclude(deleted_for=request.user).filter(seq__gt=cleared)
         return MessageSerializer(
             qs.order_by("seq", "id"), many=True, context=self.context
         ).data
@@ -3508,10 +3517,22 @@ class PostCommentCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ["author", "likes_count", "created_at"]
 
 
-class PostSerializer(serializers.ModelSerializer):
+class PostSerializer(MediaRefsMixin, serializers.ModelSerializer):
+    MAX_IMAGES = 5
+    MAX_VIDEOS = 2
+
+    media_ref_fields = {
+        "image_urls": ("post_image",),
+        "video_url": ("post_video",),
+        "video_thumbnail": ("post_image",),
+    }
+
     author_name = serializers.CharField(source="author.name", read_only=True)
     image_urls = serializers.ListField(
-        child=serializers.CharField(), required=False, allow_empty=True
+        child=serializers.CharField(max_length=500),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_IMAGES,
     )
     hashtags = serializers.ListField(
         child=serializers.CharField(), required=False, allow_empty=True
@@ -3523,8 +3544,18 @@ class PostSerializer(serializers.ModelSerializer):
     # has_bonded = serializers.SerializerMethodField(default=False)
     is_featured = serializers.BooleanField(default=False)
     is_reported = serializers.BooleanField(default=False)
-    video_thumbnail = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
-    video_url = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
+    video_thumbnail = serializers.ListField(
+        child=serializers.CharField(max_length=500),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_VIDEOS,
+    )
+    video_url = serializers.ListField(
+        child=serializers.CharField(max_length=500),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_VIDEOS,
+    )
 
     class Meta:
         model = Post
@@ -4625,7 +4656,13 @@ class UserSecurityQuestionUpdateSerializer(serializers.Serializer):
     answer = serializers.CharField()
 
 
-class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
+class BondmakerProfileUpdateSerializer(MediaRefsMixin, serializers.ModelSerializer):
+    media_ref_fields = {
+        "profile_picture": ("profile_picture",),
+        "bondmaker_profile_picture": ("bondmaker_profile_picture",),
+        "bondmaker_cover_picture": ("bondmaker_cover_picture",),
+    }
+
     security_questions = UserSecurityQuestionDisplaySerializer(
         many=True, read_only=True
     )
@@ -5474,13 +5511,6 @@ class AdminOverviewSerializer(serializers.Serializer):
     reports_stats = serializers.DictField()
 
 
-class CloudinarySignatureSerializer(serializers.Serializer):
-    timestamp = serializers.IntegerField()
-    signature = serializers.CharField()
-    api_key = serializers.CharField()
-    cloud_name = serializers.CharField()
-
-
 class AdminPermissionSerializer(serializers.ModelSerializer):
     can_view_overview = serializers.BooleanField(default=True)
     can_view_applications = serializers.BooleanField(default=False)
@@ -5720,8 +5750,11 @@ class RemoveAdminMemberSerializer(serializers.Serializer):
     id = serializers.IntegerField()
 
 
-class SelfieSubmissionSerializer(serializers.ModelSerializer):
+class SelfieSubmissionSerializer(MediaRefsMixin, serializers.ModelSerializer):
+    media_ref_fields = {"selfie_image_url": ("selfie",)}
+
     document_verification_id = serializers.IntegerField(write_only=True)
+    selfie_image_url = serializers.CharField(max_length=500)
 
     class Meta:
         model = SelfieVerification

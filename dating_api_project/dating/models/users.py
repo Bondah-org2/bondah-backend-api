@@ -3,6 +3,7 @@ from django.contrib.auth.hashers import make_password
 import random
 import string
 from django.db import models
+from .fields import MediaRefField
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
@@ -219,8 +220,8 @@ class User(AbstractUser):
     last_location_update = models.DateTimeField(blank=True, null=True)
 
     # Profile Pictures
-    profile_picture = models.URLField(
-        blank=True, null=True, help_text="Main profile picture URL"
+    profile_picture = MediaRefField(
+        blank=True, null=True, help_text="Main profile picture (r2:// reference or legacy URL)"
     )
     profile_gallery = models.JSONField(
         default=list, help_text="Array of additional profile picture URLs"
@@ -506,8 +507,8 @@ class User(AbstractUser):
     )
     job_title = models.CharField(max_length=50, blank=True, null=True)
     company_name = models.CharField(max_length=50, blank=True, null=True)
-    bondmaker_profile_picture = models.URLField(null=True, blank=True)
-    bondmaker_cover_picture = models.URLField(null=True, blank=True)
+    bondmaker_profile_picture = MediaRefField(null=True, blank=True)
+    bondmaker_cover_picture = MediaRefField(null=True, blank=True)
     bondmaker_bio = models.TextField(blank=True, null=True)
     thought_leadership = models.TextField(blank=True, null=True)
 

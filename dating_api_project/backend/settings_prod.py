@@ -16,7 +16,6 @@ import json
 from decouple import config
 from celery.schedules import crontab
 from celery.schedules import crontab
-import cloudinary
 
 JWT_SECRET_KEY = config("JWT_SECRET_KEY")
 # Load environment variables
@@ -280,6 +279,11 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_RENDERER_CLASSES": [
+        # Turns stored r2:// media references into short-lived signed URLs
+        "dating.renderers.MediaSigningJSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -665,6 +669,10 @@ CELERY_TIMEZONE = "UTC"
 
 
 CELERY_BEAT_SCHEDULE = {
+    "cleanup-stale-media-uploads-hourly": {
+        "task": "dating.tasks.cleanup_stale_media_uploads",
+        "schedule": crontab(minute=30),
+    },
     "expire-visibilities-every-midnight": {
         "task": "dating.tasks.expire_visibilities",
         "schedule": crontab(minute=0, hour=0),  # every midnight (00:00)
@@ -675,9 +683,23 @@ CELERY_BEAT_SCHEDULE = {
     }
 }
 
-cloudinary.config(
-    cloud_name=config("CLOUDINARY_CLOUD_NAME"),
-    api_key=config("CLOUDINARY_API_KEY"),
-    api_secret=config("CLOUDINARY_API_SECRET"),
-    secure=True
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare R2 media storage (private bucket, signed URLs only)
+# Keys must come from the environment; never commit them.
+# ---------------------------------------------------------------------------
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "414e15d4af5a08a7924ffdea15875d74")
+R2_BUCKET = os.getenv("R2_BUCKET", "bondah-media")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+R2_ENDPOINT_URL = os.getenv(
+    "R2_ENDPOINT_URL", f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+)
+# Lifetime of upload links handed to the app
+R2_UPLOAD_URL_TTL_SECONDS = int(os.getenv("R2_UPLOAD_URL_TTL_SECONDS", "900"))
+# Lifetime of view links in API responses (identity documents use the short one)
+R2_DOWNLOAD_URL_TTL_SECONDS = int(os.getenv("R2_DOWNLOAD_URL_TTL_SECONDS", "3600"))
+R2_SENSITIVE_DOWNLOAD_URL_TTL_SECONDS = int(
+    os.getenv("R2_SENSITIVE_DOWNLOAD_URL_TTL_SECONDS", "600")
 )

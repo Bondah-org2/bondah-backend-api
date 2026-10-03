@@ -281,3 +281,67 @@ def send_chat_message_push(message_id):
         except Exception:
             logger.error("Unexpected chat push error for device %s", device.pk, exc_info=True)
     return sent
+
+
+# ---------------------------------------------------------------------------
+# R2 media housekeeping
+# ---------------------------------------------------------------------------
+
+# Uploads never completed, or completed but never used, are removed after this
+STALE_UPLOAD_HOURS = 24
+
+
+@shared_task
+def delete_media_objects(keys):
+    """Remove objects from the bucket (best effort; failures are logged)."""
+    from .services import media_storage
+
+    deleted = 0
+    for key in keys:
+        try:
+            media_storage.delete(key)
+            deleted += 1
+        except Exception:
+            logger.warning("Could not delete media object %s", key, exc_info=True)
+    return deleted
+
+
+@shared_task
+def purge_deleted_media(limit=500):
+    """Delete bucket objects for uploads marked deleted or rejected."""
+    from .models import MediaUpload
+    from .services import media_storage
+
+    pending = list(
+        MediaUpload.objects.filter(status__in=("deleted", "rejected"), purged=False)
+        .order_by("created_at")
+        .values_list("pk", "object_key")[:limit]
+    )
+    purged_ids = []
+    for pk, key in pending:
+        try:
+            media_storage.delete(key)
+            purged_ids.append(pk)
+        except Exception:
+            logger.warning("Could not purge media object %s", key, exc_info=True)
+    MediaUpload.objects.filter(pk__in=purged_ids).update(purged=True)
+    return len(purged_ids)
+
+
+@shared_task
+def cleanup_stale_media_uploads():
+    """Expire abandoned uploads, then purge everything marked for deletion."""
+    from datetime import timedelta as _timedelta
+
+    from .models import MediaUpload
+
+    cutoff = timezone.now() - _timedelta(hours=STALE_UPLOAD_HOURS)
+    expired = MediaUpload.objects.filter(status="pending", created_at__lt=cutoff).update(
+        status="deleted"
+    )
+    unused = MediaUpload.objects.filter(
+        status="ready", attached_at__isnull=True, completed_at__lt=cutoff
+    ).update(status="deleted")
+    purged = purge_deleted_media()
+    return {"expired": expired, "unused": unused, "purged": purged}
+

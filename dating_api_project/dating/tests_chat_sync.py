@@ -171,23 +171,15 @@ class SendMessageSyncTests(ChatFixtureMixin, APITestCase):
             self.alice,
             None,
             message_type="document",
-            media_url="https://example.com/file.pdf",
+            media_ref="r2://chat/1/file.pdf",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_voice_note_requires_duration_within_limit(self):
-        self.client.force_authenticate(user=self.alice)
-        base = {"message_type": "voice_note", "media_url": "https://example.com/v.m4a"}
-        missing = self.client.post(self.url("chat-send"), base, format="json")
-        too_long = self.client.post(
-            self.url("chat-send"), {**base, "voice_note_duration": 121}, format="json"
-        )
-        ok = self.client.post(
-            self.url("chat-send"), {**base, "voice_note_duration": 30}, format="json"
-        )
-        self.assertEqual(missing.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(too_long.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+    def test_media_messages_need_an_uploaded_file(self):
+        # Length limits are verified on the uploaded file (see tests_media)
+        response = self.send(self.alice, None, message_type="voice_note")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("media_ref", response.data)
 
     def test_inactive_chat_rejects_sends(self):
         Chat.objects.filter(pk=self.chat.pk).update(is_active=False)
@@ -648,3 +640,85 @@ class PostAuthorFilterTests(APITestCase):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url, {"author": "abc"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# Clear chat (for me) and reporting
+# ---------------------------------------------------------------------------
+
+
+@override_settings(**TEST_OVERRIDES)
+class ChatClearTests(ChatFixtureMixin, APITestCase):
+    def test_clear_hides_history_only_for_me(self):
+        self.send(self.bob, "old one")
+        self.send(self.bob, "old two")
+
+        self.client.force_authenticate(user=self.alice)
+        cleared = self.client.post(self.url("chat-clear"))
+        self.assertEqual(cleared.data["cleared_before_seq"], 2)
+
+        mine = self.client.get(self.url("chat-messages")).data["results"]
+        self.assertEqual(mine, [])
+        self.client.force_authenticate(user=self.bob)
+        theirs = self.client.get(self.url("chat-messages")).data["results"]
+        self.assertEqual(len(theirs), 2)
+
+    def test_other_devices_learn_about_the_clear_and_new_messages_show(self):
+        self.send(self.bob, "old")
+        self.client.force_authenticate(user=self.alice)
+        self.client.post(self.url("chat-clear"))
+        self.send(self.bob, "new")
+
+        sync = self.sync(self.alice, after_seq=0, device="tablet").data
+        self.assertEqual(sync["cleared_before_seq"], 1)
+        hidden = {e["content"]: e["hidden"] for e in sync["events"]}
+        self.assertEqual(hidden, {None: True, "new": False})
+
+    def test_inbox_preview_and_unread_respect_clear(self):
+        self.send(self.bob, "old")
+        self.client.force_authenticate(user=self.alice)
+        self.client.post(self.url("chat-clear"))
+        row = self.client.get(reverse("chat-list")).data["results"][0]
+        self.assertIsNone(row["last_message"])
+        self.assertEqual(row["unread_count"], 0)
+
+
+@override_settings(**TEST_OVERRIDES)
+class ChatReportTests(ChatFixtureMixin, APITestCase):
+    def test_report_message_targets_its_sender(self):
+        message_id = self.send(self.bob, "rude").data["id"]
+        self.client.force_authenticate(user=self.alice)
+        response = self.client.post(
+            self.url("chat-report"),
+            {"report_type": "harassment", "message_id": message_id, "description": "x"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        from dating.models import ChatReport
+
+        report = ChatReport.objects.get(pk=response.data["id"])
+        self.assertEqual((report.reported_user_id, report.message_id), (self.bob.id, message_id))
+
+    def test_direct_chat_defaults_to_other_member(self):
+        self.client.force_authenticate(user=self.alice)
+        response = self.client.post(
+            self.url("chat-report"), {"report_type": "spam"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_group_chat_requires_a_member_and_rejects_outsiders(self):
+        self.chat.participants.add(self.carol)
+        outsider = make_user("dave@example.com", "Dave")
+        self.client.force_authenticate(user=self.alice)
+        missing = self.client.post(self.url("chat-report"), {"report_type": "spam"}, format="json")
+        foreign = self.client.post(
+            self.url("chat-report"),
+            {"report_type": "spam", "reported_user_id": outsider.id},
+            format="json",
+        )
+        own = self.send(self.alice, "mine").data["id"]
+        self_report = self.client.post(
+            self.url("chat-report"), {"report_type": "spam", "message_id": own}, format="json"
+        )
+        for response in (missing, foreign, self_report):
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
