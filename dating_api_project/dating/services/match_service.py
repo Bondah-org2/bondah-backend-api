@@ -146,12 +146,17 @@ def accept_match_request(match_request_id: int):
     return platform_share, bondmaker_share
 
 
-def reject_match_request(match_request):
-
-    if match_request.status != "pending":
-        raise ValidationError("Match request already processed.")
-
+def reject_match_request(match_request_id: int):
     with transaction.atomic():
+        # Lock the request so two concurrent rejects can't both refund
+        match_request = (
+            MatchRequest.objects.select_for_update(of=("self",))
+            .select_related("user_match")
+            .get(id=match_request_id)
+        )
+
+        if match_request.status != "pending":
+            raise ValidationError("Match request already processed.")
 
         wallet = Wallet.objects.select_for_update().get(user=match_request.requester)
 

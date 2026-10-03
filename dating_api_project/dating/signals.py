@@ -1,5 +1,5 @@
 # signals.py
-from django.db.models.signals import post_save, pre_save, post_delete
+from django.db.models.signals import m2m_changed, post_save, pre_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from .models import (
@@ -8,6 +8,7 @@ from .models import (
     MatchRequest,
     Visibility,
     Chat,
+    ChatParticipant,
     Message,
     UserMatch,
     Wallet,
@@ -311,3 +312,19 @@ def create_chat_on_match(sender, instance, created, **kwargs):
 #         Post.objects.filter(pk=instance.post_id).update(
 #             comment_count=F("comment_count") + 1
 #         )
+
+
+# -----------------------------------------
+# Give every chat member a receipt row (delivered/read cursors) as soon as
+# they join, whichever code path added them.
+# -----------------------------------------
+@receiver(m2m_changed, sender=Chat.participants.through)
+def create_chat_participant_rows(sender, instance, action, reverse, pk_set, **kwargs):
+    if action != "post_add" or not pk_set:
+        return
+    if reverse:
+        # user.chats.add(chat): instance is the user, pk_set holds chat ids
+        rows = [ChatParticipant(chat_id=pk, user_id=instance.pk) for pk in pk_set]
+    else:
+        rows = [ChatParticipant(chat_id=instance.pk, user_id=pk) for pk in pk_set]
+    ChatParticipant.objects.bulk_create(rows, ignore_conflicts=True)

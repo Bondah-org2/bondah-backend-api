@@ -1,4 +1,5 @@
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 import random
 import string
@@ -38,6 +39,10 @@ class Chat(models.Model):
     last_message_at = models.DateTimeField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
 
+    # Per-chat event counter. Every message creation, edit and delete takes the
+    # next value, so clients can sync with "give me everything after N".
+    last_seq = models.PositiveBigIntegerField(default=0)
+
     # Chat settings
     chat_name = models.CharField(
         max_length=100, blank=True, null=True, help_text="Custom name for group chats"
@@ -61,6 +66,17 @@ class Chat(models.Model):
             return f"{participants[0].name} & {participants[1].name}"
         return f"Chat {self.id} ({self.chat_type})"
 
+    @classmethod
+    def allocate_seq(cls, chat_id):
+        """
+        Reserve the next event number for a chat. Must run inside a transaction:
+        the row lock serialises concurrent senders so numbers never repeat.
+        """
+        chat = cls.objects.select_for_update().only("id", "last_seq").get(pk=chat_id)
+        seq = chat.last_seq + 1
+        cls.objects.filter(pk=chat_id).update(last_seq=seq)
+        return seq
+
     def get_other_participant(self, user):
         """Get the other participant in a direct message chat"""
         if self.chat_type == "direct":
@@ -68,8 +84,19 @@ class Chat(models.Model):
         return None
 
     def get_unread_count(self, user):
-        """Get unread message count for a specific user"""
-        return self.messages.filter(is_read=False).exclude(sender=user).count()
+        """Messages from others after this user's read cursor (excludes deleted/hidden)."""
+        last_read_seq = (
+            ChatParticipant.objects.filter(chat=self, user=user)
+            .values_list("last_read_seq", flat=True)
+            .first()
+        ) or 0
+        return (
+            self.messages.filter(seq__gt=last_read_seq, is_deleted=False)
+            .exclude(sender=user)
+            .exclude(sender__isnull=True)
+            .exclude(deleted_for=user)
+            .count()
+        )
 
     class Meta:
         ordering = ["-last_message_at"]
@@ -162,6 +189,19 @@ class Message(models.Model):
         default=dict, help_text="User reactions: {'user_id': 'emoji'}"
     )
 
+    # Sync: `seq` is the message's permanent position in the chat; `change_seq`
+    # is the chat event that last touched it (creation, edit or delete).
+    seq = models.PositiveBigIntegerField(null=True, blank=True, editable=False)
+    change_seq = models.PositiveBigIntegerField(null=True, blank=True, editable=False)
+
+    # Idempotency key generated on the sending device; a retried send with the
+    # same key returns the original message instead of creating a duplicate.
+    client_message_id = models.UUIDField(null=True, blank=True)
+
+    # "Delete for everyone" keeps a tombstone so every device learns about it.
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(blank=True, null=True)
+
     def __str__(self):
         sender_name = self.sender.name if self.sender else "System"
         return (
@@ -171,10 +211,24 @@ class Message(models.Model):
         )
 
     def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        # Update the last_message_at for the associated chat
-        self.chat.last_message_at = self.timestamp
-        self.chat.save(update_fields=["last_message_at"])
+        creating = self._state.adding and self.seq is None
+        if not creating:
+            return super().save(*args, **kwargs)
+
+        # Every creation path (API, signals, admin) gets a sequence number
+        with transaction.atomic():
+            seq = Chat.allocate_seq(self.chat_id)
+            self.seq = seq
+            self.change_seq = seq
+            super().save(*args, **kwargs)
+            Chat.objects.filter(pk=self.chat_id).update(
+                last_message_at=self.timestamp
+            )
+
+        # Keep an already-loaded chat instance consistent with the database
+        if Message.chat.is_cached(self):
+            self.chat.last_seq = seq
+            self.chat.last_message_at = self.timestamp
 
     def mark_as_read(self, user):
         """Mark message as read by a specific user"""
@@ -189,6 +243,17 @@ class Message(models.Model):
             models.Index(fields=["chat", "timestamp"]),
             models.Index(fields=["sender", "timestamp"]),
             models.Index(fields=["message_type"]),
+            models.Index(fields=["chat", "change_seq"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["chat", "seq"], name="unique_message_seq_per_chat"
+            ),
+            models.UniqueConstraint(
+                fields=["sender", "client_message_id"],
+                condition=Q(client_message_id__isnull=False),
+                name="unique_client_message_id_per_sender",
+            ),
         ]
 
 
@@ -315,6 +380,12 @@ class ChatParticipant(models.Model):
         Message, on_delete=models.SET_NULL, null=True, blank=True
     )
 
+    # Receipt cursors (chat event numbers). Delivered = highest seq any of this
+    # user's devices has synced; read = highest seq the user has actually read.
+    # Both only ever move forward.
+    last_delivered_seq = models.PositiveBigIntegerField(default=0)
+    last_read_seq = models.PositiveBigIntegerField(default=0)
+
     def __str__(self):
         return f"{self.user.name} in {self.chat}"
 
@@ -327,6 +398,34 @@ class ChatParticipant(models.Model):
     class Meta:
         unique_together = ["chat", "user"]
         ordering = ["-joined_at"]
+
+
+class ChatDeviceCursor(models.Model):
+    """
+    How far one device has synced one chat. Lets a phone and a tablet catch up
+    independently; the user's delivered cursor is the max across devices.
+    """
+
+    chat = models.ForeignKey(
+        Chat, on_delete=models.CASCADE, related_name="device_cursors"
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="chat_device_cursors"
+    )
+    device_id = models.CharField(max_length=255)
+    last_synced_seq = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user_id}/{self.device_id} @ chat {self.chat_id}: {self.last_synced_seq}"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["chat", "user", "device_id"],
+                name="unique_chat_device_cursor",
+            )
+        ]
 
 
 class ChatReport(models.Model):
