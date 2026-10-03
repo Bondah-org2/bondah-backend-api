@@ -96,7 +96,10 @@ from .location import (  # noqa: F401
 from .chat import (  # noqa: F401
     ChatDetailView,
     ChatListView,
+    ChatMarkReadView,
     ChatMessagesView,
+    ChatSyncView,
+    ChatTypingView,
     CreateChatView,
     MessageDetailView,
     SendMessageView,

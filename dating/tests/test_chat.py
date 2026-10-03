@@ -166,12 +166,19 @@ class MessageDetailViewTests(APITestCase):
         self.assertIn(self.user, self.message.deleted_for.all())
 
     def test_delete_for_everyone_by_sender(self):
-        """Sender can delete a message for everyone — removes it from DB."""
+        """
+        Sender can delete a message for everyone. It becomes a tombstone (content
+        cleared, is_deleted set) rather than vanishing, so every device can sync
+        the deletion.
+        """
         response = self.client.delete(
             self.url, {"delete_type": "for_everyone"}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Message.objects.filter(id=self.message.id).exists())
+        self.message.refresh_from_db()
+        self.assertTrue(self.message.is_deleted)
+        self.assertIsNone(self.message.content)
+        self.assertGreater(self.message.change_seq, self.message.seq)
 
     def test_non_sender_cannot_delete_for_everyone(self):
         """Another user cannot delete a message for everyone."""

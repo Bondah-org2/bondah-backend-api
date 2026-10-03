@@ -120,11 +120,16 @@ from .location import (  # noqa: F401
 )
 from .chat import (  # noqa: F401
     ChatDetailSerializer,
+    ChatHistoryResponseSerializer,
     ChatListSerializer,
+    ChatReceiptSerializer,
+    ChatSyncResponseSerializer,
     CreateChatSerializer,
     DeleteMessageSerializer,
-    EditMessageSerializer,
+    EditMessageInputSerializer,
+    MarkReadSerializer,
     MessageSerializer,
+    TypingSerializer,
 )
 from .feed import (  # noqa: F401
     PostCommentCreateSerializer,

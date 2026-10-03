@@ -166,3 +166,118 @@ def send_password_reset_email(email, otp, user_name: str = "there", ip_address: 
 def run_delete_underage_accounts():
     call_command("delete_underage_accounts")
 
+
+
+CHAT_PUSH_PREVIEWS = {
+    "image": "Sent a photo",
+    "video": "Sent a video",
+    "voice_note": "Sent a voice message",
+}
+
+
+def _chat_push_body(message):
+    if message.message_type == "text":
+        text = (message.content or "").strip()
+        return text if len(text) <= 120 else f"{text[:117]}..."
+    return CHAT_PUSH_PREVIEWS.get(message.message_type, "Sent a message")
+
+
+@shared_task
+def send_chat_message_push(message_id):
+    """
+    Push a new chat message to every other member's devices.
+
+    Delivery itself never depends on this task: the message is already stored
+    and every device catches up through sync. Skips members who muted the chat,
+    turned push off, or have this chat open right now. Unlike notify_user, no
+    Notification rows are written, so chats don't flood the notification inbox.
+    """
+    from exponent_server_sdk import (
+        DeviceNotRegisteredError,
+        PushClient,
+        PushMessage,
+        PushServerError,
+    )
+    from django.db.models import Q
+    from requests.exceptions import ConnectionError as RequestsConnectionError, HTTPError
+
+    from .integrations.firebase import send_push_notification as send_fcm_push
+    from .models import ChatParticipant, Message
+    from .services import presence
+
+    message = (
+        Message.objects.select_related("sender", "chat")
+        .filter(pk=message_id)
+        .first()
+    )
+    if not message or message.is_deleted or message.sender_id is None:
+        return 0
+
+    chat = message.chat
+    recipient_ids = list(
+        chat.participants.exclude(id=message.sender_id).values_list("id", flat=True)
+    )
+    if not recipient_ids:
+        return 0
+
+    now = timezone.now()
+    muted_ids = set(
+        ChatParticipant.objects.filter(chat=chat, user_id__in=recipient_ids)
+        .filter(Q(notifications_enabled=False) | Q(mute_until__gt=now))
+        .values_list("user_id", flat=True)
+    )
+    push_off_ids = set(
+        get_user_model()
+        .objects.filter(id__in=recipient_ids, push_notifications_enabled=False)
+        .values_list("id", flat=True)
+    )
+    targets = [
+        uid
+        for uid in recipient_ids
+        if uid not in muted_ids
+        and uid not in push_off_ids
+        and not presence.is_viewing(uid, chat.id)
+    ]
+    if not targets:
+        return 0
+
+    title = message.sender.name or "New message"
+    body = _chat_push_body(message)
+    data = {
+        "type": "chat_message",
+        "chat_id": chat.id,
+        "message_id": message.id,
+        "seq": message.seq,
+    }
+
+    sent = 0
+    devices = DeviceRegistration.objects.filter(user_id__in=targets, is_active=True)
+    for device in devices:
+        try:
+            if device.token_type == "expo":
+                response = PushClient().publish(
+                    PushMessage(
+                        to=device.push_token,
+                        title=title,
+                        body=body,
+                        data=data,
+                        sound="default",
+                    )
+                )
+                # Raises DeviceNotRegisteredError for uninstalled apps
+                response.validate_response()
+            else:
+                send_fcm_push(
+                    token=device.push_token, title=title, body=body, data=data
+                )
+            sent += 1
+        except DeviceNotRegisteredError:
+            DeviceRegistration.objects.filter(pk=device.pk).update(is_active=False)
+        except CircuitBreakerError:
+            logger.error("Push circuit breaker open; chat push for message %s stopped", message_id)
+            break
+        except (PushServerError, RequestsConnectionError, HTTPError):
+            logger.warning("Chat push failed for device %s", device.pk, exc_info=True)
+        except Exception:
+            logger.error("Unexpected chat push error for device %s", device.pk, exc_info=True)
+    return sent

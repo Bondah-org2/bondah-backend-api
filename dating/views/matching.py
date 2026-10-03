@@ -116,23 +116,25 @@ class BondmakerMatchActionView(generics.GenericAPIView):
             status=allowed_status,
         )
 
-        if action == "accepted":
-            platform_usd, bondmaker_usd = accept_match_request(match_request.id)
+        try:
+            if action == "accepted":
+                platform_usd, bondmaker_usd = accept_match_request(match_request.id)
+                response_data = {
+                    "message": "Match accepted successfully",
+                    "platform_share_usd": float(platform_usd),
+                    "bondmaker_share_usd": float(bondmaker_usd),
+                }
+            elif action == "rejected":
+                reject_match_request(match_request.id)
+                response_data = {"message": "Match rejected successfully"}
+        except ValidationError as e:
+            # e.g. already processed by a concurrent request, or wallet mismatch
+            return Response(
+                {"detail": e.messages[0] if e.messages else str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            response_data = {
-                "message": "Match accepted successfully",
-                "platform_share_usd": float(platform_usd),
-                "bondmaker_share_usd": float(bondmaker_usd),
-            }
-
-        elif action == "rejected":
-            reject_match_request(match_request.id)
-
-            response_data = {
-                "message": "Match rejected successfully",
-            }
-
-        elif action == "mark_successful":
+        if action == "mark_successful":
             with transaction.atomic():
                 match_request.status = "completed"
                 match_request.save(update_fields=["status"])

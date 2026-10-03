@@ -6,6 +6,7 @@ from ..pagination import ActivityFeedPagination
 from django.db.models import F
 from ..permissions import IsBondmakerOrReadOnly
 from ..models import Activity, Post, PostComment, BondmakerSubscription, CommentInteraction
+from rest_framework import serializers
 from ..serializers import ActivityFeedSerializer, PostSerializer, PostInteractionSerializer, PostDetailSerializer, PostCommentCreateSerializer
 from rest_framework import permissions
 from drf_spectacular.utils import extend_schema_view
@@ -21,6 +22,16 @@ from rest_framework.decorators import action
     tags=["Post"],
     )
 @extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="author",
+                description="Only posts by this Bondmaker (user id)",
+                location=OpenApiParameter.QUERY,
+                type=int,
+            ),
+        ]
+    ),
     retrieve=extend_schema(
         parameters=[
             OpenApiParameter(name="pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
@@ -77,6 +88,18 @@ class PostViewSet(viewsets.ModelViewSet):
             following_ids = BondmakerSubscription.objects.filter(
                 user=user, active=True
             ).values_list("bondmaker_id", flat=True)
+
+            author_param = self.request.query_params.get("author")
+            if author_param:
+                try:
+                    author_id = int(author_param)
+                except ValueError:
+                    raise serializers.ValidationError({"author": "Must be a user id."})
+                # Authors see all of their own posts; everyone else gets the
+                # same visibility rules as the feed.
+                if author_id == user.id:
+                    return base_queryset.filter(author_id=author_id).order_by("-created_at")
+                base_queryset = base_queryset.filter(author_id=author_id)
 
             return base_queryset.filter(
                 Q(author_id__in=following_ids) | Q(visibility="public")
