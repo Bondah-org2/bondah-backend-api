@@ -326,15 +326,13 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
 
         device_id = validated_data["device_id"]
 
-        # deactivate old tokens
-        DeviceRegistration.objects.filter(
-            user=user, device_id=device_id
-        ).update(is_active=False)
-
+        # device_id is unique per install: if another account used this phone,
+        # the row moves to the current user so the previous account's
+        # notifications stop arriving here
         device, created = DeviceRegistration.objects.update_or_create(
             device_id=device_id,
-            user=user,
             defaults={
+                "user": user,
                 "token_type": validated_data.get("token_type", "expo"),
                 "device_type": validated_data["device_type"],
                 "push_token": validated_data["push_token"],

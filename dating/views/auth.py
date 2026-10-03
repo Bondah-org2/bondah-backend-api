@@ -12,7 +12,7 @@ from rest_framework import serializers
 from django.core.exceptions import ValidationError
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
-from ..models import PasswordResetOTP, PasswordResetPurpose
+from ..models import DeviceRegistration, PasswordResetOTP, PasswordResetPurpose
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.mail import send_mail
@@ -279,9 +279,21 @@ class UserLogoutView(GenericAPIView):
         if refresh_token:
             try:
                 token = RefreshToken(refresh_token)
+                user_id = token.get("user_id")
                 token.blacklist()
             except Exception:
-                raise ValidationError("Invalid or expired token")
+                return Response(
+                    {"message": "Invalid or expired token", "status": "error"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Stop push notifications to this phone; the valid refresh token
+            # proves which account is signing out of it
+            device_id = request.META.get("HTTP_X_DEVICE_ID")
+            if device_id and user_id:
+                DeviceRegistration.objects.filter(
+                    user_id=user_id, device_id=device_id
+                ).update(is_active=False)
 
         return Response(
             {"message": "Logout successful", "status": "success"},
