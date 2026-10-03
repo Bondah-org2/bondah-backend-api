@@ -7,14 +7,14 @@ opens and immediately raises CircuitBreakerError for reset_timeout seconds
 before allowing a retry.
 
 Usage:
-    from dating.integrations.circuit_breakers import cloudinary_breaker, email_breaker
+    from dating.integrations.circuit_breakers import r2_breaker, email_breaker
 
-    @cloudinary_breaker
-    def my_cloudinary_call():
+    @r2_breaker
+    def my_r2_call():
         ...
 
     try:
-        my_cloudinary_call()
+        my_r2_call()
     except CircuitBreakerError:
         return Response({"error": "Service unavailable"}, status=503)
 """
@@ -40,12 +40,12 @@ def _on_half_open(cb):
     logger.info(f"Circuit breaker HALF-OPEN for '{cb.name}'. Testing service...")
 
 
-# ── Cloudinary circuit breaker ────────────────────────────────────────────────
+# ── R2 media storage circuit breaker ──────────────────────────────────────────
 # Opens after 5 consecutive failures, resets after 60 seconds
-cloudinary_breaker = pybreaker.CircuitBreaker(
+r2_breaker = pybreaker.CircuitBreaker(
     fail_max=5,
     reset_timeout=60,
-    name="cloudinary",
+    name="r2",
     listeners=[
         pybreaker.CircuitBreakerListener(),
     ],

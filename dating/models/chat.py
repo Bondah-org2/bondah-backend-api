@@ -1,5 +1,6 @@
 from django.db import models, transaction
 from django.db.models import Q
+from .fields import MediaRefField
 from django.utils import timezone
 import random
 import string
@@ -139,14 +140,17 @@ class Message(models.Model):
     )
 
     # Media attachments
-    voice_note_url = models.URLField(
-        blank=True, null=True, help_text="URL to the voice note audio file"
+    voice_note_url = MediaRefField(
+        blank=True, null=True, help_text="Voice note audio (r2:// reference)"
     )
     voice_note_duration = models.PositiveIntegerField(
         blank=True, null=True, help_text="Duration in seconds"
     )
-    image_url = models.URLField(blank=True, null=True, help_text="URL to image file")
-    video_url = models.URLField(blank=True, null=True, help_text="URL to video file")
+    image_url = MediaRefField(blank=True, null=True, help_text="Image (r2:// reference)")
+    video_url = MediaRefField(blank=True, null=True, help_text="Video (r2:// reference)")
+    video_thumbnail_url = MediaRefField(
+        blank=True, null=True, help_text="Video poster frame (r2:// reference)"
+    )
     document_url = models.URLField(
         blank=True, null=True, help_text="URL to document file"
     )
@@ -385,6 +389,8 @@ class ChatParticipant(models.Model):
     # Both only ever move forward.
     last_delivered_seq = models.PositiveBigIntegerField(default=0)
     last_read_seq = models.PositiveBigIntegerField(default=0)
+    # "Clear chat" for this user only: messages up to here are hidden for them
+    cleared_before_seq = models.PositiveBigIntegerField(default=0)
 
     def __str__(self):
         return f"{self.user.name} in {self.chat}"

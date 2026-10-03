@@ -66,47 +66,6 @@ class EmailCircuitBreakerTests(TestCase):
             send_otp_email("test@example.com", "123456")
 
 
-@override_settings(**TEST_OVERRIDES)
-class CloudinaryCircuitBreakerTests(APITestCase):
-    """Tests for Cloudinary circuit breaker on the signature endpoint."""
-
-    def setUp(self):
-        from dating.integrations.circuit_breakers import cloudinary_breaker
-        self.breaker = cloudinary_breaker
-        self.breaker.close()
-        self.user = User.objects.create_user(
-            email="cloudtest@example.com",
-            password="Pass123!",
-            name="Cloud Test",
-        )
-        self.client.force_authenticate(user=self.user)
-        self.url = reverse("cloudinary")
-
-    def tearDown(self):
-        self.breaker.close()
-
-    def test_cloudinary_returns_503_when_breaker_open(self):
-        """Returns 503 when cloudinary circuit breaker is open."""
-        from pybreaker import CircuitBreakerError
-
-        with patch("dating.views.cloudinary_breaker.call",
-                   side_effect=CircuitBreakerError()):
-            response = self.client.get(self.url)
-
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertIn("error", response.data)
-
-    def test_cloudinary_returns_200_on_success(self):
-        """Returns 200 with signature data when service is healthy."""
-        with patch("dating.views.cloudinary_breaker.call",
-                   return_value="mock_signature"):
-            with patch("cloudinary.config") as mock_config:
-                mock_config.return_value.api_key = "test_key"
-                mock_config.return_value.cloud_name = "test_cloud"
-                response = self.client.get(self.url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
 
 @override_settings(**TEST_OVERRIDES)
 class FirebaseCircuitBreakerTests(TestCase):

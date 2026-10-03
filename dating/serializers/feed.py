@@ -4,6 +4,8 @@ from django.utils import timezone
 from ..models import Activity, Post, PostComment, PostInteraction, Story, StoryView, StoryInteraction
 from django.db.models import F
 
+from ..media_refs import MediaRefsMixin
+
 
 class PostCommentSerializer(serializers.ModelSerializer):
     author_name = serializers.CharField(source="author.name", read_only=True)
@@ -82,10 +84,22 @@ class PostCommentCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ["author", "likes_count", "created_at"]
 
 
-class PostSerializer(serializers.ModelSerializer):
+class PostSerializer(MediaRefsMixin, serializers.ModelSerializer):
+    MAX_IMAGES = 5
+    MAX_VIDEOS = 2
+
+    media_ref_fields = {
+        "image_urls": ("post_image",),
+        "video_url": ("post_video",),
+        "video_thumbnail": ("post_image",),
+    }
+
     author_name = serializers.CharField(source="author.name", read_only=True)
     image_urls = serializers.ListField(
-        child=serializers.CharField(), required=False, allow_empty=True
+        child=serializers.CharField(max_length=500),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_IMAGES,
     )
     hashtags = serializers.ListField(
         child=serializers.CharField(), required=False, allow_empty=True
@@ -97,8 +111,18 @@ class PostSerializer(serializers.ModelSerializer):
     # has_bonded = serializers.SerializerMethodField(default=False)
     is_featured = serializers.BooleanField(default=False)
     is_reported = serializers.BooleanField(default=False)
-    video_thumbnail = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
-    video_url = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
+    video_thumbnail = serializers.ListField(
+        child=serializers.CharField(max_length=500),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_VIDEOS,
+    )
+    video_url = serializers.ListField(
+        child=serializers.CharField(max_length=500),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_VIDEOS,
+    )
 
     class Meta:
         model = Post

@@ -9,7 +9,6 @@ All secrets and deploy-specific values come from environment variables
 from datetime import timedelta
 from pathlib import Path
 
-import cloudinary
 import dj_database_url
 from celery.schedules import crontab
 from decouple import Csv, config
@@ -192,6 +191,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_RENDERER_CLASSES": [
+        # Turns stored r2:// media references into short-lived signed URLs
+        "dating.renderers.MediaSigningJSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
+    ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -293,6 +297,10 @@ CELERY_TIMEZONE = "UTC"
 
 # Requires a running `celery beat` process (see docker-compose.yml).
 CELERY_BEAT_SCHEDULE = {
+    "cleanup-stale-media-uploads-hourly": {
+        "task": "dating.tasks.cleanup_stale_media_uploads",
+        "schedule": crontab(minute=30),
+    },
     "expire-visibilities-every-midnight": {
         "task": "dating.tasks.expire_visibilities",
         "schedule": crontab(minute=0, hour=0),
@@ -325,11 +333,20 @@ FIREBASE_CREDENTIALS_PATH = config(
     "FIREBASE_CREDENTIALS_PATH", default=str(BASE_DIR / "firebase-service-account.json")
 )
 
-cloudinary.config(
-    cloud_name=config("CLOUDINARY_CLOUD_NAME", default=""),
-    api_key=config("CLOUDINARY_API_KEY", default=""),
-    api_secret=config("CLOUDINARY_API_SECRET", default=""),
-    secure=True,
+# --------------------------------------------------------------------------
+# Cloudflare R2 media storage (private bucket, signed URLs only; see docs/R2_MEDIA.md)
+# --------------------------------------------------------------------------
+R2_ACCOUNT_ID = config("R2_ACCOUNT_ID", default="414e15d4af5a08a7924ffdea15875d74")
+R2_BUCKET = config("R2_BUCKET", default="bondah-media")
+R2_ACCESS_KEY_ID = config("R2_ACCESS_KEY_ID", default="")
+R2_SECRET_ACCESS_KEY = config("R2_SECRET_ACCESS_KEY", default="")
+R2_ENDPOINT_URL = config(
+    "R2_ENDPOINT_URL", default=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+)
+R2_UPLOAD_URL_TTL_SECONDS = config("R2_UPLOAD_URL_TTL_SECONDS", default=900, cast=int)
+R2_DOWNLOAD_URL_TTL_SECONDS = config("R2_DOWNLOAD_URL_TTL_SECONDS", default=3600, cast=int)
+R2_SENSITIVE_DOWNLOAD_URL_TTL_SECONDS = config(
+    "R2_SENSITIVE_DOWNLOAD_URL_TTL_SECONDS", default=600, cast=int
 )
 
 GOOGLE_MAPS_API_KEY = config("GOOGLE_MAPS_API_KEY", default="")

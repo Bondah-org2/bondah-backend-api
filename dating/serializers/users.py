@@ -7,6 +7,7 @@ from ..models import Activity, User, DeviceRegistration, UserRoleSelection, User
 from drf_spectacular.utils import extend_schema_field
 from ..location_utils import calculate_match_score
 from ..models.username import clean_and_validate_username
+from ..media_refs import MediaRefsMixin
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -363,8 +364,15 @@ class UserRoleStatusSerializer(serializers.Serializer):
 # =============================================================================
 # ADVANCED USER PROFILE SERIALIZERS
 # =============================================================================
-class UserProfileDetailSerializer(serializers.ModelSerializer):
+class UserProfileDetailSerializer(MediaRefsMixin, serializers.ModelSerializer):
     """Detailed user profile serializer for viewing other users"""
+
+    media_ref_fields = {
+        "profile_picture": ("profile_picture",),
+        "profile_gallery": ("profile_gallery",),
+        "bondmaker_profile_picture": ("bondmaker_profile_picture",),
+        "bondmaker_cover_picture": ("bondmaker_cover_picture",),
+    }
 
     profile_views_count = serializers.SerializerMethodField()
     is_online = serializers.SerializerMethodField()
@@ -379,7 +387,7 @@ class UserProfileDetailSerializer(serializers.ModelSerializer):
     hobbies = serializers.ListField(child=serializers.CharField())
     interests = serializers.ListField(child=serializers.CharField())
     traits = serializers.ListField(child=serializers.CharField())
-    profile_gallery = serializers.ListField(child=serializers.URLField())
+    profile_gallery = serializers.ListField(child=serializers.CharField(max_length=500))
     speciality = serializers.SlugRelatedField(
         slug_field="category",
         queryset=Specialisation.objects.all(),
@@ -821,13 +829,6 @@ class SimpleUserSerializer(serializers.ModelSerializer):
             "age",
             "profile_picture",
         ]
-
-
-class CloudinarySignatureSerializer(serializers.Serializer):
-    timestamp = serializers.IntegerField()
-    signature = serializers.CharField()
-    api_key = serializers.CharField()
-    cloud_name = serializers.CharField()
 
 
 class MessageResponseSerializer(serializers.Serializer):

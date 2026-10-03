@@ -215,14 +215,17 @@ class SendMessageViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["content"], "Hey!")
 
-    def test_send_image_message(self):
-        """Can send an image message with a media_url."""
+    def test_image_message_rejects_outside_urls(self):
+        """
+        Media must be uploaded to R2 first (see tests_media); an outside URL is
+        rejected even if it points at an image.
+        """
         response = self.client.post(
             self.url,
-            {"message_type": "image", "media_url": "https://res.cloudinary.com/test/img.jpg"},
+            {"message_type": "image", "media_ref": "https://res.cloudinary.com/test/img.jpg"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_text_message_without_content_rejected(self):
         """Text message with no content returns 400."""
@@ -234,7 +237,7 @@ class SendMessageViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_media_message_without_url_rejected(self):
-        """Image message without media_url returns 400."""
+        """Image message without media_ref returns 400."""
         response = self.client.post(
             self.url,
             {"message_type": "image"},

@@ -33,6 +33,7 @@ _TOMBSTONE_CLEARED_FIELDS = {
     "voice_note_duration": None,
     "image_url": None,
     "video_url": None,
+    "video_thumbnail_url": None,
     "document_url": None,
     "document_name": None,
     "reactions": {},
@@ -62,6 +63,26 @@ def ensure_participants(chat):
     ]
     if missing:
         ChatParticipant.objects.bulk_create(missing, ignore_conflicts=True)
+
+
+def get_cleared_before_seq(chat, user):
+    return (
+        ChatParticipant.objects.filter(chat=chat, user=user)
+        .values_list("cleared_before_seq", flat=True)
+        .first()
+    ) or 0
+
+
+def clear_for_user(chat, user):
+    """Hide everything up to the chat's latest event for this user only."""
+    chat.refresh_from_db(fields=["last_seq"])
+    head = chat.last_seq
+    ensure_participants(chat)
+    ChatParticipant.objects.filter(
+        chat=chat, user=user, cleared_before_seq__lt=head
+    ).update(cleared_before_seq=head)
+    mark_read(chat, user, head)
+    return head
 
 
 def get_receipts(chat):
@@ -138,12 +159,19 @@ def edit_message(message, content):
 
 def delete_for_everyone(message):
     """Keep a tombstone (not a hard delete) so every device syncs the removal."""
-    return _bump(
-        message,
-        is_deleted=True,
-        deleted_at=timezone.now(),
-        **_TOMBSTONE_CLEARED_FIELDS,
-    )
+    from dating.media_lifecycle import MEDIA_FIELDS, refs_of, release_refs
+
+    # _bump() uses queryset.update(), which skips the media signals
+    media_refs = refs_of(message, MEDIA_FIELDS[Message])
+    with transaction.atomic():
+        _bump(
+            message,
+            is_deleted=True,
+            deleted_at=timezone.now(),
+            **_TOMBSTONE_CLEARED_FIELDS,
+        )
+        release_refs(media_refs)
+    return message
 
 
 def delete_for_me(message, user):
@@ -256,7 +284,11 @@ def events_after(chat, after_seq, limit=None):
 def history(chat, user, before_seq=None, limit=None):
     """A page of older messages, oldest first. Tombstones are kept, hidden ones are not."""
     limit = _limit(limit, HISTORY_PAGE_LIMIT)
-    qs = _message_queryset(chat).exclude(deleted_for=user).filter(seq__isnull=False)
+    qs = (
+        _message_queryset(chat)
+        .exclude(deleted_for=user)
+        .filter(seq__gt=get_cleared_before_seq(chat, user))
+    )
     if before_seq not in (None, ""):
         try:
             qs = qs.filter(seq__lt=int(before_seq))

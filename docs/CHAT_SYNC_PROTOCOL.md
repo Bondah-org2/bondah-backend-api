@@ -45,6 +45,7 @@ Response:
 | `next_after_seq` | Store this as the new cursor once events are applied |
 | `has_more` | Call again with `next_after_seq` until false |
 | `last_seq` | The chat's latest event when the request started |
+| `cleared_before_seq` | This user cleared the chat up to here; drop messages with `seq` at or below it |
 | `receipts` | Every member's delivered and read cursors |
 | `typing_user_ids` | Other members typing right now |
 | `presence` | `{user_id: {online, last_seen}}` for other members |
@@ -79,8 +80,16 @@ foreground, every 15 s on the inbox, never in the background (push covers it).
 - `429`: rate limited (60 per minute). Retry later with the same id.
 - Network error or timeout: retry with the same id. This is always safe.
 
-Types: `text` (max 4000 characters), `image`, `video`, `voice_note` (requires
-`voice_note_duration`, 1 to 120 seconds). Media types need `media_url`.
+Types: `text` (max 4000 characters), `image`, `video`, `voice_note`. Media
+types need `media_ref`: upload the file with purpose `chat_image`,
+`chat_video` or `chat_voice_note` (passing this chat's `chat_id`) as described
+in `R2_MEDIA.md`, then send the returned `ref`. Videos may add a
+`thumbnail_ref` (purpose `chat_image`). Voice note length is read from the
+verified file; any `voice_note_duration` sent by the client is ignored.
+
+Media fields in responses (`image_url`, `video_url`, `voice_note_url`,
+`video_thumbnail_url`) are signed links that expire after an hour. Cache files
+by the URL without its query string, which stays the same for a given file.
 
 Show the message immediately as "sending", switch to "sent" when the response
 arrives, and use its `seq`.
@@ -112,6 +121,17 @@ typing (40 per minute limit). It expires after 6 seconds on its own; send
   `for_everyone` is sender only and leaves a tombstone.
 
 Both produce a new event, so every device picks them up through sync.
+
+## Clear and report
+
+- `POST chats/{id}/clear/` clears the chat for the requesting user only, on all
+  their devices (sync returns the new `cleared_before_seq`). Others keep the
+  history.
+- `POST chats/{id}/report/ {"report_type", "description"?, "message_id"? , "reported_user_id"?}`
+  files a report for Bondah admins. `report_type` is one of `spam`,
+  `harassment`, `inappropriate_content`, `fake_profile`, `other`. Reporting a
+  message reports its sender; in intro chats without a message, pass
+  `reported_user_id`. Limited to 10 reports per hour.
 
 ## Inbox
 

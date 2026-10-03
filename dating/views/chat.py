@@ -15,11 +15,12 @@ from rest_framework.views import APIView
 
 from dating.openapi.response_serializers import ValidationErrorResponseSerializer
 
-from ..models import Chat, ChatParticipant, Message
+from ..models import Chat, ChatParticipant, ChatReport, Message
 from ..serializers import (
     ChatDetailSerializer,
     ChatHistoryResponseSerializer,
     ChatListSerializer,
+    ChatReportCreateSerializer,
     ChatSyncResponseSerializer,
     CreateChatSerializer,
     DeleteMessageSerializer,
@@ -35,6 +36,7 @@ chat_logger = logging.getLogger("dating.chat")
 
 CHAT_SEND_RATE = "60/m"
 CHAT_TYPING_RATE = "40/m"
+CHAT_REPORT_RATE = "10/h"
 # Each device sends a stable id so its sync position is tracked separately
 DEVICE_ID_HEADER = "HTTP_X_DEVICE_ID"
 
@@ -110,8 +112,9 @@ class ChatListView(generics.ListAPIView):
             qs = qs.filter(chat_type=chat_type)
 
         my_cursor = ChatParticipant.objects.filter(chat=OuterRef("pk"), user=user)
+        # Skips messages deleted for this user or hidden by "clear chat"
         visible_messages = Message.objects.filter(
-            chat=OuterRef("pk"), seq__isnull=False
+            chat=OuterRef("pk"), seq__gt=OuterRef("my_cleared_before_seq")
         ).exclude(deleted_for=user)
         unread = (
             Message.objects.filter(
@@ -135,6 +138,13 @@ class ChatListView(generics.ListAPIView):
                     Value(0),
                     output_field=BigIntegerField(),
                 ),
+                my_cleared_before_seq=Coalesce(
+                    Subquery(my_cursor.values("cleared_before_seq")[:1]),
+                    Value(0),
+                    output_field=BigIntegerField(),
+                ),
+            )
+            .annotate(
                 last_message_id_annotated=Subquery(
                     visible_messages.order_by("-seq").values("id")[:1]
                 ),
@@ -285,7 +295,8 @@ class ChatSyncView(APIView):
         other_ids = [
             uid for uid in chat.participants.values_list("id", flat=True) if uid != user.id
         ]
-        context = {"request": request}
+        cleared_before_seq = chat_service.get_cleared_before_seq(chat, user)
+        context = {"request": request, "cleared_before_seq": cleared_before_seq}
         return Response(
             {
                 "chat_id": chat.id,
@@ -293,6 +304,7 @@ class ChatSyncView(APIView):
                 "events": MessageSerializer(events, many=True, context=context).data,
                 "has_more": has_more,
                 "next_after_seq": events[-1].change_seq if events else head,
+                "cleared_before_seq": cleared_before_seq,
                 "receipts": chat_service.get_receipts(chat),
                 "typing_user_ids": presence.typing_user_ids(chat.id, other_ids),
                 "presence": {
@@ -384,6 +396,89 @@ class ChatTypingView(APIView):
         presence.set_typing(chat.id, request.user.id, serializer.validated_data["is_typing"])
         presence.touch(request.user.id, viewing_chat_id=chat.id)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(
+    tags=["Chat"],
+    request=None,
+    responses={200: OpenApiTypes.OBJECT},
+    description=(
+        "Clear the chat for the requesting user only, on all their devices. "
+        "Other members keep the full history."
+    ),
+)
+class ChatClearView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, chat_id):
+        chat = _member_chat_or_404(request.user, chat_id)
+        cleared_before_seq = chat_service.clear_for_user(chat, request.user)
+        return Response({"chat_id": chat.id, "cleared_before_seq": cleared_before_seq})
+
+
+@extend_schema(
+    tags=["Chat"],
+    request=ChatReportCreateSerializer,
+    responses={201: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 429: OpenApiTypes.OBJECT},
+    description=(
+        "Report a message (its sender is reported) or a chat member for review by "
+        "Bondah admins. In 1:1 chats the other member is reported when neither "
+        "message_id nor reported_user_id is given."
+    ),
+)
+class ChatReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, chat_id):
+        if _chat_rate_limited(request, "chat-report", CHAT_REPORT_RATE):
+            return _too_many_requests()
+        chat = _member_chat_or_404(request.user, chat_id)
+        serializer = ChatReportCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        message = None
+        if data.get("message_id"):
+            message = Message.objects.filter(pk=data["message_id"], chat=chat).first()
+            if message is None or message.sender_id is None:
+                return Response(
+                    {"message_id": ["You can only report a member's message in this chat."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            reported_user_id = message.sender_id
+        else:
+            other_ids = [
+                uid
+                for uid in chat.participants.values_list("id", flat=True)
+                if uid != request.user.id
+            ]
+            reported_user_id = data.get("reported_user_id")
+            if reported_user_id is None and len(other_ids) == 1:
+                reported_user_id = other_ids[0]
+            if reported_user_id not in other_ids:
+                return Response(
+                    {"reported_user_id": ["Choose a member of this chat to report."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if reported_user_id == request.user.id:
+            return Response(
+                {"detail": "You can't report yourself."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report = ChatReport.objects.create(
+            reporter=request.user,
+            reported_user_id=reported_user_id,
+            chat=chat,
+            message=message,
+            report_type=data["report_type"],
+            description=data.get("description", ""),
+        )
+        chat_logger.info(
+            "Chat report %s filed by user %s against user %s", report.pk, request.user.id, reported_user_id
+        )
+        return Response({"id": report.pk, "status": report.status}, status=status.HTTP_201_CREATED)
 
 
 @extend_schema(tags=["Chat"])

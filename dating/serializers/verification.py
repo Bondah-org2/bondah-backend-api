@@ -3,6 +3,8 @@ from django.db import transaction
 from ..models import LivenessVerification, UserVerificationStatus, DocumentVerification, SelfieVerification
 from typing import List, Dict, Any
 
+from ..media_refs import MediaRefsMixin
+
 
 # =============================================================================
 # DOCUMENT VERIFICATION SERIALIZERS (NEW FROM FIGMA)
@@ -95,11 +97,16 @@ class SelfieVerificationSerializer(serializers.ModelSerializer):
         ]
 
 
-class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
+class DocumentVerificationCreateSerializer(MediaRefsMixin, serializers.ModelSerializer):
     """Serializer for creating document verification requests"""
 
-    front_image_url = serializers.URLField()
-    back_image_url = serializers.URLField(required=False, allow_blank=True)
+    media_ref_fields = {
+        "front_image_url": ("id_document",),
+        "back_image_url": ("id_document",),
+    }
+
+    front_image_url = serializers.CharField(max_length=500)
+    back_image_url = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
     class Meta:
         model = DocumentVerification
@@ -108,67 +115,6 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
                   "front_image_url",
                   "back_image_url",
                   ]
-
-    def validate_front_image_url(self, value):
-        """Validate front image URL for security"""
-        return self._validate_image_url(value, "front_image_url")
-
-    def validate_back_image_url(self, value):
-        """Validate back image URL for security"""
-        if value:
-            return self._validate_image_url(value, "back_image_url")
-        return value
-
-    def _validate_image_url(self, url, field_name):
-        """Common validation for image URLs"""
-        import re
-        from urllib.parse import urlparse
-
-        # Check URL format
-        try:
-            parsed = urlparse(url)
-            if not parsed.scheme or not parsed.netloc:
-                raise serializers.ValidationError(f"Invalid {field_name} URL format.")
-        except Exception:
-            raise serializers.ValidationError(f"Invalid {field_name} URL format.")
-
-        # Allow only HTTPS
-        if parsed.scheme != "https":
-            raise serializers.ValidationError(f"{field_name} must use HTTPS protocol.")
-
-        # Check for suspicious patterns
-        suspicious_patterns = [
-            r"\.exe$",
-            r"\.bat$",
-            r"\.cmd$",
-            r"\.scr$",
-            r"\.pif$",
-            r"\.com$",
-            r"\.vbs$",
-            r"\.js$",
-            r"\.jar$",
-            r"<script",
-            r"javascript:",
-            r"data:",
-            r"vbscript:",
-        ]
-
-        url_lower = url.lower()
-        for pattern in suspicious_patterns:
-            if re.search(pattern, url_lower):
-                raise serializers.ValidationError(
-                    f"Potentially malicious content detected in {field_name}."
-                )
-
-        # Check file extensions (allow common image formats)
-        allowed_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]
-        path_lower = parsed.path.lower()
-        if not any(path_lower.endswith(ext) for ext in allowed_extensions):
-            raise serializers.ValidationError(
-                f"{field_name} must be a valid image file (jpg, png, gif, webp, bmp)."
-            )
-
-        return url
 
     def validate(self, attrs):
         user = self.context["request"].user
@@ -181,7 +127,8 @@ class DocumentVerificationCreateSerializer(serializers.ModelSerializer):
                 "You already have an active verification request"
             )
 
-        return attrs
+        # Runs the media reference checks from MediaRefsMixin
+        return super().validate(attrs)
 
     def create(self, validated_data):
         """Create document verification with current user"""
@@ -296,8 +243,11 @@ class UserVerificationStatusSerializer(serializers.ModelSerializer):
         return badges
 
 
-class SelfieSubmissionSerializer(serializers.ModelSerializer):
+class SelfieSubmissionSerializer(MediaRefsMixin, serializers.ModelSerializer):
+    media_ref_fields = {"selfie_image_url": ("selfie",)}
+
     document_verification_id = serializers.IntegerField(write_only=True)
+    selfie_image_url = serializers.CharField(max_length=500)
 
     class Meta:
         model = SelfieVerification

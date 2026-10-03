@@ -2,7 +2,6 @@ import logging
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import generics
-import time
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework import serializers
@@ -10,17 +9,13 @@ from ..utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
 from ..models import Activity, DeviceRegistration, UserRoleSelection, DocumentVerification, UserSecurityQuestion, UserSocialHandle, UserInterest, UserProfileView
 from django.contrib.auth import get_user_model
-from ..serializers import LanguageSettingsSerializer, UserProfileDetailSerializer, DeviceRegistrationSerializer, NotificationSettingsSerializer, UsernameUpdateSerializer, UserSecurityQuestionSerializer, UserSecurityQuestionCreateSerializer, UserSocialHandleSerializer, UserSocialHandleCreateSerializer, UserInterestSerializer, UserRoleSelectionSerializer, UserRoleStatusSerializer, StaticUserProfileSerializer, CloudinarySignatureSerializer
+from ..serializers import LanguageSettingsSerializer, UserProfileDetailSerializer, DeviceRegistrationSerializer, NotificationSettingsSerializer, UsernameUpdateSerializer, UserSecurityQuestionSerializer, UserSecurityQuestionCreateSerializer, UserSocialHandleSerializer, UserSocialHandleCreateSerializer, UserInterestSerializer, UserRoleSelectionSerializer, UserRoleStatusSerializer, StaticUserProfileSerializer
 from ..location_utils import calculate_match_score
 from drf_spectacular.utils import extend_schema_view, OpenApiResponse
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
 from dating.openapi.response_serializers import SimpleStatusResponseSerializer, CustomErrorResponseSerializer, NotificationSettingsErrorSerializer, LanguageSettingsResponseSerializer, LanguageSettingsErrorSerializer, NotificationSettingsResponseSerializer
 from rest_framework.generics import GenericAPIView
-import cloudinary
-import cloudinary.utils
-from pybreaker import CircuitBreakerError as BreakerError
-from ..integrations.circuit_breakers import cloudinary_breaker
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -115,6 +110,9 @@ class UserProfileViews(generics.RetrieveUpdateAPIView):
                 status=status.HTTP_200_OK,
             )
 
+        except serializers.ValidationError:
+            # Invalid input is the client's error (400), not a server failure
+            raise
         except Exception as e:
             return Response(
                 {
@@ -567,43 +565,3 @@ class UsernameUpdateView(generics.UpdateAPIView):
                 "username": user.username,
             }
         )
-
-
-@extend_schema(
-    tags=["Upload"],
-    )
-class CloudinarySignatureView(GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = CloudinarySignatureSerializer
-
-    def get(self, request, *args, **kwargs):
-        timestamp = int(time.time())
-
-        try:
-            signature = cloudinary_breaker.call(
-                cloudinary.utils.api_sign_request,
-                {"timestamp": timestamp},
-                cloudinary.config().api_secret,
-            )
-        except BreakerError:
-            logger.warning("Cloudinary circuit breaker is open")
-            return Response(
-                {"error": "Upload service temporarily unavailable. Please try again shortly."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        except Exception:
-            logger.error("Cloudinary signature generation failed", exc_info=True)
-            return Response(
-                {"error": "Upload service error."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        data = {
-            "timestamp": timestamp,
-            "signature": signature,
-            "api_key": cloudinary.config().api_key,
-            "cloud_name": cloudinary.config().cloud_name,
-        }
-
-        serializer = self.get_serializer(data)
-        return Response(serializer.data)

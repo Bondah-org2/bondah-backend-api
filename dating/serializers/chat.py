@@ -1,8 +1,11 @@
+import math
 from typing import Any, Dict, List, Optional
 
 from rest_framework import serializers
 from django.utils import timezone
-from ..models import User, Chat, Message
+from ..media_refs import validate_refs
+from ..models import Chat, ChatParticipant, ChatReport, MediaUpload, Message, User
+from ..services import media_storage
 
 
 # =============================================================================
@@ -122,8 +125,9 @@ class MessageSerializer(serializers.ModelSerializer):
     """
     Read and write shape of a chat message.
 
-    Writes: message_type, content, media_url, voice_note_duration,
-    client_message_id (idempotency key) and reply_to_id.
+    Writes: message_type, content, media_ref (+ thumbnail_ref for videos),
+    client_message_id (idempotency key) and reply_to_id. Media refs come from
+    media/uploads/ and must belong to the sender and this chat.
     Reads add the sync fields (seq, change_seq), sender, reply preview and state.
     """
 
@@ -139,10 +143,14 @@ class MessageSerializer(serializers.ModelSerializer):
         allow_blank=True,
         max_length=MESSAGE_TEXT_MAX_LENGTH,
     )
-    media_url = serializers.URLField(required=False, allow_null=True, write_only=True)
-    voice_note_duration = serializers.IntegerField(
-        required=False, allow_null=True, min_value=1, max_value=VOICE_NOTE_MAX_SECONDS
+    media_ref = serializers.CharField(
+        required=False, allow_null=True, write_only=True, max_length=500
     )
+    thumbnail_ref = serializers.CharField(
+        required=False, allow_null=True, write_only=True, max_length=500
+    )
+    # Taken from the verified upload; any value sent by the client is ignored
+    voice_note_duration = serializers.IntegerField(read_only=True)
     client_message_id = serializers.UUIDField(required=False, allow_null=True)
     reply_to_id = serializers.IntegerField(
         required=False, allow_null=True, write_only=True
@@ -162,11 +170,13 @@ class MessageSerializer(serializers.ModelSerializer):
             "sender_name",
             "message_type",
             "content",
-            "media_url",
+            "media_ref",
+            "thumbnail_ref",
             "voice_note_url",
             "voice_note_duration",
             "image_url",
             "video_url",
+            "video_thumbnail_url",
             "document_url",
             "document_name",
             "reply_to_id",
@@ -195,6 +205,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "voice_note_url",
             "image_url",
             "video_url",
+            "video_thumbnail_url",
             "document_url",
             "document_name",
         ]
@@ -220,39 +231,77 @@ class MessageSerializer(serializers.ModelSerializer):
         }
 
     def get_hidden(self, obj) -> bool:
-        """True when the requesting user deleted this message for themselves."""
+        """True when the requesting user deleted this message or cleared the chat."""
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return False
+        cleared_before_seq = self.context.get("cleared_before_seq") or 0
+        if obj.seq is not None and obj.seq <= cleared_before_seq:
+            return True
         return any(u.pk == request.user.pk for u in obj.deleted_for.all())
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # Never leak the content of a message the requester removed for themselves
         if data.get("hidden"):
-            for field in ("content", "voice_note_url", "image_url", "video_url"):
+            for field in (
+                "content",
+                "voice_note_url",
+                "image_url",
+                "video_url",
+                "video_thumbnail_url",
+            ):
                 data[field] = None
         return data
+
+    MEDIA_PURPOSE_BY_TYPE = {
+        "image": "chat_image",
+        "video": "chat_video",
+        "voice_note": "chat_voice_note",
+    }
+
+    def _check_chat_ref(self, field, ref, purpose):
+        chat = self.context.get("chat")
+        request = self.context.get("request")
+        try:
+            validate_refs(ref, owner=request.user, purposes=(purpose,), chat=chat)
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({field: exc.detail})
+        return MediaUpload.objects.get(object_key=media_storage.key_from_ref(ref))
 
     def validate(self, attrs):
         message_type = attrs.get("message_type", "text")
         content = (attrs.get("content") or "").strip()
-        media_url = attrs.get("media_url")
+        media_ref = attrs.pop("media_ref", None)
+        thumbnail_ref = attrs.pop("thumbnail_ref", None)
 
-        if message_type == "text" and not content:
-            raise serializers.ValidationError(
-                {"content": "Text messages require content."}
+        if message_type == "text":
+            if not content:
+                raise serializers.ValidationError(
+                    {"content": "Text messages require content."}
+                )
+            if media_ref or thumbnail_ref:
+                raise serializers.ValidationError(
+                    {"media_ref": "Text messages can't carry media."}
+                )
+        else:
+            if not media_ref:
+                raise serializers.ValidationError(
+                    {"media_ref": f"{message_type} messages require a media_ref."}
+                )
+            upload = self._check_chat_ref(
+                "media_ref", media_ref, self.MEDIA_PURPOSE_BY_TYPE[message_type]
             )
-        if message_type != "text" and not media_url:
-            raise serializers.ValidationError(
-                {"media_url": f"{message_type} messages require a media_url."}
-            )
-        if message_type == "voice_note" and not attrs.get("voice_note_duration"):
-            raise serializers.ValidationError(
-                {"voice_note_duration": "Voice notes require a duration in seconds."}
-            )
-        if message_type != "voice_note":
-            attrs.pop("voice_note_duration", None)
+            attrs[{"image": "image_url", "video": "video_url", "voice_note": "voice_note_url"}[message_type]] = media_ref
+            if message_type == "voice_note":
+                attrs["voice_note_duration"] = max(1, math.ceil(upload.duration_seconds or 0))
+            if thumbnail_ref:
+                if message_type != "video":
+                    raise serializers.ValidationError(
+                        {"thumbnail_ref": "Only videos can have a thumbnail."}
+                    )
+                self._check_chat_ref("thumbnail_ref", thumbnail_ref, "chat_image")
+                attrs["video_thumbnail_url"] = thumbnail_ref
 
         attrs["content"] = content or None
 
@@ -275,14 +324,6 @@ class MessageSerializer(serializers.ModelSerializer):
         """Validated data mapped onto Message model fields (used by the chat service)."""
         data = dict(self.validated_data)
         data.pop("client_message_id", None)
-        media_url = data.pop("media_url", None)
-        field_map = {
-            "voice_note": "voice_note_url",
-            "image": "image_url",
-            "video": "video_url",
-        }
-        if media_url and data.get("message_type") in field_map:
-            data[field_map[data["message_type"]]] = media_url
         return data
 
 
@@ -304,6 +345,15 @@ class TypingSerializer(serializers.Serializer):
     is_typing = serializers.BooleanField(default=True)
 
 
+class ChatReportCreateSerializer(serializers.Serializer):
+    report_type = serializers.ChoiceField(choices=[c[0] for c in ChatReport.REPORT_TYPES])
+    description = serializers.CharField(
+        max_length=2000, required=False, allow_blank=True, default=""
+    )
+    message_id = serializers.IntegerField(required=False, allow_null=True)
+    reported_user_id = serializers.IntegerField(required=False, allow_null=True)
+
+
 class ChatReceiptSerializer(serializers.Serializer):
     user_id = serializers.IntegerField()
     last_delivered_seq = serializers.IntegerField()
@@ -316,6 +366,7 @@ class ChatSyncResponseSerializer(serializers.Serializer):
     events = MessageSerializer(many=True)
     has_more = serializers.BooleanField()
     next_after_seq = serializers.IntegerField()
+    cleared_before_seq = serializers.IntegerField()
     receipts = ChatReceiptSerializer(many=True)
     typing_user_ids = serializers.ListField(child=serializers.IntegerField())
     presence = serializers.DictField()
@@ -374,7 +425,12 @@ class ChatDetailSerializer(serializers.ModelSerializer):
         ).prefetch_related("deleted_for")
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            qs = qs.exclude(deleted_for=request.user)
+            cleared = (
+                ChatParticipant.objects.filter(chat=obj, user=request.user)
+                .values_list("cleared_before_seq", flat=True)
+                .first()
+            ) or 0
+            qs = qs.exclude(deleted_for=request.user).filter(seq__gt=cleared)
         return MessageSerializer(
             qs.order_by("seq", "id"), many=True, context=self.context
         ).data

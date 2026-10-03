@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.utils import timezone
 from django.db import transaction
 from ..constants import QUESTION_UI_CONFIG
+from ..media_refs import MediaRefsMixin
 from ..models import User, UserSecurityQuestion, BondmakerSubscription, SuggestedMatch, Visibility, Specialisation
 from ..models.username import UsernameValidation, validate_username_format
 from .users import SimpleUserSerializer, UserSecurityQuestionDisplaySerializer, UserSecurityQuestionUpdateSerializer
@@ -65,7 +66,13 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
         return verification.status
 
 
-class BondmakerProfileUpdateSerializer(serializers.ModelSerializer):
+class BondmakerProfileUpdateSerializer(MediaRefsMixin, serializers.ModelSerializer):
+    media_ref_fields = {
+        "profile_picture": ("profile_picture",),
+        "bondmaker_profile_picture": ("bondmaker_profile_picture",),
+        "bondmaker_cover_picture": ("bondmaker_cover_picture",),
+    }
+
     security_questions = UserSecurityQuestionDisplaySerializer(
         many=True, read_only=True
     )

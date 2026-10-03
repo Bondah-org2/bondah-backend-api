@@ -61,7 +61,6 @@ from .oauth import (  # noqa: F401
 )
 from .account import (  # noqa: F401
     AccountDeactivationView,
-    CloudinarySignatureView,
     DeviceRegistrationView,
     LanguageSettingsView,
     NotificationSettingsView,
@@ -96,7 +95,9 @@ from .location import (  # noqa: F401
 from .chat import (  # noqa: F401
     ChatDetailView,
     ChatListView,
+    ChatClearView,
     ChatMarkReadView,
+    ChatReportView,
     ChatMessagesView,
     ChatSyncView,
     ChatTypingView,
@@ -193,4 +194,3 @@ from .matching import (  # noqa: F401
     UserMatchedListView,
     UserSwipeDeckView,
 )
-from ..integrations.circuit_breakers import cloudinary_breaker  # noqa: F401  (patched in tests via dating.views)
