@@ -212,69 +212,8 @@ def detect_match_transition(sender, instance, **kwargs):
 # -----------------------------------------
 # Create chat after save (side effect)
 # -----------------------------------------
-@receiver(post_save, sender=UserMatch)
-def create_chat_on_match(sender, instance, created, **kwargs):
-    """
-    Create match intro chat ONLY when transition to matched occurs
-    """
-
-    if not getattr(instance, "_create_chat", False):
-        return
-
-    # Double safety check (DB level)
-    if hasattr(instance, "chat"):
-        return
-
-    bondmaker = None
-    if instance.match_request:
-        bondmaker = getattr(instance.match_request, "bondmaker", None)
-
-    with transaction.atomic():
-
-        # Lock row to prevent race conditions
-        match = UserMatch.objects.select_for_update().get(pk=instance.pk)
-
-        if hasattr(match, "chat"):
-            return
-
-        chat = Chat.objects.create(
-            chat_type="matchmaker_intro",
-            created_by=bondmaker,
-            user_match=match,
-        )
-
-        participants = [match.user1, match.user2]
-        if bondmaker:
-            participants.append(bondmaker)
-
-        chat.participants.add(*participants)
-
-        # -------------------------
-        # System Messages
-        # -------------------------
-        if bondmaker:
-            Message.objects.create(
-                chat=chat,
-                message_type="system",
-                content=f"{bondmaker.name} made the match",
-            )
-
-        Message.objects.create(
-            chat=chat,
-            message_type="system",
-            content="You were added to this match",
-        )
-
-        # if bondmaker:
-        #     Message.objects.create(
-        #         chat=chat,
-        #         sender=bondmaker,
-        #         message_type="matchmaker_intro",
-        #         content=(
-        #             "Hi I’ve matched you because I see a good fit. "
-        #             "Please introduce yourselves and get to know each other."
-        #         ),
-        #     )
+# The three-way match chat is opened explicitly when a bondmaker accepts a
+# like (services/match_service.accept_match_request), in the same transaction.
 
 
 # @receiver(post_save, sender=PostComment)

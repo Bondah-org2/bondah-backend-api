@@ -1,5 +1,9 @@
 """Match requests: a love seeker likes someone visible under a bondmaker.
 
+A like is a request to match. It goes to the bondmaker the liked person is
+visible under (their client). When the bondmaker accepts, a chat opens at
+once with all three: the seeker who liked, the client and the bondmaker.
+
 Money rules (see the rebuild decisions):
 - Creating a request holds the coins in the requester's locked balance.
 - The bondmaker accepting it pays the held coins to the bondmaker.
@@ -14,9 +18,10 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from dating.models import MatchRequest, UserMatch
+from dating.models import Chat, MatchRequest, Message, UserMatch
+from dating.tasks import notify_user
 from ..location_utils import calculate_match_score
-from . import wallet_service
+from . import chat_service, wallet_service
 
 REQUEST_TTL = timedelta(days=7)
 LIKE_COST = 1  # coins held per like, paid to the bondmaker on accept
@@ -106,12 +111,42 @@ def _refund(match_request: MatchRequest) -> None:
         wallet_service.release(match_request.hold_transaction_id)
 
 
-def accept_match_request(match_request_id: int) -> int:
-    """Pay the held coins to the bondmaker. Returns the coins earned."""
+def _open_match_chat(match_request: MatchRequest) -> Chat:
+    """The three-way chat for an accepted match. Idempotent (one per match)."""
+    user_match = match_request.user_match
+    existing = Chat.objects.filter(user_match=user_match).first()
+    if existing is not None:
+        return existing
+
+    requester, client, bondmaker = user_match.user1, user_match.user2, match_request.bondmaker
+    chat = Chat.objects.create(
+        chat_type="matchmaker_intro",
+        created_by=bondmaker,
+        user_match=user_match,
+    )
+    chat.participants.add(requester, client, bondmaker)
+    chat_service.ensure_participants(chat)
+    Message.objects.create(
+        chat=chat,
+        message_type="system",
+        content=f"{bondmaker.name} connected {requester.name} and {client.name}. Say hello!",
+    )
+    return chat
+
+
+def accept_match_request(match_request_id: int) -> tuple[int, int]:
+    """Pay the held coins to the bondmaker and open the match chat.
+
+    Returns (coins earned, chat id).
+    """
     with transaction.atomic():
         match_request = _lock_pending(match_request_id)
         if match_request.hold_transaction_id is None:
             raise ValidationError("This request has no coins held; it cannot be accepted.")
+        try:
+            match_request.user_match
+        except UserMatch.DoesNotExist:
+            raise ValidationError("This request has no match attached.")
 
         wallet_service.capture(
             match_request.hold_transaction_id,
@@ -120,10 +155,31 @@ def accept_match_request(match_request_id: int) -> int:
         )
         match_request.status = "accepted"
         match_request.save(update_fields=["status"])
-
         _set_user_match_status(match_request, "matched")
 
-    return match_request.coins_charged
+        chat = _open_match_chat(match_request)
+        requester = match_request.user_match.user1
+        client = match_request.user_match.user2
+        bondmaker = match_request.bondmaker
+        transaction.on_commit(lambda: _notify_accepted(chat.id, requester, client, bondmaker))
+
+    return match_request.coins_charged, chat.id
+
+
+def _notify_accepted(chat_id, requester, client, bondmaker):
+    data = {"type": "match_chat", "chat_id": str(chat_id)}
+    notify_user.delay(
+        user_id=requester.id,
+        title="It's a match",
+        message=f"{bondmaker.name} connected you with {client.name}. Say hello!",
+        data=data,
+    )
+    notify_user.delay(
+        user_id=client.id,
+        title="New match",
+        message=f"{bondmaker.name} connected you with {requester.name}. Say hello!",
+        data=data,
+    )
 
 
 def reject_match_request(match_request_id: int) -> None:
@@ -133,6 +189,13 @@ def reject_match_request(match_request_id: int) -> None:
         _refund(match_request)
         match_request.status = "rejected"
         match_request.save(update_fields=["status"])
+        requester_id = match_request.requester_id
+        transaction.on_commit(lambda: notify_user.delay(
+            user_id=requester_id,
+            title="Like not matched",
+            message="This like wasn't matched by the bondmaker. Your coin is back in your wallet.",
+            data={"type": "match_request_rejected"},
+        ))
 
         _set_user_match_status(match_request, "disliked")
 

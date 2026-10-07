@@ -17,6 +17,7 @@ from ..services import subscription_service
 from ..services.wallet_service import InsufficientFunds
 from ..services.match_service import (
     LIKE_COST,
+    REQUEST_TTL,
     cancel_match_request,
     accept_match_request,
     create_match_request,
@@ -94,7 +95,12 @@ class MatchQueueView(generics.ListAPIView):
 
     def get_queryset(self):
         return (
-            MatchRequest.objects.filter(bondmaker=self.request.user, status="pending")
+            MatchRequest.objects.filter(
+                bondmaker=self.request.user,
+                status="pending",
+                # Past the reply window but not swept yet: already refunded soon.
+                created_at__gt=timezone.now() - REQUEST_TTL,
+            )
             .select_related("requester", "user_match", "user_match__user2")
             .order_by("-created_at")
         )
@@ -135,10 +141,11 @@ class BondmakerMatchActionView(generics.GenericAPIView):
 
         try:
             if action == "accepted":
-                coins_earned = accept_match_request(match_request.id)
+                coins_earned, chat_id = accept_match_request(match_request.id)
                 response_data = {
                     "message": "Match accepted successfully",
                     "coins_earned": coins_earned,
+                    "chat_id": chat_id,
                 }
             elif action == "rejected":
                 reject_match_request(match_request.id)

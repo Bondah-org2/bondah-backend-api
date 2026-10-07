@@ -99,38 +99,61 @@ class MatchRequestSerializer(serializers.Serializer):
 class BondmakerMatchActionResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
     coins_earned = serializers.IntegerField(required=False)
+    chat_id = serializers.IntegerField(required=False)
 
 
 class BondmakerMatchActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["accepted", "rejected", "mark_successful"])
 
 
+class MatchPersonSerializer(serializers.ModelSerializer):
+    """Who is in a match request, as the bondmaker sees them in the queue."""
+
+    age = serializers.ReadOnlyField()
+
+    class Meta:
+        model = User
+        fields = ["id", "name", "age", "gender", "bio", "country", "city", "profile_picture"]
+        read_only_fields = fields
+
+
 class MatchQueueSerializer(serializers.ModelSerializer):
+    """A like waiting for the bondmaker: the seeker who liked and their client."""
+
+    requester = MatchPersonSerializer(read_only=True)
+    candidate = serializers.SerializerMethodField()
+    match_score = serializers.SerializerMethodField()
+    expires_at = serializers.SerializerMethodField()
+    # Flat fields kept for older app builds.
     requester_id = serializers.IntegerField(source="requester.id", read_only=True)
     requester_name = serializers.CharField(source="requester.name", read_only=True)
     candidate_id = serializers.SerializerMethodField()
     candidate_name = serializers.SerializerMethodField()
-    match_score = serializers.SerializerMethodField()
 
     class Meta:
         model = MatchRequest
         fields = [
             "id",
-            "requester_id",
-            "requester_name",
-            "candidate_id",
-            "candidate_name",
+            "requester",
+            "candidate",
             "match_score",
             "coins_charged",
             "status",
             "created_at",
+            "expires_at",
+            "requester_id",
+            "requester_name",
+            "candidate_id",
+            "candidate_name",
         ]
 
     def _candidate(self, obj):
         user_match = getattr(obj, "user_match", None)
-        if user_match is None:
-            return None
-        return user_match.user2
+        return user_match.user2 if user_match else None
+
+    def get_candidate(self, obj):
+        candidate = self._candidate(obj)
+        return MatchPersonSerializer(candidate, context=self.context).data if candidate else None
 
     def get_candidate_id(self, obj):
         candidate = self._candidate(obj)
@@ -143,6 +166,11 @@ class MatchQueueSerializer(serializers.ModelSerializer):
     def get_match_score(self, obj):
         user_match = getattr(obj, "user_match", None)
         return user_match.match_score if user_match else None
+
+    def get_expires_at(self, obj):
+        from ..services.match_service import REQUEST_TTL
+
+        return (obj.created_at + REQUEST_TTL).isoformat()
 
 
 class UserSwipeCardSerializer(serializers.ModelSerializer):
