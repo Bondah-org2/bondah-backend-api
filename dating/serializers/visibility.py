@@ -1,8 +1,10 @@
+from django.db import transaction
 from dating.tasks import notify_user
 from rest_framework import serializers
 from django.utils import timezone
 from ..models import User, Visibility
 from ..services.visibility_services import VisibilityService
+from ..services.wallet_service import InsufficientFunds
 
 
 class VisibilityOwnerSerializer(serializers.ModelSerializer):
@@ -67,31 +69,50 @@ class VisibilitySerializer(serializers.ModelSerializer):
         bondmaker = validated_data.pop("bondmaker")
         visibility_type = validated_data["visibility"]
 
-        visibility, _ = Visibility.objects.update_or_create(
-            owner=owner,
-            bondmaker=bondmaker,
-            defaults={
-                "visibility": visibility_type,
-                "status": "pending",
-                "expires_at": None,
-            },
-        )
+        with transaction.atomic():
+            current = (
+                Visibility.objects.select_for_update()
+                .filter(owner=owner, bondmaker=bondmaker)
+                .first()
+            )
+            if current and current.status == "pending":
+                raise serializers.ValidationError(
+                    "You have already sent a visibility request to this bondmaker."
+                )
+            if current and current.status == "approved" and current.is_active:
+                raise serializers.ValidationError(
+                    "You are already visible under this bondmaker."
+                )
 
-        # Notify Bondmaker
-        notify_user.delay(
-            user=visibility.bondmaker.id,
-            title="New Public Visibility Request",
-            message=f"{visibility.owner.email} requested public visibility.",
-            data={
-                "type": "public_visibility_request",
-                "visibility_id": visibility.id,
-                "visibility_type": visibility_type,
-            },
-        )
+            visibility, _ = Visibility.objects.update_or_create(
+                owner=owner,
+                bondmaker=bondmaker,
+                defaults={
+                    "visibility": visibility_type,
+                    "status": "pending",
+                    "expires_at": None,
+                    "hold_transaction": None,
+                },
+            )
 
-        # Delegate to service layer
-        if visibility_type == "private":
-            VisibilityService.request_private_visibility(visibility)
+            if visibility_type == "private":
+                try:
+                    VisibilityService.request_private_visibility(visibility)
+                except InsufficientFunds:
+                    raise serializers.ValidationError(
+                        {"detail": "Not enough coins for private visibility."}
+                    )
+            else:
+                transaction.on_commit(lambda: notify_user.delay(
+                    user_id=bondmaker.id,
+                    title="New Public Visibility Request",
+                    message=f"{owner.name} requested public visibility.",
+                    data={
+                        "type": "public_visibility_request",
+                        "visibility_id": visibility.id,
+                        "visibility_type": visibility_type,
+                    },
+                ))
 
         return visibility
 

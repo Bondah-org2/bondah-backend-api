@@ -1260,10 +1260,15 @@ class Visibility(models.Model):
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     expires_at = models.DateTimeField(null=True, blank=True)
+    # Coins held for a private request until the bondmaker decides.
+    hold_transaction = models.ForeignKey(
+        "dating.WalletTransaction", on_delete=models.PROTECT,
+        null=True, blank=True, related_name="+",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         unique_together = ("owner", "bondmaker")
         indexes = [
@@ -1329,6 +1334,8 @@ class MatchRequest(models.Model):
         ("accepted", "Accepted"),
         ("rejected", "Rejected"),
         ("completed", "Completed"),
+        ("expired", "Expired"),
+        ("cancelled", "Cancelled"),
     )
 
     requester = models.ForeignKey(
@@ -1352,19 +1359,20 @@ class MatchRequest(models.Model):
         default="pending",
         db_index=True,
     )
+    # The requester's coins held in escrow until the bondmaker decides.
+    hold_transaction = models.ForeignKey(
+        "dating.WalletTransaction", on_delete=models.PROTECT,
+        null=True, blank=True, related_name="+",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
-            models.Index(fields=["bondmaker", "status"]),  # helpful
-            models.Index(fields=["status"]),  # fast filtering by status
+            models.Index(fields=["bondmaker", "status"]),
+            # Expiry sweep: pending requests older than the cutoff.
+            models.Index(fields=["status", "created_at"]),
         ]
-        models.UniqueConstraint(
-            fields=["requester", "target_user"],
-            condition=Q(status="pending"),
-            name="unique_pending_match_request",
-        )
 
 
 class UserMatch(models.Model):
@@ -1376,6 +1384,7 @@ class UserMatch(models.Model):
         ("disliked", "Disliked"),
         ("matched", "Matched"),
         ("blocked", "Blocked"),
+        ("expired", "Expired"),
     )
 
     match_request = models.OneToOneField(

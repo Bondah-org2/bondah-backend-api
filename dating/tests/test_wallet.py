@@ -5,7 +5,6 @@ client-writable subscription and payment-simulator endpoints (rebuild phase 0).
 
 import uuid
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -19,6 +18,7 @@ from rest_framework.test import APITestCase
 from dating.models import (
     BondcoinPackage,
     GiftCategory,
+    RevenueCatEvent,
     GiftTransaction,
     PlatformSettings,
     RevenueRecord,
@@ -101,99 +101,160 @@ class LedgerTests(TestCase):
         self.assertEqual(balance(self.user), 3)
 
 
-def apple_response(product_id, transaction_ids, bundle_id="com.bondah.matchmaking", status_code=0):
-    response = MagicMock()
-    response.json.return_value = {
-        "status": status_code,
-        "receipt": {
-            "bundle_id": bundle_id,
-            "in_app": [
-                {"product_id": product_id, "transaction_id": tx_id} for tx_id in transaction_ids
-            ],
-        },
+WEBHOOK_SECRET = "test-webhook-secret"
+
+
+def rc_event(event_type, **fields):
+    event = {
+        "id": fields.pop("id", uuid.uuid4().hex),
+        "type": event_type,
+        "environment": "PRODUCTION",
+        "store": "APP_STORE",
+        "product_id": "bondah_coins_100",
+        "transaction_id": "1000",
+        "price": 8.99,
+        "takehome_percentage": 0.85,
     }
-    return response
+    event.update(fields)
+    return {"api_version": "1.0", "event": event}
+
+
+@override_settings(**TEST_OVERRIDES, REVENUECAT_WEBHOOK_AUTH=WEBHOOK_SECRET, REVENUECAT_ALLOW_SANDBOX=False)
+class RevenueCatWebhookTests(APITestCase):
+    def setUp(self):
+        self.user = make_user("buyer@example.com", "Buyer")
+        self.url = reverse("revenuecat-webhook")
+        # Seeded by migration 0068.
+        self.package = BondcoinPackage.objects.get(apple_product_id="bondah_coins_100")
+
+    def post(self, body, secret=WEBHOOK_SECRET):
+        # The webhook hands events to Celery on commit; run those callbacks here.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, body, format="json", HTTP_AUTHORIZATION=f"Bearer {secret}")
+
+    def purchase(self, **fields):
+        return self.post(rc_event("NON_RENEWING_PURCHASE", app_user_id=str(self.user.id), **fields))
+
+    def test_rejects_wrong_or_missing_secret(self):
+        self.assertEqual(self.post(rc_event("TEST"), secret="nope").status_code, 401)
+        self.assertEqual(self.client.post(self.url, rc_event("TEST"), format="json").status_code, 401)
+
+    @override_settings(REVENUECAT_WEBHOOK_AUTH="")
+    def test_refuses_when_secret_not_configured(self):
+        self.assertEqual(self.post(rc_event("TEST")).status_code, 503)
+
+    def test_purchase_credits_catalog_amount_once(self):
+        first = self.purchase(id="evt-1")
+        redelivered = self.purchase(id="evt-1")
+        same_store_tx_new_event = self.purchase(id="evt-2")
+
+        for response in (first, redelivered, same_store_tx_new_event):
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(balance(self.user), 100)
+        self.assertEqual(RevenueCatEvent.objects.count(), 2)
+        record = RevenueRecord.objects.get()
+        self.assertEqual(record.store_fee_usd, Decimal("1.35"))
+        self.assertEqual(record.coins_awarded, 100)
+
+    def test_coin_amount_never_comes_from_the_payload(self):
+        self.purchase(price=0.01, bondcoin_amount=999999)
+        self.assertEqual(balance(self.user), 100)
+
+    def test_unknown_product_and_unknown_user_fail_for_review(self):
+        self.purchase(product_id="bondah_coins_999999", transaction_id="t1")
+        self.post(rc_event("NON_RENEWING_PURCHASE", app_user_id="$RCAnonymousID:abc", transaction_id="t2"))
+        self.assertEqual(RevenueCatEvent.objects.filter(status="failed").count(), 2)
+        self.assertEqual(WalletTransaction.objects.count(), 0)
+
+    def test_sandbox_purchase_ignored_in_production(self):
+        self.purchase(environment="SANDBOX")
+        self.assertEqual(Wallet.objects.get_or_create(user=self.user)[0].available_balance, 0)
+        self.assertEqual(RevenueCatEvent.objects.get().status, "ignored")
+
+    def test_user_found_through_alias(self):
+        self.post(rc_event(
+            "NON_RENEWING_PURCHASE",
+            app_user_id="$RCAnonymousID:abc",
+            aliases=["$RCAnonymousID:abc", str(self.user.id)],
+        ))
+        self.assertEqual(balance(self.user), 100)
+
+    def test_refund_takes_back_whats_left_and_records_debt(self):
+        self.purchase(transaction_id="tx-a")
+        wallet_service.debit(self.user, 70, kind="gift_sent", idempotency_key="spend")
+        refund = rc_event(
+            "CANCELLATION", app_user_id=str(self.user.id), transaction_id="tx-a",
+            cancel_reason="CUSTOMER_SUPPORT",
+        )
+        self.post(refund)
+        self.post(refund)  # redelivered
+
+        wallet = Wallet.objects.get(user=self.user)
+        self.assertEqual(wallet.available_balance, 0)
+        self.assertEqual(wallet.coin_debt, 70)
+
+        # The next purchase pays the debt first.
+        self.purchase(transaction_id="tx-b")
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.coin_debt, 0)
+        self.assertEqual(wallet.available_balance, 30)
+
+    def test_second_refund_flags_the_wallet(self):
+        for tx in ("r1", "r2"):
+            self.purchase(transaction_id=tx)
+            self.post(rc_event(
+                "CANCELLATION", app_user_id=str(self.user.id), transaction_id=tx,
+                cancel_reason="CUSTOMER_SUPPORT",
+            ))
+        self.assertIsNotNone(Wallet.objects.get(user=self.user).refund_flagged_at)
+
+    def test_refund_of_unknown_purchase_is_ignored(self):
+        self.post(rc_event(
+            "CANCELLATION", app_user_id=str(self.user.id), transaction_id="never-bought",
+            cancel_reason="CUSTOMER_SUPPORT",
+        ))
+        self.assertEqual(RevenueCatEvent.objects.get().status, "ignored")
+        self.assertEqual(Wallet.objects.get_or_create(user=self.user)[0].coin_debt, 0)
+
+    def test_legacy_receipt_endpoint_is_gone(self):
+        self.client.force_authenticate(user=self.user)
+        self.assertEqual(self.client.post("/api/v1/wallet/purchase_coins/", {}).status_code, 404)
 
 
 @override_settings(**TEST_OVERRIDES)
-class PurchaseTests(APITestCase):
+class EscrowTests(TestCase):
     def setUp(self):
-        self.user = make_user("buyer@example.com", "Buyer")
-        self.thief = make_user("thief@example.com", "Thief")
-        self.package = BondcoinPackage.objects.create(
-            name="100 coins",
-            apple_product_id="coins_100",
-            google_product_id="coins_100",
-            bondcoin_amount=100,
-            price_usd=Decimal("8.90"),
-        )
-        self.url = reverse("purchase-coins")
+        self.payer = make_user("payer@example.com", "Payer")
+        self.payee = make_user("payee@example.com", "Payee")
+        wallet_service.credit(self.payer, 20, kind="purchase", idempotency_key="seed")
 
-    def buy(self, user, **body):
-        self.client.force_authenticate(user=user)
-        return self.client.post(self.url, {"package_id": self.package.id, **body}, format="json")
+    def held(self, amount=5, key="h1"):
+        return wallet_service.hold(self.payer, amount, kind="match_request", idempotency_key=key).transaction
 
-    @patch("dating.services.payment_service.requests.post")
-    def test_apple_receipt_credits_once_and_cannot_be_replayed(self, post):
-        post.return_value = apple_response("coins_100", ["1000"])
+    def test_hold_moves_coins_to_locked(self):
+        self.held()
+        wallet = Wallet.objects.get(user=self.payer)
+        self.assertEqual((wallet.available_balance, wallet.locked_balance), (15, 5))
 
-        first = self.buy(self.user, platform="apple", receipt_data="r")
-        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(first.data["coins_received"], 100)
+    def test_capture_pays_recipient_once(self):
+        hold_tx = self.held()
+        self.assertTrue(wallet_service.capture(hold_tx.id, recipient=self.payee))
+        self.assertFalse(wallet_service.capture(hold_tx.id, recipient=self.payee))
+        self.assertFalse(wallet_service.release(hold_tx.id))
+        payer = Wallet.objects.get(user=self.payer)
+        self.assertEqual((payer.available_balance, payer.locked_balance), (15, 0))
+        self.assertEqual(balance(self.payee), 5)
 
-        again = self.buy(self.user, platform="apple", receipt_data="r")
-        self.assertEqual(again.status_code, status.HTTP_200_OK)
-        self.assertEqual(again.data["coins_received"], 0)
+    def test_release_refunds_once(self):
+        hold_tx = self.held()
+        self.assertTrue(wallet_service.release(hold_tx.id))
+        self.assertFalse(wallet_service.release(hold_tx.id))
+        payer = Wallet.objects.get(user=self.payer)
+        self.assertEqual((payer.available_balance, payer.locked_balance), (20, 0))
 
-        stolen = self.buy(self.thief, platform="apple", receipt_data="r")
-        self.assertEqual(stolen.data["coins_received"], 0)
-
-        self.assertEqual(balance(self.user), 100)
-        self.assertEqual(Wallet.objects.get_or_create(user=self.thief)[0].available_balance, 0)
-        self.assertEqual(RevenueRecord.objects.count(), 1)
-
-    @patch("dating.services.payment_service.requests.post")
-    def test_apple_receipt_for_another_app_is_rejected(self, post):
-        post.return_value = apple_response("coins_100", ["1000"], bundle_id="com.evil.app")
-        response = self.buy(self.user, platform="apple", receipt_data="r")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(WalletTransaction.objects.count(), 0)
-
-    @patch("dating.services.payment_service.requests.post")
-    def test_apple_receipt_for_another_product_is_rejected(self, post):
-        post.return_value = apple_response("coins_5000", ["1000"])
-        response = self.buy(self.user, platform="apple", receipt_data="r")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    @patch("dating.services.payment_service._google_purchases_api")
-    def test_google_purchase_credits_once_and_is_consumed(self, api_factory):
-        api = MagicMock()
-        api.get.return_value.execute.return_value = {"purchaseState": 0, "orderId": "GPA.1"}
-        api_factory.return_value = api
-
-        first = self.buy(self.user, platform="google", purchase_token="tok")
-        again = self.buy(self.user, platform="google", purchase_token="tok")
-
-        self.assertEqual(first.data["coins_received"], 100)
-        self.assertEqual(again.data["coins_received"], 0)
-        self.assertEqual(balance(self.user), 100)
-        self.assertTrue(api.consume.called)
-
-    @patch("dating.services.payment_service._google_purchases_api")
-    def test_google_purchase_tagged_for_another_account_is_rejected(self, api_factory):
-        api = MagicMock()
-        api.get.return_value.execute.return_value = {
-            "purchaseState": 0,
-            "orderId": "GPA.2",
-            "obfuscatedExternalAccountId": str(self.user.id),
-        }
-        api_factory.return_value = api
-        response = self.buy(self.thief, platform="google", purchase_token="tok")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_missing_receipt_is_a_validation_error(self):
-        response = self.buy(self.user, platform="apple")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_cannot_hold_more_than_available(self):
+        with self.assertRaises(wallet_service.InsufficientFunds):
+            self.held(amount=21)
 
 
 @override_settings(**TEST_OVERRIDES)

@@ -562,23 +562,18 @@ class ChatPushTaskTests(ChatFixtureMixin, TestCase):
 @override_settings(**TEST_OVERRIDES)
 class MatchRejectTests(APITestCase):
     def setUp(self):
+        from dating.services import wallet_service
+        from dating.services.match_service import create_match_request
+
         self.bondmaker = make_user("bm@example.com", "Bondmaker", is_matchmaker=True)
         self.requester = make_user("req@example.com", "Requester")
         self.candidate = make_user("cand@example.com", "Candidate")
-        Wallet.objects.filter(user=self.requester).update(
-            available_balance=0, locked_balance=10
-        )
-        self.request = MatchRequest.objects.create(
+        wallet_service.credit(self.requester, 10, kind="purchase", idempotency_key="seed")
+        self.request, _ = create_match_request(
             requester=self.requester,
             bondmaker=self.bondmaker,
-            coins_charged=10,
-            status="pending",
-        )
-        UserMatch.objects.create(
-            match_request=self.request,
-            user1=self.requester,
-            user2=self.candidate,
-            distance=1.0,
+            target_user=self.candidate,
+            coins=10,
         )
         self.url = reverse(
             "bondmaker-match-action", kwargs={"match_request_id": self.request.id}
@@ -597,9 +592,57 @@ class MatchRejectTests(APITestCase):
         self.assertEqual(self.request.status, "rejected")
 
     def test_service_error_returns_400_not_500(self):
-        Wallet.objects.filter(user=self.requester).update(locked_balance=0)
-        response = self.client.post(self.url, {"action": "rejected"}, format="json")
+        # A request with no coins held (pre-ledger data) can't be accepted.
+        MatchRequest.objects.filter(id=self.request.id).update(hold_transaction=None)
+        response = self.client.post(self.url, {"action": "accepted"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+@override_settings(**TEST_OVERRIDES)
+class LegacyHoldAdoptionTests(APITestCase):
+    """Migration 0069 links pre-ledger pending requests to hold rows."""
+
+    def adopt(self):
+        from importlib import import_module
+
+        from django.apps import apps as django_apps
+
+        import_module("dating.migrations.0069_adopt_legacy_holds").adopt(django_apps, None)
+
+    def test_legacy_request_is_refundable_after_adoption(self):
+        bondmaker = make_user("bm@example.com", "Bondmaker", is_matchmaker=True)
+        requester = make_user("req@example.com", "Requester")
+        candidate = make_user("cand@example.com", "Candidate")
+        Wallet.objects.update_or_create(user=requester, defaults={"available_balance": 0, "locked_balance": 10})
+        legacy = MatchRequest.objects.create(
+            requester=requester, bondmaker=bondmaker, coins_charged=10, status="pending"
+        )
+        UserMatch.objects.create(match_request=legacy, user1=requester, user2=candidate, distance=1.0)
+
+        self.adopt()
+        self.adopt()  # idempotent
+
+        legacy.refresh_from_db()
+        self.assertIsNotNone(legacy.hold_transaction_id)
+        self.client.force_authenticate(user=bondmaker)
+        self.client.post(
+            reverse("bondmaker-match-action", kwargs={"match_request_id": legacy.id}),
+            {"action": "rejected"},
+            format="json",
+        )
+        wallet = Wallet.objects.get(user=requester)
+        self.assertEqual((wallet.available_balance, wallet.locked_balance), (10, 0))
+
+    def test_request_that_does_not_fit_locked_balance_is_skipped(self):
+        bondmaker = make_user("bm@example.com", "Bondmaker", is_matchmaker=True)
+        requester = make_user("req@example.com", "Requester")
+        Wallet.objects.update_or_create(user=requester, defaults={"available_balance": 0, "locked_balance": 3})
+        legacy = MatchRequest.objects.create(
+            requester=requester, bondmaker=bondmaker, coins_charged=10, status="pending"
+        )
+        self.adopt()
+        legacy.refresh_from_db()
+        self.assertIsNone(legacy.hold_transaction_id)
 
 
 # ---------------------------------------------------------------------------

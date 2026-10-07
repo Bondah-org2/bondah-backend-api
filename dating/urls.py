@@ -135,7 +135,6 @@ from .views import (
     UserFeatureAccessView,
     # Bondcoin Wallet Views (NEW FROM FIGMA)
     BondcoinPackageListView,
-    BondcoinTransactionListView,
     MyWalletView,
     MyLedgerView,
     # Virtual Gifting Views (NEW FROM FIGMA)
@@ -177,7 +176,13 @@ from .views import (
     GlobalPublicUsersListView,
     PrivateUsersForBondmakerListView,
     MatchRequestCreateView,
-    PurchaseCoinView,
+    RevenueCatWebhookView,
+    AdminClearWalletFlagView,
+    AdminFlaggedWalletListView,
+    AdminPlatformSettingsView,
+    AdminRevenueCatEventDetailView,
+    AdminRevenueCatEventListView,
+    AdminRevenueCatEventReprocessView,
     BondmakerMatchActionView,
     PasswordResendOTPView,
     PasswordResetVerifyOTPView,
@@ -368,6 +373,13 @@ urlpatterns = [
 
     # Admin OverView
     path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
+    # Coin and store finance (Bondah-Admin-System > Finance)
+    path("admin/finance/wallets/flagged/", AdminFlaggedWalletListView.as_view(), name="admin-flagged-wallets"),
+    path("admin/finance/wallets/<int:user_id>/clear-flag/", AdminClearWalletFlagView.as_view(), name="admin-clear-wallet-flag"),
+    path("admin/finance/store-events/", AdminRevenueCatEventListView.as_view(), name="admin-store-events"),
+    path("admin/finance/store-events/<int:pk>/", AdminRevenueCatEventDetailView.as_view(), name="admin-store-event-detail"),
+    path("admin/finance/store-events/<int:pk>/reprocess/", AdminRevenueCatEventReprocessView.as_view(), name="admin-store-event-reprocess"),
+    path("admin/settings/platform/", AdminPlatformSettingsView.as_view(), name="admin-platform-settings"),
 
 
     # ---------------------------------------
@@ -685,12 +697,8 @@ urlpatterns = [
         BondcoinPackageListView.as_view(),
         name="bondcoin-packages",
     ),
-    # Bondcoin Transaction List View
-    path(
-        "bondcoin/transactions/",
-        BondcoinTransactionListView.as_view(),
-        name="bondcoin-transactions",
-    ),
+    # Same ledger as wallet/ledger/; kept for app builds that still call it.
+    path("bondcoin/transactions/", MyLedgerView.as_view(), name="bondcoin-transactions"),
 
     # Virtual Gifting Endpoints (NEW FROM FIGMA)
     path("gifts/categories/", GiftCategoryListView.as_view(), name="gift-categories"),
@@ -921,7 +929,8 @@ urlpatterns = [
     # ---------------------------------------------------------------------
     #   Purchase coins
     # ---------------------------------------------------------------------
-    path("wallet/purchase_coins/", PurchaseCoinView.as_view(), name="purchase-coins"),
+    # Coins are bought through RevenueCat in the app; the store notifies us here.
+    path("webhooks/revenuecat/", RevenueCatWebhookView.as_view(), name="revenuecat-webhook"),
     path("wallet/send-gift/", SendGiftView.as_view(), name="send-gift"),
     path("wallet/convert-gift/", ConvertGiftView.as_view(), name="convert-gift"),
     path("wallet/gifts/received/", ReceivedGiftListView.as_view(), name="received-gifts"),

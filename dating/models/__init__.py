@@ -6,6 +6,7 @@ from .bondcoin import (
     RevenueRecord,
     # BondmakerWallet,
     ProductRevenueRecord,
+    RevenueCatEvent,
 )
 from .chat import (
     Chat,
@@ -140,6 +141,7 @@ __all__ = [
     "VirtualGift",
     "GiftTransaction",
     "PlatformSettings",
+    "RevenueCatEvent",
     # Live
     "LiveSession",
     "LiveParticipant",

@@ -13,7 +13,12 @@ from django.contrib.auth import get_user_model
 from dating.tasks import notify_user
 from ..serializers import MatchQueueSerializer, UserInteractionSerializer, MatchRequestSerializer, BondmakerMatchActionSerializer, BondmakerMatchActionResponseSerializer, UserSwipeCardSerializer, StaticUserProfileSerializer, MatchedUserSerializer, IncomingPendingMatchSerializer
 from ..services.match_service import reject_match_request
-from ..services.match_service import create_match_request, accept_match_request
+from ..services.match_service import (
+    LIKE_COST,
+    accept_match_request,
+    create_match_request,
+    is_visible_under,
+)
 from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -34,17 +39,26 @@ class MatchRequestCreateView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        bondmaker = get_object_or_404(User, id=serializer.validated_data["bondmaker_id"])
+        target_user = get_object_or_404(User, id=serializer.validated_data["target_user_id"])
+        if not is_visible_under(target_user, bondmaker):
+            return Response(
+                {"detail": "This person is not visible under that bondmaker."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             match_request, user_match = create_match_request(
                 requester=request.user,
-                bondmaker=get_object_or_404(
-                    User, id=serializer.validated_data["bondmaker_id"]),
-                target_user=get_object_or_404(
-                    User, id=serializer.validated_data["target_user_id"]),
-                coins=serializer.validated_data["coins"],
+                bondmaker=bondmaker,
+                target_user=target_user,
+                coins=LIKE_COST,
             )
         except ValidationError as e:
-            return Response({"detail": str(e)}, status=400)
+            return Response(
+                {"detail": e.messages[0] if e.messages else str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Update Notification Table
         # Send push notification to bondmaker
@@ -118,11 +132,10 @@ class BondmakerMatchActionView(generics.GenericAPIView):
 
         try:
             if action == "accepted":
-                platform_usd, bondmaker_usd = accept_match_request(match_request.id)
+                coins_earned = accept_match_request(match_request.id)
                 response_data = {
                     "message": "Match accepted successfully",
-                    "platform_share_usd": float(platform_usd),
-                    "bondmaker_share_usd": float(bondmaker_usd),
+                    "coins_earned": coins_earned,
                 }
             elif action == "rejected":
                 reject_match_request(match_request.id)
@@ -161,8 +174,6 @@ class UserInteractionView(generics.CreateAPIView):
 
     serializer_class = UserInteractionSerializer
     permission_classes = [IsAuthenticated]
-
-    SWIPE_COST = 10  # coins per like
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -203,15 +214,12 @@ class UserInteractionView(generics.CreateAPIView):
                 )
 
             try:
-                result = create_match_request(
+                match_request, user_match = create_match_request(
                     requester=user,
                     bondmaker=bondmaker,
                     target_user=target_user,
-                    coins=self.SWIPE_COST,
-                    )
-
-                match_request = result["match_request"]
-                user_match = result["user_match"]
+                    coins=LIKE_COST,
+                )
 
             except ValidationError as e:
                 raise ValidationError({"detail": str(e)})

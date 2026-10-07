@@ -1546,3 +1546,22 @@ class PlatformSettingsAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+from .models import RevenueCatEvent  # noqa: E402
+
+
+@admin.register(RevenueCatEvent)
+class RevenueCatEventAdmin(admin.ModelAdmin):
+    """Read-only audit of store events. Reprocess failed ones from the admin app."""
+
+    list_display = ("event_id", "event_type", "app_user_id", "environment", "status", "received_at")
+    list_filter = ("status", "event_type", "environment")
+    search_fields = ("event_id", "app_user_id")
+    ordering = ("-received_at",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -8,6 +8,11 @@ class Wallet(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="wallet")
     available_balance = models.IntegerField(default=0)
     locked_balance = models.IntegerField(default=0)
+    # Coins owed after a store refund of coins that were already spent.
+    # New purchases pay it off before adding to the available balance.
+    coin_debt = models.PositiveIntegerField(default=0)
+    # Set when the account has repeated store refunds; reviewed in admin.
+    refund_flagged_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -143,3 +148,35 @@ class ProductRevenueRecord(models.Model):
             models.Index(fields=["product_type"]),
         ]
 
+
+
+class RevenueCatEvent(models.Model):
+    """Every webhook RevenueCat sends, stored before processing.
+
+    The unique event ID makes redelivered webhooks a no-op, and the stored
+    payload lets a failed event be replayed after a fix.
+    """
+
+    STATUS_CHOICES = [
+        ("received", "Received"),
+        ("processed", "Processed"),
+        ("ignored", "Ignored"),
+        ("failed", "Failed"),
+    ]
+
+    event_id = models.CharField(max_length=100, unique=True)
+    event_type = models.CharField(max_length=50, db_index=True)
+    app_user_id = models.CharField(max_length=255, blank=True, db_index=True)
+    environment = models.CharField(max_length=20, blank=True)
+    payload = models.JSONField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="received")
+    error = models.TextField(blank=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-received_at"]
+        indexes = [models.Index(fields=["status", "received_at"])]
+
+    def __str__(self):
+        return f"{self.event_type} {self.event_id} ({self.status})"

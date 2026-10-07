@@ -57,7 +57,9 @@ class UserMatchSerializer(serializers.ModelSerializer):
 class MatchRequestSerializer(serializers.Serializer):
     bondmaker_id = serializers.IntegerField()
     target_user_id = serializers.IntegerField()
-    coins = serializers.IntegerField(min_value=1)
+    # Ignored: the price is set by the server (match_service.LIKE_COST).
+    # Still accepted so older app builds keep working.
+    coins = serializers.IntegerField(min_value=1, required=False)
 
     def validate_bondmaker_id(self, value):
         try:
@@ -96,8 +98,7 @@ class MatchRequestSerializer(serializers.Serializer):
 
 class BondmakerMatchActionResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
-    platform_share_usd = serializers.FloatField(required=False)
-    bondmaker_share_usd = serializers.FloatField(required=False)
+    coins_earned = serializers.IntegerField(required=False)
 
 
 class BondmakerMatchActionSerializer(serializers.Serializer):

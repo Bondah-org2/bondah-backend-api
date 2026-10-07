@@ -16,6 +16,7 @@ from ..models import (
     DocumentVerification,
     ProductRevenueRecord,
     Report,
+    RevenueRecord,
     User,
 )
 from django.db.models import Case, When, DecimalField
@@ -344,12 +345,20 @@ class OverviewAnalyticsService:
             platform_total=Sum("platform_share_usd"),
         )
 
+        # Real money received from the stores, after their fee.
+        store = RevenueRecord.objects.aggregate(
+            gross=Sum("amount_usd"), net=Sum("net_revenue_usd")
+        )
+
+        # Payout figures still come from the legacy USD split records; they
+        # move to withdrawal requests in rebuild phase 7.
         return {
             "total_estimated_payout": stats["total_estimated"] or 0,
             "total_requests": total_requests,
             "pending_payout": stats["pending"] or 0,
             "completed_payout": stats["completed"] or 0,
-            "platform_revenue": stats["platform_total"] or 0,
+            "platform_revenue": store["net"] or 0,
+            "store_revenue_gross": store["gross"] or 0,
         }
 
     def _application_stats(self):

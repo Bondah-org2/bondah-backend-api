@@ -345,3 +345,30 @@ def cleanup_stale_media_uploads():
     purged = purge_deleted_media()
     return {"expired": expired, "unused": unused, "purged": purged}
 
+
+
+@shared_task
+def process_revenuecat_event(event_pk):
+    """Apply one stored RevenueCat webhook event to the coin ledger."""
+    from .services.revenuecat import process_stored_event
+
+    process_stored_event(event_pk)
+
+
+@shared_task
+def expire_stale_coin_holds():
+    """Refund likes and private visibility requests nobody decided within 7 days."""
+    from .services.match_service import expire_stale_match_requests
+    from .services.visibility_services import expire_stale_visibility_requests
+
+    def drain(expire_batch, batch_size=500):
+        total = 0
+        while True:
+            done = expire_batch(batch_size=batch_size)
+            total += done
+            if done < batch_size:
+                return total
+
+    match_requests = drain(expire_stale_match_requests)
+    visibility_requests = drain(expire_stale_visibility_requests)
+    return f"expired {match_requests} match requests, {visibility_requests} visibility requests"

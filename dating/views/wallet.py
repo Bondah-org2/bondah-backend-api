@@ -1,11 +1,11 @@
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import generics
+from rest_framework.pagination import CursorPagination
 from django.core.exceptions import ValidationError
 from ..models import BondcoinPackage, GiftTransaction, Wallet, WalletTransaction, VirtualGift
 from django.contrib.auth import get_user_model
-from ..serializers import WalletTransactionSerializer, WalletSerializer, PurchaseSerializer, SendGiftSerializer, ConvertGiftSerializer, BondcoinPackageSerializer, ReceivedGiftSerializer, VirtualGiftSerializer
-from ..services.payment_service import fulfill_purchase
+from ..serializers import WalletTransactionSerializer, WalletSerializer, SendGiftSerializer, ConvertGiftSerializer, BondcoinPackageSerializer, ReceivedGiftSerializer, VirtualGiftSerializer
 from ..services.gift_service import send_gift, convert_gift_to_coins
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
@@ -33,28 +33,6 @@ class BondcoinPackageListView(generics.ListAPIView):
         )
 
 
-@extend_schema(
-    tags=["Wallets"],
-    )
-class BondcoinTransactionListView(generics.ListAPIView):
-    """
-    List user's Bondcoin transactions
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-
-        return WalletTransactionSerializer
-
-    def get_queryset(self):
-
-        return WalletTransaction.objects.filter(user=self.request.user)
-
-
-# =============================================================================
-# VIRTUAL GIFTING VIEWS (NEW FROM FIGMA)
-# =============================================================================
 @extend_schema(
     tags=["Gifts"],
     )
@@ -219,57 +197,22 @@ class MyWalletView(generics.RetrieveAPIView):
         return wallet
 
 
+class LedgerPagination(CursorPagination):
+    """Stable pages on a growing, newest-first list (no offset scans)."""
+
+    page_size = 30
+    ordering = ("-created_at", "-id")
+
+
 @extend_schema(
     tags=["Wallet"],
     )
 class MyLedgerView(generics.ListAPIView):
+    """The user's coin history, newest first."""
+
     serializer_class = WalletTransactionSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = LedgerPagination
 
     def get_queryset(self):
-        return self.request.user.wallet_ledger.all()
-
-
-# Purchase Coins
-@extend_schema(
-    tags=["Coin"],
-    )
-class PurchaseCoinView(generics.GenericAPIView):
-    """Redeem a verified App Store / Google Play coin purchase.
-
-    Safe to call again with the same receipt: coins are only ever added once
-    per store transaction, so a retry returns `coins_received: 0`.
-    """
-
-    serializer_class = PurchaseSerializer
-    permission_classes = [IsAuthenticated]
-    throttle_scope = "coin_purchase"
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        package = BondcoinPackage.objects.filter(id=data["package_id"], is_active=True).first()
-        if package is None:
-            return Response({"detail": "Invalid or inactive package."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            coins_received = fulfill_purchase(
-                request.user,
-                package=package,
-                platform=data["platform"],
-                receipt_data=data.get("receipt_data"),
-                purchase_token=data.get("purchase_token"),
-            )
-        except ValidationError as exc:
-            return Response({"detail": _error_message(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-        wallet, _ = Wallet.objects.get_or_create(user=request.user)
-        return Response(
-            {
-                "coins_received": coins_received,
-                "available_balance": wallet.available_balance,
-            },
-            status=status.HTTP_201_CREATED if coins_received else status.HTTP_200_OK,
-        )
+        return WalletTransaction.objects.filter(user=self.request.user)

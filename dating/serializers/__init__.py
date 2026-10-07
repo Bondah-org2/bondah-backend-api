@@ -172,7 +172,6 @@ from .wallet import (  # noqa: F401
     GiftCategorySerializer,
     GiftTransactionCreateSerializer,
     GiftTransactionSerializer,
-    PurchaseSerializer,
     ReceivedGiftSerializer,
     SendGiftSerializer,
     VirtualGiftSerializer,

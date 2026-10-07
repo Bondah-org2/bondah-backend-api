@@ -17,6 +17,9 @@ class BondcoinPackageSerializer(serializers.ModelSerializer):
             "price_usd",
             "is_popular",
             "is_active",
+            # Store product IDs, so the app can match RevenueCat products.
+            "apple_product_id",
+            "google_product_id",
         ]
 
 
@@ -32,48 +35,62 @@ class WalletSerializer(serializers.ModelSerializer):
             "available_balance",
             "locked_balance",
             "bondcoin_balance",
+            "coin_debt",
             "total_earnings",
             "earnings_this_month",
             "currency",
             "updated_at",
         ]
 
+    def _earnings(self, obj) -> dict:
+        """Bondmaker income only (not purchases or refunds), in one query."""
+        if not hasattr(self, "_earnings_cache"):
+            from django.db.models import Q, Sum
+            from django.utils import timezone
+
+            from ..services.wallet_service import EARNING_KINDS
+
+            now = timezone.now()
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            self._earnings_cache = WalletTransaction.objects.filter(
+                user_id=obj.user_id,
+                tx_type="credit",
+                status="completed",
+                payment_method__in=EARNING_KINDS,
+            ).aggregate(
+                total=Sum("amount"),
+                this_month=Sum("amount", filter=Q(created_at__gte=month_start)),
+            )
+        return self._earnings_cache
+
     def get_total_earnings(self, obj) -> int:
-        from django.db.models import Sum
-        result = WalletTransaction.objects.filter(
-            user=obj.user, tx_type="credit", status="completed"
-        ).aggregate(total=Sum("amount"))
-        return result["total"] or 0
+        return self._earnings(obj)["total"] or 0
 
     def get_earnings_this_month(self, obj) -> int:
-        from django.db.models import Sum
-        from django.utils import timezone
-        now = timezone.now()
-        result = WalletTransaction.objects.filter(
-            user=obj.user,
-            tx_type="credit",
-            status="completed",
-            created_at__year=now.year,
-            created_at__month=now.month,
-        ).aggregate(total=Sum("amount"))
-        return result["total"] or 0
+        return self._earnings(obj)["this_month"] or 0
 
     def get_currency(self, obj) -> str:
         return "BONDCOIN"
 
 
 class WalletTransactionSerializer(serializers.ModelSerializer):
+    # What the entry was for (purchase, match_request, gift_sent, ...); the app
+    # turns it into a translated title.
+    kind = serializers.CharField(source="payment_method", read_only=True)
+
     class Meta:
         model = WalletTransaction
         fields = [
             "id",
             "tx_type",
+            "kind",
             "amount",
             "payment_method",
             "status",
             "reference_id",
             "created_at",
         ]
+        read_only_fields = fields
 
 
 # =============================================================================
@@ -94,20 +111,6 @@ class SendGiftSerializer(serializers.Serializer):
 
 class ConvertGiftSerializer(serializers.Serializer):
     gift_transaction_id = serializers.IntegerField(min_value=1)
-
-
-class PurchaseSerializer(serializers.Serializer):
-    package_id = serializers.IntegerField(min_value=1)
-    platform = serializers.ChoiceField(choices=["apple", "google"])
-    receipt_data = serializers.CharField(required=False, allow_blank=True)
-    purchase_token = serializers.CharField(required=False, allow_blank=True, max_length=4096)
-
-    def validate(self, attrs):
-        if attrs["platform"] == "apple" and not attrs.get("receipt_data"):
-            raise serializers.ValidationError({"receipt_data": "Required for App Store purchases."})
-        if attrs["platform"] == "google" and not attrs.get("purchase_token"):
-            raise serializers.ValidationError({"purchase_token": "Required for Google Play purchases."})
-        return attrs
 
 
 class ReceivedGiftSerializer(serializers.ModelSerializer):

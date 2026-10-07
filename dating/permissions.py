@@ -92,6 +92,10 @@ class HasAdminPermission(BasePermission):
         if not user or not user.is_authenticated:
             return False
 
+        # The principal admin can see every section (the admin app assumes this too).
+        if getattr(user, "is_principal_admin", False):
+            return True
+
         # Must be staff/admin
         if not user.is_staff:
             return False

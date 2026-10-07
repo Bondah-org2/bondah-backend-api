@@ -202,7 +202,6 @@ REST_FRAMEWORK = {
     # Only views that set `throttle_scope` are limited by this.
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
     "DEFAULT_THROTTLE_RATES": {
-        "coin_purchase": "20/min",
         "wallet_write": "30/min",
     },
 }
@@ -311,6 +310,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "dating.tasks.expire_visibilities",
         "schedule": crontab(minute=0, hour=0),
     },
+    "expire-stale-coin-holds-hourly": {
+        "task": "dating.tasks.expire_stale_coin_holds",
+        "schedule": crontab(minute=15),
+    },
     "delete-underage-accounts": {
         "task": "dating.tasks.run_delete_underage_accounts",
         "schedule": crontab(minute=0),
@@ -361,18 +364,15 @@ DEFAULT_MAX_DISTANCE = 50  # kilometers
 LOCATION_UPDATE_FREQUENCY = "manual"  # manual, hourly, daily, realtime
 LOCATION_HISTORY_RETENTION_DAYS = 30
 
-# In-app purchases
-APPLE_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt"
-APPLE_SANDBOX_URL = "https://sandbox.itunes.apple.com/verifyReceipt"
-APPLE_SHARED_SECRET = config("APPLE_SHARED_SECRET", default="")
-# Must match app.json (ios.bundleIdentifier / android.package)
-APPLE_BUNDLE_ID = config("APPLE_BUNDLE_ID", default="com.bondah.matchmaking")
-GOOGLE_PACKAGE_NAME = config("GOOGLE_PACKAGE_NAME", default="com.bondah.matchmaking")
-STORE_REQUEST_TIMEOUT_SECONDS = 15
-GOOGLE_PLAY_KEY_PATH = config(
-    "GOOGLE_PLAY_KEY_PATH", default=str(BASE_DIR / "dating" / "google_play_key.json")
-)
-GOOGLE_SERVICE_ACCOUNT_FILE = GOOGLE_PLAY_KEY_PATH
+# In-app purchases (RevenueCat)
+# Shared secret RevenueCat sends in the webhook Authorization header. Set the
+# same value in RevenueCat > Integrations > Webhooks. Empty = webhook refuses.
+REVENUECAT_WEBHOOK_AUTH = config("REVENUECAT_WEBHOOK_AUTH", default="")
+# Server-side REST key and project, for subscriber lookups (rebuild phase 2).
+REVENUECAT_SECRET_KEY = config("REVENUECAT_SECRET_KEY", default="")
+REVENUECAT_PROJECT_ID = config("REVENUECAT_PROJECT_ID", default="")
+# Sandbox (TestFlight / test track) purchases only credit coins where allowed.
+REVENUECAT_ALLOW_SANDBOX = config("REVENUECAT_ALLOW_SANDBOX", default=DEBUG, cast=bool)
 
 
 # --------------------------------------------------------------------------
