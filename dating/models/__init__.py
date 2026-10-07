@@ -43,6 +43,7 @@ from .feed import (
     SelfieVerification,
 )
 from .gifts import GiftCategory, VirtualGift, GiftTransaction
+from .platform import PlatformSettings
 from .live import (
     LiveSession,
     LiveParticipant,
@@ -138,6 +139,7 @@ __all__ = [
     "GiftCategory",
     "VirtualGift",
     "GiftTransaction",
+    "PlatformSettings",
     # Live
     "LiveSession",
     "LiveParticipant",

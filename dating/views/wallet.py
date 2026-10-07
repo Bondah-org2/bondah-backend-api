@@ -1,15 +1,12 @@
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import generics
-from decimal import Decimal
 from django.core.exceptions import ValidationError
-from ..models import BondcoinPackage, WalletTransaction, RevenueRecord, VirtualGift
+from ..models import BondcoinPackage, GiftTransaction, Wallet, WalletTransaction, VirtualGift
 from django.contrib.auth import get_user_model
-from ..serializers import WalletTransactionSerializer, WalletSerializer, PurchaseSerializer, SendGiftSerializer, ConvertGiftSerializer, BondcoinPackageSerializer, VirtualGiftSerializer
-from ..services.payment_service import process_apple_purchase, process_google_purchase
+from ..serializers import WalletTransactionSerializer, WalletSerializer, PurchaseSerializer, SendGiftSerializer, ConvertGiftSerializer, BondcoinPackageSerializer, ReceivedGiftSerializer, VirtualGiftSerializer
+from ..services.payment_service import fulfill_purchase
 from ..services.gift_service import send_gift, convert_gift_to_coins
-from ..services.wallet_service import credit_wallet
-from django.db import transaction
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
 
@@ -120,51 +117,94 @@ class VirtualGiftDetailView(generics.RetrieveAPIView):
         return VirtualGift.objects.filter(is_active=True)
 
 
+def _error_message(exc: ValidationError) -> str:
+    return exc.messages[0] if exc.messages else "Request failed."
+
+
 @extend_schema(
     tags=["Gifts"],
     )
 class SendGiftView(generics.GenericAPIView):
     serializer_class = SendGiftSerializer
     permission_classes = [IsAuthenticated]
+    throttle_scope = "wallet_write"
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        receiver_id = serializer.validated_data["receiver_id"]
-        gift_id = serializer.validated_data["gift_id"]
-        user = request.user
-        receiver = User.objects.get(id=receiver_id)
+        data = serializer.validated_data
 
         try:
-            send_gift(user, receiver, gift_id)
-        except ValidationError as e:
-            return Response({"Failed to send gift": str(e)}, status=400)
+            gift_tx, created = send_gift(
+                request.user,
+                recipient_id=data["receiver_id"],
+                gift_id=data["gift_id"],
+                idempotency_key=data["idempotency_key"],
+                quantity=data["quantity"],
+                context_type=data["context_type"],
+                context_id=data.get("context_id"),
+                message=data.get("message", ""),
+            )
+        except ValidationError as exc:
+            return Response({"detail": _error_message(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"message": "Gift sent successfully"}, status=201)
+        wallet = Wallet.objects.get(user=request.user)
+        return Response(
+            {
+                "gift_transaction_id": gift_tx.id,
+                "total_cost": gift_tx.total_cost,
+                "available_balance": wallet.available_balance,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 @extend_schema(
     tags=["Gifts"],
     )
-# Convert Gift Cards
 class ConvertGiftView(generics.GenericAPIView):
     serializer_class = ConvertGiftSerializer
     permission_classes = [IsAuthenticated]
+    throttle_scope = "wallet_write"
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        gift_id = serializer.validated_data["gift_id"]
-        user = request.user
-
         try:
-            convert_gift_to_coins(user, gift_id)
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=400)
+            gift_tx = convert_gift_to_coins(
+                request.user,
+                gift_transaction_id=serializer.validated_data["gift_transaction_id"],
+            )
+        except ValidationError as exc:
+            return Response({"detail": _error_message(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"message": "Gift converted to coins successfully"}, status=201)
+        wallet = Wallet.objects.get(user=request.user)
+        return Response(
+            {
+                "gift_transaction_id": gift_tx.id,
+                "coins_received": gift_tx.converted_coins,
+                "available_balance": wallet.available_balance,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Gifts"],
+    )
+class ReceivedGiftListView(generics.ListAPIView):
+    """Gifts the user has received, newest first."""
+
+    serializer_class = ReceivedGiftSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            GiftTransaction.objects.filter(recipient=self.request.user)
+            .select_related("sender", "gift")
+            .order_by("-created_at")
+        )
 
 
 @extend_schema(
@@ -175,7 +215,8 @@ class MyWalletView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        return self.request.user.wallet
+        wallet, _ = Wallet.objects.get_or_create(user=self.request.user)
+        return wallet
 
 
 @extend_schema(
@@ -194,75 +235,41 @@ class MyLedgerView(generics.ListAPIView):
     tags=["Coin"],
     )
 class PurchaseCoinView(generics.GenericAPIView):
+    """Redeem a verified App Store / Google Play coin purchase.
+
+    Safe to call again with the same receipt: coins are only ever added once
+    per store transaction, so a retry returns `coins_received: 0`.
+    """
+
     serializer_class = PurchaseSerializer
     permission_classes = [IsAuthenticated]
+    throttle_scope = "coin_purchase"
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-        package_id = serializer.validated_data["package_id"]
-        platform = serializer.validated_data["platform"]
-        receipt_data = serializer.validated_data.get("receipt_data")
-        purchase_token = serializer.validated_data.get("purchase_token")
-        user = request.user
+        package = BondcoinPackage.objects.filter(id=data["package_id"], is_active=True).first()
+        if package is None:
+            return Response({"detail": "Invalid or inactive package."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # --------------------------
-        # 1. Validate Package
-        # --------------------------
         try:
-            package = BondcoinPackage.objects.get(id=package_id, is_active=True)
-        except BondcoinPackage.DoesNotExist:
-            return Response({"error": "Invalid or inactive package"}, status=400)
-
-        # --------------------------
-        # 2. Verify purchase
-        # --------------------------
-        try:
-            if platform == "apple":
-                # Will raise ValidationError if invalid
-                process_apple_purchase(user, receipt_data, package)
-            elif platform == "google":
-                # Will raise ValidationError if invalid
-                process_google_purchase(user, purchase_token, package)
-            else:
-                return Response({"error": "Invalid platform"}, status=400)
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=400)
-
-        # --------------------------
-        # 3. Credit Wallet & Log Ledger
-        # --------------------------
-        with transaction.atomic():
-            # Credit user's wallet
-            credit_wallet(
-                user=user,
-                amount=package.bondcoin_amount,
-                source="purchase",
-                reference_id=receipt_data or purchase_token,
+            coins_received = fulfill_purchase(
+                request.user,
+                package=package,
+                platform=data["platform"],
+                receipt_data=data.get("receipt_data"),
+                purchase_token=data.get("purchase_token"),
             )
+        except ValidationError as exc:
+            return Response({"detail": _error_message(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Track revenue from purchase
-            amount_usd = package.price_usd
-            store_fee = (amount_usd * Decimal("0.30")).quantize(Decimal("0.01"))
-            net_revenue = (amount_usd - store_fee).quantize(Decimal("0.01"))
-
-            RevenueRecord.objects.create(
-                user=user,
-                store=platform,
-                product_id=package.id,
-                transaction_id=receipt_data or purchase_token,
-                amount_usd=amount_usd,
-                store_fee_usd=store_fee,
-                net_revenue_usd=net_revenue,
-                coins_awarded=package.bondcoin_amount,
-            )
-
+        wallet, _ = Wallet.objects.get_or_create(user=request.user)
         return Response(
             {
-                "message": "Coins purchased successfully",
-                "coins_received": package.bondcoin_amount,
-                "user_balance": user.wallet.available_balance,
+                "coins_received": coins_received,
+                "available_balance": wallet.available_balance,
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_201_CREATED if coins_received else status.HTTP_200_OK,
         )

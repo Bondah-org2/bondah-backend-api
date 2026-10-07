@@ -1528,3 +1528,21 @@ class VisibilityAdmin(admin.ModelAdmin):
 class WalletAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "available_balance", "locked_balance", "updated_at")
     search_fields = ("user__email",)
+
+
+# =============================================================================
+# PLATFORM SETTINGS (single row, edited in admin instead of code)
+# =============================================================================
+from .models import PlatformSettings  # noqa: E402
+
+
+@admin.register(PlatformSettings)
+class PlatformSettingsAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "gift_conversion_percent", "updated_at")
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not PlatformSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

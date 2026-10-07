@@ -199,6 +199,12 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Only views that set `throttle_scope` are limited by this.
+    "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
+    "DEFAULT_THROTTLE_RATES": {
+        "coin_purchase": "20/min",
+        "wallet_write": "30/min",
+    },
 }
 
 REST_AUTH = {
@@ -359,8 +365,10 @@ LOCATION_HISTORY_RETENTION_DAYS = 30
 APPLE_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt"
 APPLE_SANDBOX_URL = "https://sandbox.itunes.apple.com/verifyReceipt"
 APPLE_SHARED_SECRET = config("APPLE_SHARED_SECRET", default="")
-APPLE_BUNDLE_ID = "com.bondah.app"
-GOOGLE_PACKAGE_NAME = "com.bondah.app"
+# Must match app.json (ios.bundleIdentifier / android.package)
+APPLE_BUNDLE_ID = config("APPLE_BUNDLE_ID", default="com.bondah.matchmaking")
+GOOGLE_PACKAGE_NAME = config("GOOGLE_PACKAGE_NAME", default="com.bondah.matchmaking")
+STORE_REQUEST_TIMEOUT_SECONDS = 15
 GOOGLE_PLAY_KEY_PATH = config(
     "GOOGLE_PLAY_KEY_PATH", default=str(BASE_DIR / "dating" / "google_play_key.json")
 )

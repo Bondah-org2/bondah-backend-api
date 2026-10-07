@@ -378,9 +378,17 @@ class UserSwipeDeckView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         if not request.user.country:
-            return Response({
-                "message": "Enable location access to see users in your region"
-            }, status=status.HTTP_200_OK)
+            # Same shape as a normal page, so clients never special-case it.
+            return Response(
+                {
+                    "count": 0,
+                    "next": None,
+                    "previous": None,
+                    "results": [],
+                    "reason": "location_required",
+                },
+                status=status.HTTP_200_OK,
+            )
         return super().list(request, *args, **kwargs)
 
     def get_queryset(self):

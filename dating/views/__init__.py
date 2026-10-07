@@ -130,6 +130,7 @@ from .wallet import (  # noqa: F401
     BondcoinPackageListView,
     BondcoinTransactionListView,
     ConvertGiftView,
+    ReceivedGiftListView,
     GiftCategoryListView,
     MyLedgerView,
     MyWalletView,
@@ -149,9 +150,6 @@ from .payments import (  # noqa: F401
     PaymentMethodListView,
     PaymentTransactionDetailView,
     PaymentTransactionListView,
-    PaymentWebhookView,
-    ProcessPaymentView,
-    RefundPaymentView,
 )
 from .bondmakers import (  # noqa: F401
     ALLOWED_PERIODS,

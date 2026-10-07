@@ -11,6 +11,18 @@ class Wallet(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(available_balance__gte=0),
+                name="wallet_available_balance_non_negative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(locked_balance__gte=0),
+                name="wallet_locked_balance_non_negative",
+            ),
+        ]
+
     def __str__(self):
         return f"{self.user.email} | Available: {self.available_balance} | Locked: {self.locked_balance}"
 
@@ -38,6 +50,11 @@ class WalletTransaction(models.Model):
         max_length=50, blank=True, null=True
     )  # purchase, gift_sent, match_request, etc.
     reference_id = models.CharField(max_length=255, null=True, blank=True)
+    # Set by the ledger service for every balance change. Unique, so a retried
+    # request (or a replayed store receipt) can never move coins twice.
+    idempotency_key = models.CharField(
+        max_length=128, null=True, blank=True, unique=True
+    )
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="completed"
     )
@@ -45,6 +62,7 @@ class WalletTransaction(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "-created_at"])]
 
     def __str__(self):
         return f"{self.user.email} | {self.tx_type} {self.amount} | {self.payment_method}"

@@ -105,6 +105,10 @@ class GiftTransaction(models.Model):
         blank=True, null=True, help_text="Optional message with gift"
     )
 
+    # Set once when the recipient converts this gift into coins.
+    converted_at = models.DateTimeField(blank=True, null=True)
+    converted_coins = models.PositiveIntegerField(blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

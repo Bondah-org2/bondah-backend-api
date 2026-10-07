@@ -2,7 +2,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import generics
 from ..models import UserSubscription, SubscriptionPlan
-from ..serializers import UserSubscriptionSerializer, UserSubscriptionCreateSerializer, SubscriptionPlanSerializer
+from ..serializers import UserSubscriptionSerializer, SubscriptionPlanSerializer
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -34,42 +34,32 @@ class SubscriptionPlanListView(generics.ListAPIView):
 @extend_schema(
     tags=["Subscription"],
     )
-class UserSubscriptionListView(generics.ListCreateAPIView):
+class UserSubscriptionListView(generics.ListAPIView):
     """
-    List and create user subscriptions
+    The user's subscription history (read-only).
+
+    Subscriptions are only ever created or changed by verified store events,
+    never by the client, so there is no create, update or delete here.
     """
 
     permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-
-            return UserSubscriptionCreateSerializer
-
-        return UserSubscriptionSerializer
+    serializer_class = UserSubscriptionSerializer
 
     def get_queryset(self):
-
-        return UserSubscription.objects.filter(user=self.request.user)
+        return UserSubscription.objects.filter(user=self.request.user).select_related("plan")
 
 
 @extend_schema(
     tags=["Subscription"],
     )
-class UserSubscriptionDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update, or delete a specific user subscription
-    """
+class UserSubscriptionDetailView(generics.RetrieveAPIView):
+    """A single subscription from the user's history (read-only)."""
 
     permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-
-        return UserSubscriptionSerializer
+    serializer_class = UserSubscriptionSerializer
 
     def get_queryset(self):
-
-        return UserSubscription.objects.filter(user=self.request.user)
+        return UserSubscription.objects.filter(user=self.request.user).select_related("plan")
 
 
 @extend_schema(

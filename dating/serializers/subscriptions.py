@@ -55,36 +55,3 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "start_date", "created_at", "updated_at"]
-
-
-class UserSubscriptionCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating user subscriptions"""
-
-    class Meta:
-        model = UserSubscription
-        fields = ["plan", "payment_method", "auto_renew"]
-
-    def create(self, validated_data):
-        """Create subscription with current user and set end date"""
-        from django.utils import timezone
-        from datetime import timedelta
-
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            validated_data["user"] = request.user
-
-        plan = validated_data["plan"]
-
-        # Calculate end date based on plan duration
-        duration_map = {
-            "1_week": timedelta(weeks=1),
-            "1_month": timedelta(days=30),
-            "3_months": timedelta(days=90),
-            "6_months": timedelta(days=180),
-            "1_year": timedelta(days=365),
-        }
-
-        duration = duration_map.get(plan.duration, timedelta(days=30))
-        validated_data["end_date"] = timezone.now() + duration
-
-        return super().create(validated_data)

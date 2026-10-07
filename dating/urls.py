@@ -143,6 +143,7 @@ from .views import (
     VirtualGiftListView,
     VirtualGiftDetailView,
     ConvertGiftView,
+    ReceivedGiftListView,
     SendGiftView,
     # Live Streaming Enhancement Views (NEW FROM FIGMA)
     LiveGiftListView,
@@ -153,9 +154,6 @@ from .views import (
     PaymentMethodListView,
     PaymentTransactionListView,
     PaymentTransactionDetailView,
-    ProcessPaymentView,
-    PaymentWebhookView,
-    RefundPaymentView,
     # Firebase Integration Views
     # FirebaseLoginView,
     # FirebaseUserProfileView,
@@ -749,17 +747,9 @@ urlpatterns = [
         PaymentTransactionDetailView.as_view(),
         name="payment-transaction-detail",
     ),
-    path("payments/process/", ProcessPaymentView.as_view(), name="process-payment"),
-    path(
-        "payments/webhooks/<str:provider>/",
-        PaymentWebhookView.as_view(),
-        name="payment-webhook",
-    ),
-    path(
-        "payments/refund/<int:transaction_id>/",
-        RefundPaymentView.as_view(),
-        name="refund-payment",
-    ),
+    # payments/process/, payments/webhooks/ and payments/refund/ were a payment
+    # simulator that granted subscriptions without charging. Removed; store
+    # purchases arrive through RevenueCat webhooks (rebuild phases 1 and 2).
 
 
 
@@ -934,6 +924,7 @@ urlpatterns = [
     path("wallet/purchase_coins/", PurchaseCoinView.as_view(), name="purchase-coins"),
     path("wallet/send-gift/", SendGiftView.as_view(), name="send-gift"),
     path("wallet/convert-gift/", ConvertGiftView.as_view(), name="convert-gift"),
+    path("wallet/gifts/received/", ReceivedGiftListView.as_view(), name="received-gifts"),
 
 
     # Swipe View

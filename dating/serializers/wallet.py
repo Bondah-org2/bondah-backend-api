@@ -80,20 +80,59 @@ class WalletTransactionSerializer(serializers.ModelSerializer):
 # VIRTUAL GIFTING SERIALIZERS (NEW FROM FIGMA)
 # =============================================================================
 class SendGiftSerializer(serializers.Serializer):
-    receiver_id = serializers.IntegerField()
-    gift_id = serializers.IntegerField()
+    receiver_id = serializers.IntegerField(min_value=1)
+    gift_id = serializers.IntegerField(min_value=1)
+    quantity = serializers.IntegerField(min_value=1, max_value=99, default=1)
+    context_type = serializers.ChoiceField(
+        choices=["chat", "profile", "live_session", "general"], default="general"
+    )
+    context_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    message = serializers.CharField(max_length=280, required=False, allow_blank=True)
+    # Client-generated (UUID) so a retried tap never charges twice.
+    idempotency_key = serializers.CharField(min_length=8, max_length=64)
 
 
 class ConvertGiftSerializer(serializers.Serializer):
-    gift_id = serializers.IntegerField()
-    convert_to = serializers.ChoiceField(choices=["bondcoin", "cash"])
+    gift_transaction_id = serializers.IntegerField(min_value=1)
 
 
 class PurchaseSerializer(serializers.Serializer):
-    package_id = serializers.IntegerField()
+    package_id = serializers.IntegerField(min_value=1)
     platform = serializers.ChoiceField(choices=["apple", "google"])
     receipt_data = serializers.CharField(required=False, allow_blank=True)
-    purchase_token = serializers.CharField(required=False, allow_blank=True)
+    purchase_token = serializers.CharField(required=False, allow_blank=True, max_length=4096)
+
+    def validate(self, attrs):
+        if attrs["platform"] == "apple" and not attrs.get("receipt_data"):
+            raise serializers.ValidationError({"receipt_data": "Required for App Store purchases."})
+        if attrs["platform"] == "google" and not attrs.get("purchase_token"):
+            raise serializers.ValidationError({"purchase_token": "Required for Google Play purchases."})
+        return attrs
+
+
+class ReceivedGiftSerializer(serializers.ModelSerializer):
+    sender_id = serializers.IntegerField(source="sender.id", read_only=True)
+    sender_name = serializers.CharField(source="sender.name", read_only=True)
+    gift_name = serializers.CharField(source="gift.name", read_only=True)
+    gift_icon = serializers.URLField(source="gift.icon_url", read_only=True)
+
+    class Meta:
+        model = GiftTransaction
+        fields = [
+            "id",
+            "sender_id",
+            "sender_name",
+            "gift_name",
+            "gift_icon",
+            "quantity",
+            "total_cost",
+            "message",
+            "context_type",
+            "converted_at",
+            "converted_coins",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 
 class GiftCategorySerializer(serializers.ModelSerializer):
