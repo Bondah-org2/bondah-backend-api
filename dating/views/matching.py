@@ -11,7 +11,7 @@ from django.db.models.functions import ACos, Cos, Sin, Radians
 from ..models import UserMatch, UserInteraction, Visibility, MatchRequest, Report
 from django.contrib.auth import get_user_model
 from dating.tasks import notify_user
-from ..serializers import MatchQueueSerializer, UserInteractionSerializer, MatchRequestSerializer, BondmakerMatchActionSerializer, BondmakerMatchActionResponseSerializer, UserSwipeCardSerializer, StaticUserProfileSerializer, MatchedUserSerializer, IncomingPendingMatchSerializer
+from ..serializers import SentLikeSerializer, MatchQueueSerializer, UserInteractionSerializer, MatchRequestSerializer, BondmakerMatchActionSerializer, BondmakerMatchActionResponseSerializer, UserSwipeCardSerializer, StaticUserProfileSerializer, MatchedUserSerializer, IncomingPendingMatchSerializer
 from ..services.match_service import reject_match_request
 from ..services import subscription_service
 from ..services.wallet_service import InsufficientFunds
@@ -104,6 +104,36 @@ class MatchQueueView(generics.ListAPIView):
             .select_related("requester", "user_match", "user_match__user2")
             .order_by("-created_at")
         )
+
+
+@extend_schema(
+    tags=["Coin"],
+    )
+class SentLikesView(generics.ListAPIView):
+    """The likes this seeker sent, newest first.
+
+    ?status=pending|accepted|rejected|expired|cancelled|completed, or
+    ?status=closed for every like that ended without a match.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = SentLikeSerializer
+    pagination_class = ActivityFeedPagination
+
+    STATUSES = {"pending", "accepted", "rejected", "expired", "cancelled", "completed"}
+
+    def get_queryset(self):
+        qs = (
+            MatchRequest.objects.filter(requester=self.request.user)
+            .select_related("bondmaker", "user_match", "user_match__user2", "user_match__chat")
+            .order_by("-created_at", "-id")
+        )
+        status_param = self.request.query_params.get("status")
+        if status_param == "closed":
+            qs = qs.filter(status__in=["rejected", "expired", "cancelled"])
+        elif status_param in self.STATUSES:
+            qs = qs.filter(status=status_param)
+        return qs
 
 
 @extend_schema(

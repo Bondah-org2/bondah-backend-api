@@ -10,6 +10,7 @@ from rest_framework_nested.routers import NestedDefaultRouter
 from .views import (
     ActivityFeedView,
     MatchQueueView,
+    SentLikesView,
     NewsletterSignupView,
     GetPuzzleView,
     SubmitPuzzleAnswerView,
@@ -920,6 +921,7 @@ urlpatterns = [
         MatchRequestCreateView.as_view(),
         name="create-match-request",
     ),
+    path("match-requests/sent/", SentLikesView.as_view(), name="sent-likes"),
     path(
         "match-requests/queue/",
         MatchQueueView.as_view(),

@@ -213,6 +213,7 @@ from .matching import (  # noqa: F401
     BondmakerMatchActionSerializer,
     IncomingPendingMatchSerializer,
     MatchQueueSerializer,
+    SentLikeSerializer,
     MatchRequestSerializer,
     MatchUserMiniSerializer,
     MatchedUserSerializer,

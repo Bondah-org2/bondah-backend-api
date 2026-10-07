@@ -173,6 +173,42 @@ class MatchQueueSerializer(serializers.ModelSerializer):
         return (obj.created_at + REQUEST_TTL).isoformat()
 
 
+class SentLikeSerializer(serializers.ModelSerializer):
+    """A like the seeker sent: who, through which bondmaker, and what happened."""
+
+    person = serializers.SerializerMethodField()
+    bondmaker = serializers.SerializerMethodField()
+    chat_id = serializers.SerializerMethodField()
+    expires_at = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MatchRequest
+        fields = ["id", "status", "coins_charged", "created_at", "expires_at", "person", "bondmaker", "chat_id"]
+        read_only_fields = fields
+
+    def get_person(self, obj):
+        user_match = getattr(obj, "user_match", None)
+        if user_match is None:
+            return None
+        return MatchPersonSerializer(user_match.user2, context=self.context).data
+
+    def get_bondmaker(self, obj):
+        b = obj.bondmaker
+        return {"id": b.id, "name": b.name, "profile_picture": b.profile_picture}
+
+    def get_chat_id(self, obj):
+        user_match = getattr(obj, "user_match", None)
+        chat = getattr(user_match, "chat", None) if user_match else None
+        return chat.id if chat else None
+
+    def get_expires_at(self, obj):
+        if obj.status != "pending":
+            return None
+        from ..services.match_service import REQUEST_TTL
+
+        return (obj.created_at + REQUEST_TTL).isoformat()
+
+
 class UserSwipeCardSerializer(serializers.ModelSerializer):
     bondmaker = serializers.SerializerMethodField()
     # distance_km = serializers.SerializerMethodField()

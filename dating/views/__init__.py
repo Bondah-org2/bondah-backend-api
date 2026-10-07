@@ -186,6 +186,7 @@ from .matching import (  # noqa: F401
     ExploreUsersView,
     IncomingPendingMatchListView,
     MatchQueueView,
+    SentLikesView,
     MatchRequestCreateView,
     UndoSwipeView,
     UserInteractionView,

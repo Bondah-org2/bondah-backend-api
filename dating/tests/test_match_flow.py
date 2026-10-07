@@ -32,8 +32,7 @@ def make_user(email, name, **extra):
     return User.objects.create_user(email=email, password="Pass123!", name=name, **extra)
 
 
-@override_settings(**TEST_OVERRIDES)
-class LikeToMatchTests(APITestCase):
+class MatchFixture(APITestCase):
     def setUp(self):
         cache.clear()
         self.seeker = make_user("seeker@example.com", "Ama", country="Ghana")
@@ -63,6 +62,10 @@ class LikeToMatchTests(APITestCase):
                 {"action": action},
                 format="json",
             )
+
+
+@override_settings(**TEST_OVERRIDES)
+class LikeToMatchTests(MatchFixture):
 
     def test_like_reaches_the_clients_bondmaker_queue_with_both_people(self):
         self.like()
@@ -143,3 +146,33 @@ class LikeToMatchTests(APITestCase):
         )
         self.client.force_authenticate(user=self.bondmaker)
         self.assertEqual(self.client.get(reverse("match-queue")).data["count"], 0)
+
+
+@override_settings(**TEST_OVERRIDES)
+class SentLikesTests(MatchFixture):
+    def sent(self, **params):
+        self.client.force_authenticate(user=self.seeker)
+        return self.client.get(reverse("sent-likes"), params)
+
+    def test_seeker_sees_pending_then_accepted_with_chat(self):
+        match_request = self.like()
+        item = self.sent().data["results"][0]
+        self.assertEqual(item["status"], "pending")
+        self.assertEqual(item["person"]["name"], "Kofi")
+        self.assertEqual(item["bondmaker"]["name"], "Esi")
+        self.assertIsNotNone(item["expires_at"])
+        self.assertIsNone(item["chat_id"])
+
+        chat_id = self.act(match_request, "accepted").data["chat_id"]
+        item = self.sent().data["results"][0]
+        self.assertEqual((item["status"], item["chat_id"]), ("accepted", chat_id))
+        self.assertIsNone(item["expires_at"])
+
+    def test_filter_and_privacy(self):
+        self.like()
+        self.assertEqual(self.sent(status="accepted").data["count"], 0)
+        self.assertEqual(self.sent(status="pending").data["count"], 1)
+        self.assertEqual(self.sent(status="closed").data["count"], 0)
+        # Other users never see this seeker's likes.
+        self.client.force_authenticate(user=self.client_user)
+        self.assertEqual(self.client.get(reverse("sent-likes")).data["count"], 0)
