@@ -1,10 +1,15 @@
+from datetime import timedelta
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import generics
 from django.utils import timezone
 from ..models import Visibility
 from django.contrib.auth import get_user_model
-from ..serializers import UserSerializer, VisibilitySerializer, PendingVisibilitySerializer, ApproveVisibilitySerializer, VisibilityStatusSerializer
+from ..serializers import UserSerializer, VisibilitySerializer, PendingVisibilitySerializer, ApproveVisibilitySerializer, VisibilityStatusSerializer, MyVisibilitySerializer
+from django.core.exceptions import ValidationError
+from ..pagination import ActivityFeedPagination
+from ..services.visibility_services import VisibilityService
+from ..services.wallet_service import InsufficientFunds
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema
@@ -28,13 +33,24 @@ class SetVisibilityView(generics.CreateAPIView):
     tags=["Visibility"],
     )
 class ApproveVisibilityView(generics.UpdateAPIView):
+    """Bondmaker approves or declines a request or a renewal: {"status": "approved"|"rejected"}."""
+
     serializer_class = ApproveVisibilitySerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return Visibility.objects.filter(
+            Q(status="pending") | Q(renewal_status="pending"),
             bondmaker=self.request.user,
-            status="pending",
+        )
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_object(), data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        visibility = serializer.save()
+        return Response(
+            {"id": visibility.id, "status": visibility.status, "expires_at": visibility.expires_at},
+            status=status.HTTP_200_OK,
         )
 
 
@@ -43,8 +59,11 @@ class ApproveVisibilityView(generics.UpdateAPIView):
     )
 # pending Visibilty list View for bondmaker Review
 class PendingVisibilityListView(generics.ListAPIView):
+    """Requests and renewals waiting for this bondmaker, newest first."""
+
     serializer_class = PendingVisibilitySerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = ActivityFeedPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -55,12 +74,85 @@ class PendingVisibilityListView(generics.ListAPIView):
 
         return (
             Visibility.objects.filter(
+                Q(status="pending") | Q(renewal_status="pending"),
                 bondmaker=user,
-                status="pending",
             )
             .select_related("owner")
-            .order_by("-created_at")
+            .order_by("-updated_at", "-id")
         )
+
+
+@extend_schema(
+    tags=["Visibility"],
+    )
+class MyVisibilityListView(generics.ListAPIView):
+    """The seeker's visibilities: active first, then pending, then ended."""
+
+    serializer_class = MyVisibilitySerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None  # a handful per seeker
+
+    def get_queryset(self):
+        from django.db.models import Case, IntegerField, Value, When
+
+        return (
+            Visibility.objects.filter(owner=self.request.user)
+            .exclude(status="rejected", updated_at__lt=timezone.now() - timedelta(days=30))
+            .select_related("bondmaker")
+            .annotate(
+                rank=Case(
+                    When(status="approved", then=Value(0)),
+                    When(status="pending", then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("rank", "-updated_at")
+        )
+
+
+class _OwnerVisibilityAction(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = MyVisibilitySerializer
+
+    def _respond(self, func, pk):
+        visibility = Visibility.objects.filter(pk=pk, owner=self.request.user).first()
+        if visibility is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            visibility = func(visibility, self.request.user)
+        except InsufficientFunds:
+            return Response(
+                {"detail": "Not enough coins to renew.", "code": "insufficient_coins"},
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
+        except ValidationError as exc:
+            return Response(
+                {"detail": exc.messages[0] if exc.messages else str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        visibility = Visibility.objects.select_related("bondmaker").get(pk=visibility.pk)
+        return Response(MyVisibilitySerializer(visibility).data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["Visibility"],
+    )
+class RenewVisibilityView(_OwnerVisibilityAction):
+    """Ask the bondmaker for another 30 days (last 7 days of a period, or after it ended)."""
+
+    def post(self, request, pk):
+        return self._respond(VisibilityService.request_renewal, pk)
+
+
+@extend_schema(
+    tags=["Visibility"],
+    )
+class EndVisibilityView(_OwnerVisibilityAction):
+    """Stop being visible with this bondmaker now."""
+
+    def post(self, request, pk):
+        return self._respond(VisibilityService.end, pk)
 
 
 @extend_schema(
@@ -95,7 +187,9 @@ class VisibilityStatusView(generics.RetrieveAPIView):
 
 
 # a reusable “active visibility” filter
-ACTIVE_VISIBILITY_FILTER = Q(visibility_settings__expires_at__gt=timezone.now())
+def active_visibility_filter():
+    """Evaluated per request (a module-level timezone.now() would freeze at import)."""
+    return Q(visibility_settings__expires_at__gt=timezone.now())
 
 
 @extend_schema(
@@ -120,7 +214,7 @@ class GlobalPublicUsersListView(generics.ListAPIView):
     def get_queryset(self):
         return (
             User.objects.filter(
-                ACTIVE_VISIBILITY_FILTER,
+                active_visibility_filter(),
                 is_matchmaker=False,
                 visibility_settings__visibility="public",
                 visibility_settings__status="approved",
@@ -143,40 +237,9 @@ class PrivateUsersForBondmakerListView(generics.ListAPIView):
         bondmaker = self.request.user
 
         return User.objects.filter(
-            ACTIVE_VISIBILITY_FILTER,
+            active_visibility_filter(),
             visibility_settings__visibility="private",
             visibility_settings__bondmaker=bondmaker,
         ).distinct()
 
 
-@extend_schema(
-    tags=["Visibility"],
-    )
-class EndVisbilityView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        request=None,
-        responses={
-            200: OpenApiResponse(description="Visibility ended successfully"),
-            400: OpenApiResponse(description="No active visibility to end"),
-        },
-        description="End the currently active visibility before 7 days expiry.",
-    )
-    def post(
-        self,
-        request,
-    ):
-        visibility = Visibility.objects.filter(
-            owner=request.user,
-            is_active=True,
-            expires_at__gt=timezone.now(),
-        ).first()
-        if not visibility:
-            return Response({"Message": "No active visibility to end."}, status=400)
-
-        visibility.is_active = False
-        visibility.expires_at = timezone.now()
-        visibility.save()
-
-        return Response({"message": "Visibility ended successfully."}, status=200)

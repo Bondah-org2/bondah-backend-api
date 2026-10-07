@@ -174,7 +174,9 @@ from .views import (
     # BondmakerMatchCreateView,
     BondmakerSuggestionView,
     SetVisibilityView,
-    EndVisbilityView,
+    EndVisibilityView,
+    MyVisibilityListView,
+    RenewVisibilityView,
     GlobalPublicUsersListView,
     PrivateUsersForBondmakerListView,
     MatchRequestCreateView,
@@ -868,12 +870,10 @@ urlpatterns = [
         ApproveVisibilityView.as_view(),
         name="approve-visibility",
     ),
-    # End current visibility
-    path(
-        "visibility/end/",
-        EndVisbilityView.as_view(),
-        name="end-visibility",
-    ),
+    # The seeker's visibilities, renewing and ending one
+    path("visibility/mine/", MyVisibilityListView.as_view(), name="my-visibility"),
+    path("visibility/<int:pk>/renew/", RenewVisibilityView.as_view(), name="renew-visibility"),
+    path("visibility/<int:pk>/end/", EndVisibilityView.as_view(), name="end-visibility"),
 
 
     # ---------------------------------------------------------------------

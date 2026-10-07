@@ -15,16 +15,21 @@ from django.core.management import call_command
 
 @shared_task
 def expire_visibilities():
-    """
-    Converts approved visibilities to expired after expires_at.
-    """
-    expired_count = Visibility.objects.filter(
-        status="approved", expires_at__lte=timezone.now()
-    ).update(
-        status="expired"
-    )
+    """End visibility periods that ran out (tells the seeker) and send the
+    "ends in 3 days" reminders. Runs hourly."""
+    from .services.visibility_services import end_finished_visibilities, remind_expiring_visibilities
 
-    return f"{expired_count} visibilities expired."
+    def drain(step, batch_size=500):
+        total = 0
+        while True:
+            done = step(batch_size=batch_size)
+            total += done
+            if done < batch_size:
+                return total
+
+    ended = drain(end_finished_visibilities)
+    reminded = drain(remind_expiring_visibilities)
+    return f"{ended} visibilities ended, {reminded} reminders sent."
 
 
 @shared_task

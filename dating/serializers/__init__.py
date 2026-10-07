@@ -203,6 +203,7 @@ from .bondmakers import (  # noqa: F401
 )
 from .visibility import (  # noqa: F401
     ApproveVisibilitySerializer,
+    MyVisibilitySerializer,
     PendingVisibilitySerializer,
     VisibilityOwnerSerializer,
     VisibilitySerializer,

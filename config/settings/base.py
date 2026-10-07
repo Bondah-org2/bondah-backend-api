@@ -306,9 +306,9 @@ CELERY_BEAT_SCHEDULE = {
         "task": "dating.tasks.cleanup_stale_media_uploads",
         "schedule": crontab(minute=30),
     },
-    "expire-visibilities-every-midnight": {
+    "expire-visibilities-hourly": {
         "task": "dating.tasks.expire_visibilities",
-        "schedule": crontab(minute=0, hour=0),
+        "schedule": crontab(minute=5),
     },
     "expire-stale-coin-holds-hourly": {
         "task": "dating.tasks.expire_stale_coin_holds",

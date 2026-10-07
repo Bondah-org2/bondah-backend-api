@@ -172,9 +172,11 @@ from .bondmakers import (  # noqa: F401
     SuggestedMatchView,
 )
 from .visibility import (  # noqa: F401
-    ACTIVE_VISIBILITY_FILTER,
+    active_visibility_filter,
     ApproveVisibilityView,
-    EndVisbilityView,
+    EndVisibilityView,
+    MyVisibilityListView,
+    RenewVisibilityView,
     GlobalPublicUsersListView,
     PendingVisibilityListView,
     PrivateUsersForBondmakerListView,

@@ -3,7 +3,12 @@ from dating.tasks import notify_user
 from rest_framework import serializers
 from django.utils import timezone
 from ..models import User, Visibility
-from ..services.visibility_services import VisibilityService
+from ..services.visibility_services import (
+    PRIVATE_COST,
+    VisibilityService,
+    can_renew,
+    renewal_price,
+)
 from ..services.wallet_service import InsufficientFunds
 
 
@@ -118,11 +123,30 @@ class VisibilitySerializer(serializers.ModelSerializer):
 
 
 class PendingVisibilitySerializer(serializers.ModelSerializer):
+    """A request (or renewal) waiting for this bondmaker."""
+
     owner = VisibilityOwnerSerializer(read_only=True)
+    is_renewal = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    requested_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Visibility
-        fields = ["id", "owner", "visibility", "status", "created_at"]
+        fields = [
+            "id", "owner", "visibility", "status", "is_renewal", "price",
+            "requested_at", "expires_at", "created_at",
+        ]
+
+    def get_is_renewal(self, obj) -> bool:
+        return obj.status != "pending" and obj.renewal_status == "pending"
+
+    def get_price(self, obj) -> int:
+        if self.get_is_renewal(obj):
+            return renewal_price(obj)
+        return PRIVATE_COST if obj.visibility == "private" else 0
+
+    def get_requested_at(self, obj):
+        return (obj.renewal_requested_at if self.get_is_renewal(obj) else obj.updated_at).isoformat()
 
 
 class ApproveVisibilitySerializer(serializers.ModelSerializer):
@@ -138,14 +162,47 @@ class ApproveVisibilitySerializer(serializers.ModelSerializer):
         return value
 
     def update(self, instance, validated_data):
-        status = validated_data["status"]
+        if validated_data["status"] == "approved":
+            return VisibilityService.approve(instance)
+        return VisibilityService.reject(instance)
 
-        if status == "approved":
-            VisibilityService.approve(instance)
-        else:
-            VisibilityService.reject(instance)
 
-        return instance
+class MyVisibilitySerializer(serializers.ModelSerializer):
+    """One of the seeker's visibilities, with what they can do next."""
+
+    bondmaker = serializers.SerializerMethodField()
+    days_left = serializers.SerializerMethodField()
+    can_renew = serializers.SerializerMethodField()
+    renewal_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Visibility
+        fields = [
+            "id", "bondmaker", "visibility", "status", "expires_at", "days_left",
+            "renewal_status", "can_renew", "renewal_price", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_bondmaker(self, obj):
+        b = obj.bondmaker
+        return {
+            "id": b.id,
+            "name": b.name,
+            "username": b.username,
+            "profile_picture": getattr(b, "bondmaker_profile_picture", None) or b.profile_picture,
+        }
+
+    def get_days_left(self, obj):
+        if obj.status != "approved" or not obj.expires_at:
+            return None
+        seconds = (obj.expires_at - timezone.now()).total_seconds()
+        return max(0, int(-(-seconds // 86400)))
+
+    def get_can_renew(self, obj) -> bool:
+        return can_renew(obj)
+
+    def get_renewal_price(self, obj) -> int:
+        return renewal_price(obj)
 
 
 class VisibilityStatusSerializer(serializers.ModelSerializer):

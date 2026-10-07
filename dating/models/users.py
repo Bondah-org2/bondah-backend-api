@@ -1251,6 +1251,17 @@ class Visibility(models.Model):
         "dating.WalletTransaction", on_delete=models.PROTECT,
         null=True, blank=True, related_name="+",
     )
+    # A renewal asked for while the current period runs (or after it ended).
+    # The bondmaker approves it like a new request; private renewals hold coins.
+    RENEWAL_STATUS = (("", "None"), ("pending", "Pending"))
+    renewal_status = models.CharField(max_length=10, choices=RENEWAL_STATUS, default="", blank=True)
+    renewal_requested_at = models.DateTimeField(null=True, blank=True)
+    renewal_hold_transaction = models.ForeignKey(
+        "dating.WalletTransaction", on_delete=models.PROTECT,
+        null=True, blank=True, related_name="+",
+    )
+    # Set when the "ends in 3 days" reminder went out for the current period.
+    expiry_reminder_sent_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1260,6 +1271,8 @@ class Visibility(models.Model):
         indexes = [
             models.Index(fields=["bondmaker", "status", "visibility"]),
             models.Index(fields=["expires_at"]),
+            models.Index(fields=["bondmaker", "renewal_status"]),
+            models.Index(fields=["status", "expires_at"]),
         ]
 
     @property
