@@ -246,6 +246,7 @@ class AdminOverviewSerializer(serializers.Serializer):
 
     users_stats = serializers.DictField()
     financial_summary = serializers.DictField()
+    subscription_summary = serializers.DictField()
     applications_stats = serializers.DictField()
     reports_stats = serializers.DictField()
 

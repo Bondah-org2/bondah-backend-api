@@ -132,6 +132,7 @@ from .views import (
     UserSubscriptionListView,
     UserSubscriptionDetailView,
     UserCurrentSubscriptionView,
+    SwipeQuotaView,
     UserFeatureAccessView,
     # Bondcoin Wallet Views (NEW FROM FIGMA)
     BondcoinPackageListView,
@@ -183,6 +184,8 @@ from .views import (
     AdminRevenueCatEventDetailView,
     AdminRevenueCatEventListView,
     AdminRevenueCatEventReprocessView,
+    AdminSubscriptionListView,
+    UndoSwipeView,
     BondmakerMatchActionView,
     PasswordResendOTPView,
     PasswordResetVerifyOTPView,
@@ -380,6 +383,9 @@ urlpatterns = [
     path("admin/finance/store-events/<int:pk>/", AdminRevenueCatEventDetailView.as_view(), name="admin-store-event-detail"),
     path("admin/finance/store-events/<int:pk>/reprocess/", AdminRevenueCatEventReprocessView.as_view(), name="admin-store-event-reprocess"),
     path("admin/settings/platform/", AdminPlatformSettingsView.as_view(), name="admin-platform-settings"),
+    path("admin/finance/subscriptions/", AdminSubscriptionListView.as_view(), name="admin-subscriptions"),
+    path("swipes/quota/", SwipeQuotaView.as_view(), name="swipe-quota"),
+    path("users/interact/undo/", UndoSwipeView.as_view(), name="undo-swipe"),
 
 
     # ---------------------------------------

@@ -240,8 +240,27 @@ class MessageSerializer(serializers.ModelSerializer):
             return True
         return any(u.pk == request.user.pk for u in obj.deleted_for.all())
 
+    def _viewer_sees_read_receipts(self) -> bool:
+        """Prime love seekers and bondmakers see read state; computed once per response."""
+        if "_read_receipts" not in self.context:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is None or not user.is_authenticated:
+                self.context["_read_receipts"] = True
+            else:
+                from ..services.subscription_service import entitlements_for
+
+                self.context["_read_receipts"] = entitlements_for(user).read_receipts
+        return self.context["_read_receipts"]
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        # Read state of your own messages is a Prime feature.
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        if viewer_id and instance.sender_id == viewer_id and not self._viewer_sees_read_receipts():
+            data["is_read"] = False
+            data["read_at"] = None
         # Never leak the content of a message the requester removed for themselves
         if data.get("hidden"):
             for field in (

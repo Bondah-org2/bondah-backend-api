@@ -1054,8 +1054,8 @@ class SubscriptionPlanAdmin(admin.ModelAdmin):
         "name",
         "display_name",
         "duration",
-        "price_bondcoins",
         "price_usd",
+        "apple_product_id",
         "is_active",
     )
     list_filter = (
@@ -1067,12 +1067,12 @@ class SubscriptionPlanAdmin(admin.ModelAdmin):
         "global_access",
     )
     search_fields = ("name", "display_name", "description")
-    ordering = ("price_bondcoins",)
+    ordering = ("name", "price_usd")
     readonly_fields = ("created_at", "updated_at")
 
     fieldsets = (
         ("Plan Info", {"fields": ("name", "display_name", "description", "duration")}),
-        ("Pricing", {"fields": ("price_bondcoins", "price_usd")}),
+        ("Store", {"fields": ("apple_product_id", "google_product_id", "price_usd")}),
         (
             "Features",
             {
@@ -1082,7 +1082,6 @@ class SubscriptionPlanAdmin(admin.ModelAdmin):
                     "unlimited_unwind",
                     "global_access",
                     "read_receipt",
-                    "live_hours_days",
                 )
             },
         ),

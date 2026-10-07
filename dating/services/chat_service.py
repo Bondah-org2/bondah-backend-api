@@ -85,15 +85,27 @@ def clear_for_user(chat, user):
     return head
 
 
-def get_receipts(chat):
-    """Delivered/read cursors for every current member of the chat."""
+def get_receipts(chat, viewer=None):
+    """Delivered/read cursors for every current member of the chat.
+
+    Others' read cursors are only shown to viewers whose plan includes read
+    receipts (Prime, or any bondmaker); everyone else sees delivered only.
+    """
     ensure_participants(chat)
     member_ids = chat.participants.values_list("id", flat=True)
-    return list(
+    receipts = list(
         ChatParticipant.objects.filter(chat=chat, user_id__in=member_ids)
         .order_by("user_id")
         .values("user_id", "last_delivered_seq", "last_read_seq")
     )
+    if viewer is not None:
+        from .subscription_service import entitlements_for
+
+        if not entitlements_for(viewer).read_receipts:
+            for receipt in receipts:
+                if receipt["user_id"] != viewer.id:
+                    receipt["last_read_seq"] = 0
+    return receipts
 
 
 # ---------------------------------------------------------------------------

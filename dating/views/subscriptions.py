@@ -1,6 +1,8 @@
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import generics
+from rest_framework.views import APIView
+from ..services.subscription_service import entitlements_for, swipe_quota
 from ..models import UserSubscription, SubscriptionPlan
 from ..serializers import UserSubscriptionSerializer, SubscriptionPlanSerializer
 from drf_spectacular.utils import OpenApiResponse
@@ -21,14 +23,16 @@ class SubscriptionPlanListView(generics.ListAPIView):
     """
 
     permission_classes = [AllowAny]
+    pagination_class = None  # a handful of plans
 
     def get_serializer_class(self):
 
         return SubscriptionPlanSerializer
 
     def get_queryset(self):
-
-        return SubscriptionPlan.objects.filter(is_active=True)
+        return SubscriptionPlan.objects.filter(is_active=True, name__in=["pro", "prime"]).order_by(
+            "name", "price_usd"
+        )
 
 
 @extend_schema(
@@ -65,42 +69,26 @@ class UserSubscriptionDetailView(generics.RetrieveAPIView):
 @extend_schema(
     tags=["Subscription"],
     )
-class UserCurrentSubscriptionView(generics.RetrieveAPIView):
-    """
-    Get user's current active subscription
-    """
+class UserCurrentSubscriptionView(APIView):
+    """What the user's plan unlocks right now (tier, features, renewal)."""
 
     permission_classes = [IsAuthenticated]
-    serializer_class = UserSubscriptionSerializer
 
-    @extend_schema(
-        responses={
-            200: OpenApiResponse(
-                response=UserSubscriptionSerializer,
-                description="Current subscription retrieved successfully",
-            ),
-            200: OpenApiResponse(description="No active subscription found"),
-            500: OpenApiResponse(description="Server error"),
-        }
-    )
     def get(self, request, *args, **kwargs):
-        subscription = request.user.get_current_subscription()
-        if subscription:
-            serializer = self.get_serializer(subscription)
-            return Response(
-                {
-                    "message": "Current subscription retrieved",
-                    "status": "success",
-                    "data": serializer.data,
-                },
-                status=status.HTTP_200_OK,
-            )
+        return Response(entitlements_for(request.user).as_dict(), status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["Subscription"],
+    )
+class SwipeQuotaView(APIView):
+    """Today's swipe allowance. Send the device timezone in X-Timezone (IANA name)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
         return Response(
-            {
-                "message": "No active subscription found",
-                "status": "info",
-                "data": None,
-            },
+            swipe_quota(request.user, request.headers.get("X-Timezone")),
             status=status.HTTP_200_OK,
         )
 

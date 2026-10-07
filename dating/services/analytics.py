@@ -17,6 +17,7 @@ from ..models import (
     ProductRevenueRecord,
     Report,
     RevenueRecord,
+    UserSubscription,
     User,
 )
 from django.db.models import Case, When, DecimalField
@@ -272,6 +273,7 @@ class OverviewAnalyticsService:
             "period_days": self.days,
             "users_stats": self._get_user_stats(),
             "financial_summary": self._financial_summary(),
+            "subscription_summary": self._subscription_summary(),
             "applications_stats": self._application_stats(),
             "reports_stats": self._report_stats(),
         }
@@ -359,6 +361,21 @@ class OverviewAnalyticsService:
             "completed_payout": stats["completed"] or 0,
             "platform_revenue": store["net"] or 0,
             "store_revenue_gross": store["gross"] or 0,
+        }
+
+    def _subscription_summary(self):
+        active = UserSubscription.objects.filter(status="active", end_date__gt=self.now)
+        stats = active.aggregate(
+            pro=Count("id", filter=Q(plan__name="pro")),
+            prime=Count("id", filter=Q(plan__name="prime")),
+            billing_issues=Count("id", filter=Q(billing_issue_at__isnull=False)),
+            renewing=Count("id", filter=Q(auto_renew=True)),
+        )
+        return {
+            "active_pro": stats["pro"],
+            "active_prime": stats["prime"],
+            "billing_issues": stats["billing_issues"],
+            "renewing": stats["renewing"],
         }
 
     def _application_stats(self):

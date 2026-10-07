@@ -52,7 +52,7 @@ from .live import (
     LiveJoinRequest,
 )
 from .payments import PaymentMethod, PaymentTransaction, PaymentWebhook
-from .subscriptions import SubscriptionPlan, UserSubscription
+from .subscriptions import DailySwipeCount, SubscriptionPlan, UserSubscription
 from .users import (
     User,
     NewsletterSubscriber,
@@ -154,6 +154,7 @@ __all__ = [
     "PaymentWebhook",
     # Subscriptions
     "SubscriptionPlan",
+    "DailySwipeCount",
     "UserSubscription",
     # Users
     "User",

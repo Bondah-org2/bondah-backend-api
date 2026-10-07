@@ -7,13 +7,14 @@
 
 from django.db import transaction
 from django.db.models import Count, Q
+from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import PlatformSettings, RevenueCatEvent, Wallet
+from ..models import PlatformSettings, RevenueCatEvent, UserSubscription, Wallet
 from ..pagination import BondmakerPagination
 from ..permissions import CanViewWithdrawals, IsPrincipalAdmin
 from ..tasks import process_revenuecat_event
@@ -64,6 +65,34 @@ class AdminRevenueCatEventSerializer(serializers.ModelSerializer):
 class AdminRevenueCatEventDetailSerializer(AdminRevenueCatEventSerializer):
     class Meta(AdminRevenueCatEventSerializer.Meta):
         fields = AdminRevenueCatEventSerializer.Meta.fields + ["payload"]
+        read_only_fields = fields
+
+
+class AdminSubscriptionSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    name = serializers.CharField(source="user.name", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    tier = serializers.CharField(source="plan.name", read_only=True)
+    plan = serializers.CharField(source="plan.display_name", read_only=True)
+    duration = serializers.CharField(source="plan.duration", read_only=True)
+
+    class Meta:
+        model = UserSubscription
+        fields = [
+            "id",
+            "user_id",
+            "name",
+            "email",
+            "tier",
+            "plan",
+            "duration",
+            "status",
+            "store",
+            "auto_renew",
+            "billing_issue_at",
+            "start_date",
+            "end_date",
+        ]
         read_only_fields = fields
 
 
@@ -178,3 +207,34 @@ class AdminPlatformSettingsView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+@extend_schema(tags=["Admin Finance"])
+class AdminSubscriptionListView(generics.ListAPIView):
+    """Store subscriptions. ?state=active|billing_issue|ended, ?tier=pro|prime, ?search=."""
+
+    permission_classes = [CanViewWithdrawals]
+    serializer_class = AdminSubscriptionSerializer
+    pagination_class = BondmakerPagination
+
+    def get_queryset(self):
+        params = self.request.query_params
+        now = timezone.now()
+        qs = UserSubscription.objects.select_related("user", "plan").order_by("-updated_at")
+
+        state = params.get("state")
+        if state == "active":
+            qs = qs.filter(status="active", end_date__gt=now)
+        elif state == "billing_issue":
+            qs = qs.filter(status="active", billing_issue_at__isnull=False)
+        elif state == "ended":
+            qs = qs.exclude(status="active", end_date__gt=now)
+
+        tier = params.get("tier")
+        if tier in ("pro", "prime"):
+            qs = qs.filter(plan__name=tier)
+
+        search = params.get("search", "").strip()
+        if search:
+            qs = qs.filter(Q(user__email__icontains=search) | Q(user__name__icontains=search))
+        return qs

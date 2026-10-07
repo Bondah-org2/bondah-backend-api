@@ -579,37 +579,23 @@ class User(AbstractUser):
         return min(100, int((filled_fields / total_fields) * 100))
 
     def get_current_subscription(self):
-        """Get user's current active subscription"""
-        from django.utils import timezone
+        """The best active store subscription, or None."""
+        from ..services.subscription_service import current_subscription
 
-        current_subscription = self.subscriptions.filter(
-            status="active", end_date__gt=timezone.now()
-        ).first()
-        return current_subscription
+        return current_subscription(self)
 
     def has_feature_access(self, feature_name):
-        """Check if user has access to a specific feature based on subscription"""
-        subscription = self.get_current_subscription()
-        if not subscription:
-            return False
+        """Whether the user's plan unlocks a feature (see subscription_service)."""
+        from ..services.subscription_service import entitlements_for
 
-        plan = subscription.plan
+        ent = entitlements_for(self)
         feature_map = {
-            "unlimited_swipes": plan.unlimited_swipes,
-            "undo_swipes": plan.undo_swipes,
-            "unlimited_unwind": plan.unlimited_unwind,
-            "global_access": plan.global_access,
-            "read_receipt": plan.read_receipt,
+            "unlimited_swipes": ent.unlimited_swipes,
+            "undo_swipes": ent.undo,
+            "global_access": ent.global_access,
+            "read_receipt": ent.read_receipts,
         }
-
         return feature_map.get(feature_name, False)
-
-    def get_live_hours_days(self):
-        """Get live hours days based on subscription"""
-        subscription = self.get_current_subscription()
-        if subscription:
-            return subscription.plan.live_hours_days
-        return 7  # Default for free users
 
     @property
     def location_coordinates(self):
@@ -1385,6 +1371,7 @@ class UserMatch(models.Model):
         ("matched", "Matched"),
         ("blocked", "Blocked"),
         ("expired", "Expired"),
+        ("cancelled", "Cancelled"),
     )
 
     match_request = models.OneToOneField(

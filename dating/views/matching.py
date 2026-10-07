@@ -13,8 +13,11 @@ from django.contrib.auth import get_user_model
 from dating.tasks import notify_user
 from ..serializers import MatchQueueSerializer, UserInteractionSerializer, MatchRequestSerializer, BondmakerMatchActionSerializer, BondmakerMatchActionResponseSerializer, UserSwipeCardSerializer, StaticUserProfileSerializer, MatchedUserSerializer, IncomingPendingMatchSerializer
 from ..services.match_service import reject_match_request
+from ..services import subscription_service
+from ..services.wallet_service import InsufficientFunds
 from ..services.match_service import (
     LIKE_COST,
+    cancel_match_request,
     accept_match_request,
     create_match_request,
     is_visible_under,
@@ -22,7 +25,7 @@ from ..services.match_service import (
 from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from rest_framework.decorators import action
 
 User = get_user_model()
@@ -159,17 +162,32 @@ class BondmakerMatchActionView(generics.GenericAPIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
+class _SwipeRejected(Exception):
+    """Abort the swipe transaction (so it doesn't count) and answer with `response`."""
+
+    def __init__(self, response):
+        super().__init__()
+        self.response = response
+
+
+SWIPE_TYPES = {"like", "pass", "dislike", "super_like"}
+
+
 @extend_schema(
     tags=["Coin"],
     )
 class UserInteractionView(generics.CreateAPIView):
     """
-    Handles all swipe interactions.
+    Records a swipe or another interaction with a profile.
 
-    LIKE  -> Charge coins, create MatchRequest, create/update UserMatch(pending),
-             notify bondmaker.
-    PASS/DISLIKE -> Only store interaction (temporary memory).
-    BLOCK/REPORT -> Update UserMatch to blocked.
+    LIKE: holds 1 coin and opens a match request with the bondmaker the
+    person is visible under.
+    PASS / DISLIKE: remembered, so the profile leaves the deck.
+    BLOCK / REPORT: relationship marked blocked (report also filed).
+
+    Likes and passes count toward the daily swipe limit (free plan); send the
+    device timezone in X-Timezone so the limit resets at local midnight. Over
+    the limit the answer is 429 with code "swipe_limit".
     """
 
     serializer_class = UserInteractionSerializer
@@ -184,95 +202,53 @@ class UserInteractionView(generics.CreateAPIView):
         interaction_type = serializer.validated_data["interaction_type"]
         metadata = serializer.validated_data.get("metadata", {})
 
-        # ---------------------------------------------------------
-        # LIKE  → CHARGE COINS → CREATE MATCH REQUEST → USERMATCH
-        # ---------------------------------------------------------
-        if interaction_type == "like":
+        if target_user.id == user.id:
+            return Response({"detail": "You can't interact with yourself."}, status=status.HTTP_400_BAD_REQUEST)
 
-            visibility = (
-                Visibility.objects
-                .filter(
-                    owner=target_user,
-                    visibility__in=["public", "private"],
-                    expires_at__gt=timezone.now(),
-                )
-                .select_related("bondmaker")
-                .first()
-            )
+        notify = None
+        try:
+            with transaction.atomic():
+                if interaction_type in SWIPE_TYPES:
+                    try:
+                        subscription_service.consume_swipe(user, request.headers.get("X-Timezone"))
+                    except subscription_service.SwipeLimitReached as exc:
+                        raise _SwipeRejected(Response(
+                            {
+                                "detail": "You've used today's free swipes.",
+                                "code": "swipe_limit",
+                                "resets_at": exc.resets_at.isoformat(),
+                            },
+                            status=status.HTTP_429_TOO_MANY_REQUESTS,
+                        ))
 
-            if not visibility:
-                return Response(
-                    {"error": "Target user is not currently visible under any bondmaker"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                if interaction_type == "like":
+                    notify = self._like(user, target_user)
+                elif interaction_type in ("block", "report"):
+                    user_match, _ = UserMatch.objects.update_or_create(
+                        user1=user,
+                        user2=target_user,
+                        defaults={"status": "blocked", "distance": user.get_distance_to(target_user) or 0},
+                    )
+                    if interaction_type == "report":
+                        Report.objects.create(
+                            reporter=user,
+                            reported_user=target_user,
+                            reason=metadata.get("reason", "other"),
+                            description=metadata.get("description", ""),
+                            user_match=user_match,
+                        )
 
-            bondmaker = visibility.bondmaker
-            if not bondmaker:
-                return Response(
-                    {"error": "Target user is not under any bondmaker"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            try:
-                match_request, user_match = create_match_request(
-                    requester=user,
-                    bondmaker=bondmaker,
+                UserInteraction.objects.update_or_create(
+                    user=user,
                     target_user=target_user,
-                    coins=LIKE_COST,
+                    interaction_type=interaction_type,
+                    defaults={"metadata": metadata},
                 )
+        except _SwipeRejected as rejected:
+            return rejected.response
 
-            except ValidationError as e:
-                raise ValidationError({"detail": str(e)})
-
-            # TODO: MOVE TO BACKGROUND
-            notify_user.delay(
-                user_id=bondmaker.id,
-                title="New Match Request",
-                message=f"{user.name} liked {target_user.name}. Review request.",
-                data={
-                    "match_request_id": str(match_request.id),
-                    "user_match_id": str(user_match.id),
-                    "type": "match_request",
-                    },
-                )
-        # ---------------------------------------------------------
-        # BLOCK / REPORT  → RELATIONSHIP STATE (UserMatch)
-        # ---------------------------------------------------------
-        elif interaction_type == "block":
-            # Mark the match as blocked or create it if it doesn't exist
-            user_match, _ = UserMatch.objects.update_or_create(
-                user1=user,
-                user2=target_user,
-                defaults={"status": "blocked", "distance": user.get_distance_to(target_user) or 0},
-            )
-
-        elif interaction_type == "report":
-            # Mark the match as blocked
-            user_match, _ = UserMatch.objects.update_or_create(
-                user1=user,
-                user2=target_user,
-                defaults={"status": "blocked", "distance": user.get_distance_to(target_user) or 0},
-            )
-
-            # Create a report record
-            Report.objects.create(
-                reporter=user,
-                reported_user=target_user,
-                reason=serializer.validated_data.get("metadata", {}).get("reason", "other"),
-                description=serializer.validated_data.get("metadata", {}).get("description", ""),
-                user_match=user_match,
-            )
-
-        # Save interaction history (always)
-        interaction, _ = UserInteraction.objects.update_or_create(
-            user=user,
-            target_user=target_user,
-            interaction_type=interaction_type,
-            defaults={"metadata": metadata},
-        )
-        # ---------------------------------------------------------
-        # PASS / DISLIKE → DO NOTHING (temporary memory only)
-        # ---------------------------------------------------------
+        if notify:
+            notify_user.delay(**notify)
 
         return Response(
             {
@@ -281,6 +257,101 @@ class UserInteractionView(generics.CreateAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    def _like(self, user, target_user) -> dict:
+        visibility = (
+            Visibility.objects.filter(
+                owner=target_user,
+                visibility__in=["public", "private"],
+                status="approved",
+                expires_at__gt=timezone.now(),
+            )
+            .select_related("bondmaker")
+            .first()
+        )
+        if not visibility or not visibility.bondmaker:
+            raise _SwipeRejected(Response(
+                {"detail": "This person is not currently visible under a bondmaker.", "code": "not_visible"},
+                status=status.HTTP_400_BAD_REQUEST,
+            ))
+
+        try:
+            match_request, user_match = create_match_request(
+                requester=user,
+                bondmaker=visibility.bondmaker,
+                target_user=target_user,
+                coins=LIKE_COST,
+            )
+        except InsufficientFunds:
+            raise _SwipeRejected(Response(
+                {"detail": "Not enough coins to send a like.", "code": "insufficient_coins"},
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            ))
+        except ValidationError as exc:
+            raise _SwipeRejected(Response(
+                {"detail": exc.messages[0] if exc.messages else str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            ))
+
+        return {
+            "user_id": visibility.bondmaker.id,
+            "title": "New Match Request",
+            "message": f"{user.name} liked {target_user.name}. Review request.",
+            "data": {
+                "match_request_id": str(match_request.id),
+                "user_match_id": str(user_match.id),
+                "type": "match_request",
+            },
+        }
+
+
+@extend_schema(
+    tags=["Coin"],
+    )
+class UndoSwipeView(generics.GenericAPIView):
+    """Take back the last swipe on a profile (Pro and Prime).
+
+    A pass is forgotten so the profile comes back. A like that the bondmaker
+    hasn't decided yet is cancelled and its coin refunded.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if not subscription_service.entitlements_for(user).undo:
+            return Response(
+                {"detail": "Undo is part of Bondah Pro.", "code": "upgrade_required", "feature": "undo"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        target_id = request.data.get("target_user_id")
+        if not str(target_id or "").isdigit():
+            return Response({"detail": "target_user_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            interaction = (
+                UserInteraction.objects.select_for_update()
+                .filter(user=user, target_user_id=int(target_id), interaction_type__in=SWIPE_TYPES)
+                .order_by("-created_at")
+                .first()
+            )
+            if interaction is None:
+                return Response({"detail": "Nothing to undo."}, status=status.HTTP_404_NOT_FOUND)
+
+            refunded = 0
+            if interaction.interaction_type in ("like", "super_like"):
+                try:
+                    refunded = cancel_match_request(requester=user, target_user_id=int(target_id))
+                except ValidationError as exc:
+                    return Response(
+                        {"detail": exc.messages[0] if exc.messages else str(exc), "code": "already_decided"},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+            undone = interaction.interaction_type
+            interaction.delete()
+
+        return Response({"undone": undone, "coins_refunded": refunded}, status=status.HTTP_200_OK)
 
 
 @extend_schema(
@@ -384,8 +455,27 @@ class UserSwipeDeckView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = UserSwipeDeckPagination
 
+    ALL_COUNTRIES = object()  # Prime browsing everywhere
+
+    def _country_scope(self):
+        """ALL_COUNTRIES (Prime only), or the country to show (may be empty).
+
+        Free and Pro always see their own country. Prime can pass
+        ?scope=global for everywhere or ?country=<name> for one country.
+        """
+        user = self.request.user
+        params = self.request.query_params
+        if subscription_service.entitlements_for(user).global_access:
+            if params.get("scope") == "global":
+                return self.ALL_COUNTRIES
+            if params.get("country"):
+                return params["country"][:100]
+        return user.country
+
     def list(self, request, *args, **kwargs):
-        if not request.user.country:
+        scope = self._country_scope()
+        if scope is not self.ALL_COUNTRIES and not scope:
+            # Limited to a country, but we don't know this user's yet.
             # Same shape as a normal page, so clients never special-case it.
             return Response(
                 {
@@ -403,17 +493,16 @@ class UserSwipeDeckView(generics.ListAPIView):
         user = self.request.user
         max_distance = self.request.query_params.get("max_distance", None)
 
-        # 1. Only public visible users
-        visible_users = (
-            User.objects.filter(
-                visibility_settings__visibility="public",
-                visibility_settings__status="approved",
-                visibility_settings__expires_at__gt=timezone.now(),
-                country=user.country
-            )
-            .exclude(id=user.id)
-            .distinct()
+        # 1. Only public visible users, in the country this user may browse
+        visible_users = User.objects.filter(
+            visibility_settings__visibility="public",
+            visibility_settings__status="approved",
+            visibility_settings__expires_at__gt=timezone.now(),
         )
+        country = self._country_scope()
+        if country is not self.ALL_COUNTRIES:
+            visible_users = visible_users.filter(country=country)
+        visible_users = visible_users.exclude(id=user.id).distinct()
 
         # 2. Exclude already swiped users
         swiped_ids = UserInteraction.objects.filter(user=user).values_list(
@@ -439,9 +528,20 @@ class UserSwipeDeckView(generics.ListAPIView):
                 distance_km__lte=float(max_distance))
             visible_users = visible_users.order_by("distance_km")
         else:
-            visible_users = visible_users.order_by("country")  # random order
+            visible_users = visible_users.order_by("-last_seen", "id")
 
-        return visible_users
+        # One query for every card's bondmaker (the serializer reads this).
+        return visible_users.prefetch_related(
+            Prefetch(
+                "visibility_settings",
+                queryset=Visibility.objects.filter(
+                    visibility="public",
+                    status="approved",
+                    expires_at__gt=timezone.now(),
+                ).select_related("bondmaker"),
+                to_attr="active_public_visibilities",
+            )
+        )
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

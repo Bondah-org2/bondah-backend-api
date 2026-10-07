@@ -159,3 +159,29 @@ def expire_stale_match_requests(now=None, batch_size: int = 500) -> int:
             _set_user_match_status(match_request, "expired")
             expired += 1
     return expired
+
+
+def cancel_match_request(*, requester, target_user_id: int) -> int:
+    """Withdraw a like before the bondmaker decides (undo). Returns coins refunded.
+
+    Raises ValidationError if the bondmaker already accepted or rejected it.
+    """
+    with transaction.atomic():
+        latest = (
+            MatchRequest.objects.select_for_update(of=("self",))
+            .select_related("user_match")
+            .filter(requester=requester, user_match__user2_id=target_user_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest is None:
+            return 0
+        if latest.status != "pending":
+            raise ValidationError("The bondmaker has already decided on this like.")
+
+        refunded = latest.coins_charged if latest.hold_transaction_id else 0
+        _refund(latest)
+        latest.status = "cancelled"
+        latest.save(update_fields=["status"])
+        _set_user_match_status(latest, "cancelled")
+        return refunded

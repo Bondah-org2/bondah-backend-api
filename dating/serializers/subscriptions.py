@@ -5,29 +5,29 @@ from ..models import SubscriptionPlan, UserSubscription
 
 
 class SubscriptionPlanSerializer(serializers.ModelSerializer):
-    """Serializer for subscription plans"""
+    """A plan on sale. `tier` is pro or prime; prices shown in the app come from the store."""
+
+    tier = serializers.CharField(source="name", read_only=True)
 
     class Meta:
         model = SubscriptionPlan
         fields = [
             "id",
+            "tier",
             "name",
             "display_name",
             "description",
             "duration",
-            "price_bondcoins",
             "price_usd",
+            "apple_product_id",
+            "google_product_id",
             "unlimited_swipes",
             "undo_swipes",
-            "unlimited_unwind",
             "global_access",
             "read_receipt",
-            "live_hours_days",
             "is_active",
-            "created_at",
-            "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = fields
 
 
 class UserSubscriptionSerializer(serializers.ModelSerializer):

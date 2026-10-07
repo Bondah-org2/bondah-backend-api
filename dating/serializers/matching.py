@@ -164,11 +164,15 @@ class UserSwipeCardSerializer(serializers.ModelSerializer):
         ]
 
     def get_bondmaker(self, obj) -> List:
-        visibility = obj.visibility_settings.filter(
-            visibility="public",
-            status="approved",
-            expires_at__gt=timezone.now(),
-        ).select_related("bondmaker").first()
+        prefetched = getattr(obj, "active_public_visibilities", None)
+        if prefetched is not None:
+            visibility = prefetched[0] if prefetched else None
+        else:
+            visibility = obj.visibility_settings.filter(
+                visibility="public",
+                status="approved",
+                expires_at__gt=timezone.now(),
+            ).select_related("bondmaker").first()
 
         if visibility and visibility.bondmaker:
             bondmaker_user = visibility.bondmaker

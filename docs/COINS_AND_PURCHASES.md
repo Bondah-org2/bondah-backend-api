@@ -79,10 +79,39 @@ Store prices snap to each store's price tiers; the app always shows the store's 
 
 **App** (`app.json` > `expo.extra.revenuecat`): `androidApiKey` (`goog_...`) and `iosApiKey` (`appl_...`). These are public keys. Changing native modules means a new development build; the RevenueCat SDK does not work in Expo Go.
 
+## Subscriptions (Pro and Prime)
+
+| Product ID | Plan | Period | Reference price |
+|---|---|---|---|
+| `bondah_pro_monthly` | Pro | 1 month | $9.99 |
+| `bondah_pro_3month` | Pro | 3 months | $24.99 |
+| `bondah_prime_monthly` | Prime | 1 month | $19.99 |
+| `bondah_prime_3month` | Prime | 3 months | $49.99 |
+
+Create them as auto-renewing subscriptions in both stores (same IDs; on Google Play use one subscription per ID with a single base plan) and add them to the RevenueCat offering. Migration `0071_seed_subscription_plans` creates the plans and ends any subscription without a store transaction (those were created through the old open API without paying).
+
+| | Free | Pro | Prime |
+|---|---|---|---|
+| Swipes (likes and passes) | 10 a day | Unlimited | Unlimited |
+| Undo | No | Yes | Yes |
+| Read receipts | No | No | Yes |
+| Swipe deck | Own country | Own country | Any country (`?scope=global` or `?country=`) |
+
+Bondmakers always see read receipts.
+
+How it works:
+
+- `dating/services/subscription_service.py` computes a user's entitlements from their active `UserSubscription` rows (cached for up to 60 seconds, never past the expiry) and is the only place features are decided.
+- RevenueCat lifecycle events (purchase, renewal, cancellation, refund, expiration, billing issue with grace, transfer) update one `UserSubscription` per store subscription (`store` + `original_transaction_id`). Events older than the last one applied are ignored.
+- The daily limit is counted in `DailySwipeCount` per user and local day. The app sends `X-Timezone`; the limit resets at the user's midnight. Over the limit, `users/interact/` answers 429 with `code: "swipe_limit"` and `resets_at`.
+- Endpoints: `GET subscriptions/plans/`, `GET subscriptions/current/` (entitlements), `GET swipes/quota/`, `POST users/interact/undo/` (Pro and Prime).
+
 ## Admin
 
 The admin app (Bondah-Admin-System) has:
 
+- **Finance > Subscriptions** (`withdrawals` permission): active, billing-issue and ended subscriptions by plan.
+- **Overview**: active Pro and Prime counts, billing issues and net store revenue.
 - **Finance > Flagged wallets** (`withdrawals` permission): repeated refunders and coin debt, with "Reviewed" to clear the flag.
 - **Finance > Store events** (`withdrawals` permission): every RevenueCat event, its payload, and Retry for failed ones.
 - **Settings** (principal admin only): the gift conversion rate.

@@ -305,7 +305,7 @@ class ChatSyncView(APIView):
                 "has_more": has_more,
                 "next_after_seq": events[-1].change_seq if events else head,
                 "cleared_before_seq": cleared_before_seq,
-                "receipts": chat_service.get_receipts(chat),
+                "receipts": chat_service.get_receipts(chat, request.user),
                 "typing_user_ids": presence.typing_user_ids(chat.id, other_ids),
                 "presence": {
                     str(uid): state
@@ -351,7 +351,7 @@ class ChatMessagesView(APIView):
                     messages, many=True, context={"request": request}
                 ).data,
                 "has_more": has_more,
-                "receipts": chat_service.get_receipts(chat),
+                "receipts": chat_service.get_receipts(chat, request.user),
             }
         )
 
@@ -375,7 +375,7 @@ class ChatMarkReadView(APIView):
         chat_service.mark_read(
             chat, request.user, serializer.validated_data["last_read_seq"]
         )
-        return Response({"chat_id": chat.id, "receipts": chat_service.get_receipts(chat)})
+        return Response({"chat_id": chat.id, "receipts": chat_service.get_receipts(chat, request.user)})
 
 
 @extend_schema(
