@@ -161,7 +161,6 @@ from .bondmakers import (  # noqa: F401
     BondmakerProfileUpdateView,
     BondmakerSearchView,
     BondmakerSpecialisationView,
-    BondmakerSuggestionView,
     BondmakersLeaderboardView,
     EndBondmakerSubscriptionView,
     PublicBondmakerListView,
@@ -169,6 +168,15 @@ from .bondmakers import (  # noqa: F401
     SubscribeBondmakerView,
     SubscribeToggleView,
     SubscribedUsersForBondmakerView,
+)
+from .suggestions import (  # noqa: F401
+    BondmakerClientsView,
+    BondmakerExploreView,
+    BondmakerSuggestionView,
+    IncomingSuggestionsView,
+    LikeSuggestionView,
+    PassSuggestionView,
+    RespondSuggestionView,
     SuggestedMatchView,
 )
 from .visibility import (  # noqa: F401

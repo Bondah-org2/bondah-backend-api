@@ -34,6 +34,7 @@ HOLD_RELEASED = "cancelled"
 EARNING_KINDS = (
     "match_request_earning",
     "private_visibility_earning",
+    "suggestion_earning",
     "gift_converted",
 )
 

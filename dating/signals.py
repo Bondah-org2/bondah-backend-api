@@ -4,7 +4,6 @@ from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from .models import (
     Activity,
-    SuggestedMatch,
     MatchRequest,
     Visibility,
     Chat,
@@ -30,38 +29,6 @@ User = get_user_model()
 def create_user_wallet(sender, instance, created, **kwargs):
     if created:
         Wallet.objects.create(user=instance)
-
-
-@receiver(post_save, sender=SuggestedMatch)
-def suggested_match_notification(sender, instance, created, **kwargs):
-    if not created:
-        return
-
-    bondmaker = instance.bondmaker
-    subscriber = instance.user
-    suggested_user = instance.suggested_user
-
-    # Notify Subscriber
-    notify_user.delay(
-        subscriber.id,
-        title="New Match Suggestion 💌",
-        message=f"{bondmaker.name} suggested {suggested_user.name} to you.",
-        data={
-            "type": "match_suggestion",
-            "suggestion_id": instance.id,
-        },
-    )
-
-    # Notify Suggested User
-    notify_user.delay(
-        suggested_user.id,
-        title="You’ve Been Suggested 💘",
-        message=f"{bondmaker.name} suggested you to {subscriber.name}.",
-        data={
-            "type": "match_suggestion",
-            "suggestion_id": instance.id,
-        },
-    )
 
 
 @receiver(pre_save, sender=UserMatch)

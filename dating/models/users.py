@@ -1287,7 +1287,24 @@ class Visibility(models.Model):
 
 
 class SuggestedMatch(models.Model):
-    """Bondmaker suggested matches for a subscribed user"""
+    """A bondmaker suggests a seeker (suggested_user) to one of their clients (user).
+
+    pending  -> the client hasn't decided
+    liked    -> the client paid 1 coin to the bondmaker; waiting for suggested_user
+    passed   -> the client said no
+    accepted -> suggested_user said yes; the three-way chat is open
+    declined -> suggested_user said no
+    expired  -> suggested_user didn't answer in time
+    """
+
+    STATUS = (
+        ("pending", "Pending"),
+        ("liked", "Liked"),
+        ("passed", "Passed"),
+        ("accepted", "Accepted"),
+        ("declined", "Declined"),
+        ("expired", "Expired"),
+    )
 
     bondmaker = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="suggested_matches"
@@ -1298,10 +1315,27 @@ class SuggestedMatch(models.Model):
     suggested_user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="suggested_to"
     )
+    status = models.CharField(max_length=10, choices=STATUS, default="pending")
+    note = models.CharField(max_length=500, blank=True, default="")
+    liked_at = models.DateTimeField(null=True, blank=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+    # The client's coin, paid to the bondmaker when the client likes it.
+    charge_transaction = models.ForeignKey(
+        "dating.WalletTransaction", on_delete=models.PROTECT,
+        null=True, blank=True, related_name="+",
+    )
+    chat = models.ForeignKey(
+        "dating.Chat", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("bondmaker", "user", "suggested_user")
+        indexes = [
+            models.Index(fields=["user", "status", "-created_at"]),
+            models.Index(fields=["suggested_user", "status", "-liked_at"]),
+            models.Index(fields=["status", "liked_at"]),
+        ]
 
 
 class UserRoleSelection(models.Model):

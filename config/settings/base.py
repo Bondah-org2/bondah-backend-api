@@ -203,6 +203,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
     "DEFAULT_THROTTLE_RATES": {
         "wallet_write": "30/min",
+        "suggest_write": "60/min",
     },
 }
 

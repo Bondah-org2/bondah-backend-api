@@ -5,10 +5,10 @@ from django.utils import timezone
 from datetime import timedelta
 from ..pagination import BondmakerPagination, BondmakerPublicPagination, PendingRequestListPagination, BondmakerSearchPagination
 from django.db.models import F
-from ..models import UserMatch, BondmakerSubscription, SuggestedMatch, Specialisation
+from ..models import UserMatch, BondmakerSubscription, Specialisation
 from django.contrib.auth import get_user_model
 from rest_framework import filters
-from ..serializers import UserProfileDetailSerializer, PublicBondmakerProfileSerializer, BondmakerSubscriptionSerializer, BondmakerSuggestionSerializer, SubscribeBondmakerSerializer, PendingMatchUserSerializer, BondmakerProfileUpdateSerializer, BondmakerSpecialisationSerializer, BondmakerSearchListSerializer, SpecialisationCategorySerializer, BondmakerDashboardSerializer, BondmakerAnalyticsSerializer, MatchedUserSerializer, SuggestedMatchSerializer, SubscribeSerializer, BondmakersLeaderboardSerializer
+from ..serializers import UserProfileDetailSerializer, PublicBondmakerProfileSerializer, BondmakerSubscriptionSerializer, SubscribeBondmakerSerializer, PendingMatchUserSerializer, BondmakerProfileUpdateSerializer, BondmakerSpecialisationSerializer, BondmakerSearchListSerializer, SpecialisationCategorySerializer, BondmakerDashboardSerializer, BondmakerAnalyticsSerializer, MatchedUserSerializer, SubscribeSerializer, BondmakersLeaderboardSerializer
 from rest_framework import permissions
 from django.db.models import Window
 from django.db.models.functions import Rank
@@ -308,63 +308,6 @@ class AllSubscribedUsersListView(generics.ListAPIView):
             BondmakerSubscription.objects.filter(active=True, bondmaker=bondmaker)
             .select_related("user", "bondmaker")
             .distinct()
-        )
-
-
-#           MATCH SUGGESTION VIEW
-@extend_schema(
-    tags=["Bondmaker"],
-    )
-class BondmakerSuggestionView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = BondmakerSuggestionSerializer
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        bondmaker = request.user
-        visible_user = serializer.validated_data["visible_user"]
-        suggested_user = serializer.validated_data["suggested_user"]
-
-        if SuggestedMatch.objects.filter(
-            bondmaker=bondmaker,
-            user=visible_user,
-            suggested_user=suggested_user,
-        ).exists():
-            return Response(
-                {"detail": "You have already suggested this user to this person."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        SuggestedMatch.objects.create(
-            bondmaker=bondmaker,
-            user=visible_user,
-            suggested_user=suggested_user,
-        )
-
-        return Response(
-            {"status": "Suggestion created and notifications sent"},
-            status=status.HTTP_201_CREATED,
-        )
-
-
-@extend_schema(
-    tags=["Suggestions"],
-    )
-# suggested matches from bondmaker
-class SuggestedMatchView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = SuggestedMatchSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if not user:
-            return SuggestedMatch.objects.none()
-        return (
-            SuggestedMatch.objects.filter(user=user)
-            .select_related("suggested_user")
-            .order_by("-created_at")
         )
 
 

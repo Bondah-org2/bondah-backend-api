@@ -191,67 +191,6 @@ class SubscribeBondmakerSerializer(serializers.Serializer):
     bondmaker_id = serializers.IntegerField()
 
 
-class BondmakerSuggestionSerializer(serializers.Serializer):
-    visible_user_id = serializers.IntegerField()
-    suggested_user_id = serializers.IntegerField()
-    note = serializers.CharField(required=False, allow_blank=True, max_length=500)
-
-    def validate(self, attrs):
-        request = self.context["request"]
-        bondmaker = request.user
-
-        if not bondmaker.is_matchmaker:
-            raise serializers.ValidationError("Only bondmakers can suggest users.")
-
-        # Fetch users
-        try:
-            visible_user = User.objects.get(id=attrs["visible_user_id"])
-        except User.DoesNotExist:
-            raise serializers.ValidationError({"visible_user_id": "User not found"})
-
-        try:
-            suggested_user = User.objects.get(id=attrs["suggested_user_id"])
-        except User.DoesNotExist:
-            raise serializers.ValidationError({"suggested_user_id": "User not found"})
-
-        # CRITICAL RULE: subscriber must be visible to this bondmaker
-        is_visible = Visibility.objects.filter(
-            owner=visible_user,
-            bondmaker=bondmaker,
-            status="approved",
-            expires_at__gt=timezone.now(),
-        ).exists()
-
-        if not is_visible:
-            raise serializers.ValidationError(
-                "You can only suggest users to people currently visible to you."
-            )
-
-        # Prevent suggesting the same user to themselves
-        if visible_user == suggested_user:
-            raise serializers.ValidationError(
-                "You cannot suggest a user to themselves."
-            )
-
-        # Attach for view reuse
-        attrs["visible_user"] = visible_user
-        attrs["suggested_user"] = suggested_user
-
-        return attrs
-
-
-class SuggestedMatchSerializer(serializers.ModelSerializer):
-    suggested_user = SimpleUserSerializer(read_only=True)
-
-    class Meta:
-        model = SuggestedMatch
-        fields = [
-            "id",
-            "suggested_user",
-            "created_at"
-        ]
-
-
 class BondmakerSpecialisationSerializer(serializers.ModelSerializer):
     categories = serializers.SlugRelatedField(
         slug_field="category",
