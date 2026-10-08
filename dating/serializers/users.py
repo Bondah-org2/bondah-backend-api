@@ -450,6 +450,7 @@ class UserProfileDetailSerializer(MediaRefsMixin, serializers.ModelSerializer):
             "profile_completion_percentage",
             "selected_role",
             "traits",
+            "partner_qualities",
             "genotype",
             "location",
             "age",
@@ -545,6 +546,16 @@ class UserProfileDetailSerializer(MediaRefsMixin, serializers.ModelSerializer):
         if len(value) > 3:
             raise serializers.ValidationError("You can select only 3 traits.")
         return value
+
+    def validate_partner_qualities(self, value):
+        """What the user wants in a partner (Humor, Kindness, ...); used for recommendations."""
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise serializers.ValidationError("Must be a list of qualities.")
+        if len(value) > 6:
+            raise serializers.ValidationError("You can select up to 6 qualities.")
+        return [v.strip()[:40] for v in value if v.strip()]
 
     def validate_interests(self, value):
         if not isinstance(value, list):

@@ -433,18 +433,42 @@ class UserInterestsView(generics.ListAPIView, generics.UpdateAPIView):
         return UserInterest.objects.filter(is_active=True).order_by("name")
 
     def update(self, request, *args, **kwargs):
-        interests = request.data.get("interests", [])
-        hobbies = request.data.get("hobbies", [])
+        # Only the lists that are sent change (sign-up step 3 sends no interests).
+        interests = request.data.get("interests")
+        hobbies = request.data.get("hobbies")
+        # The user's own personality (Friendly, Calm, ...); sign-up sends it here.
+        traits = request.data.get("personality_traits")
 
-        if not isinstance(interests, list) or not isinstance(hobbies, list):
+        if traits is not None and (
+            not isinstance(traits, list)
+            or len(traits) > 3
+            or not all(isinstance(t, str) and len(t) <= 40 for t in traits)
+        ):
+            return Response(
+                {"message": "Choose up to 3 personality traits", "status": "error"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if (interests is not None and not isinstance(interests, list)) or (
+            hobbies is not None and not isinstance(hobbies, list)
+        ):
             return Response(
                 {"message": "Interests and hobbies must be arrays", "status": "error"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        request.user.interests = interests
-        request.user.hobbies = hobbies
-        request.user.save()
+        fields = []
+        if interests is not None:
+            request.user.interests = interests
+            fields.append("interests")
+        if hobbies is not None:
+            request.user.hobbies = hobbies
+            fields.append("hobbies")
+        if traits is not None:
+            request.user.traits = traits
+            fields.append("traits")
+        if fields:
+            request.user.save(update_fields=fields)
 
         return Response(
             {

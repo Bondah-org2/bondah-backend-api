@@ -211,3 +211,4 @@ from .admin_finance import (  # noqa: F401
     AdminRevenueCatEventReprocessView,
     AdminSubscriptionListView,
 )
+from .recommendations import RecommendedProfilesView  # noqa: F401,E402

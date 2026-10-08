@@ -174,6 +174,7 @@ from .views import (
     # BondmakerMatchCreateView,
     BondmakerSuggestionView,
     BondmakerExploreView,
+    RecommendedProfilesView,
     BondmakerClientsView,
     LikeSuggestionView,
     PassSuggestionView,
@@ -951,6 +952,7 @@ urlpatterns = [
     # Swipe View
     path("auth/swipe-deck/", UserSwipeDeckView.as_view(), name="user-swipe-deck"),
     path("users/explore/", ExploreUsersView.as_view(), name="users-explore"),
+    path("users/recommended/", RecommendedProfilesView.as_view(), name="recommended-profiles"),
 
 
     # List of Pending Request to each Bondmaker
