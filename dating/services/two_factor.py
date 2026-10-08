@@ -40,6 +40,10 @@ class TwoFactorLocked(ValidationError):
     """Too many wrong codes."""
 
 
+class InvalidCode(ValidationError):
+    """The code doesn't match."""
+
+
 def _fernet() -> Fernet:
     raw = getattr(settings, "TWO_FACTOR_KEY", "") or settings.SECRET_KEY
     key = base64.urlsafe_b64encode(hashlib.sha256(f"bondah-2fa:{raw}".encode()).digest())
@@ -119,7 +123,7 @@ def verify(user, code: str, *, require_enabled: bool = True, consume: bool = Tru
 
         if matched is None:
             cache.set(_lock_key(user), failures + 1, LOCK_SECONDS)
-            raise ValidationError("That code isn't right. Check your authenticator app and try again.")
+            raise InvalidCode("That code isn't right. Check your authenticator app and try again.")
 
         if consume:
             record.last_used_step = matched

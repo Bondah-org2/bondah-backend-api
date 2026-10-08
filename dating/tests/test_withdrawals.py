@@ -167,6 +167,7 @@ class RequestTests(WithdrawalFixture):
         self.enable_2fa()
         response = self.withdraw(code="000000")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "invalid_code")
         self.assertFalse(Withdrawal.objects.exists())
         self.assertEqual(balances(self.bm), (500, 0))
 

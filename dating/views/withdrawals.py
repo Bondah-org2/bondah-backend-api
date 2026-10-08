@@ -28,6 +28,8 @@ def _withdrawal_error(exc: ValidationError):
         return _error(exc, "two_factor_required", status.HTTP_403_FORBIDDEN)
     if isinstance(exc, two_factor.TwoFactorLocked):
         return _error(exc, "two_factor_locked", status.HTTP_429_TOO_MANY_REQUESTS)
+    if isinstance(exc, two_factor.InvalidCode):
+        return _error(exc, "invalid_code")
     if isinstance(exc, withdrawal_service.PayoutsHeld):
         return _error(exc, "payouts_held", status.HTTP_403_FORBIDDEN)
     if isinstance(exc, withdrawal_service.WithdrawalsClosed):
