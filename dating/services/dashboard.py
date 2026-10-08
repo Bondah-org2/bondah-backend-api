@@ -88,7 +88,7 @@ class BondmakerDashboardService:
     # ==========================
     def _get_profile_metrics(self):
         active_subscriptions = BondmakerSubscription.objects.filter(
-            bondmaker=self.user, active=True, end_date__gt=self.now
+            bondmaker=self.user, active=True
         )
 
         live_profiles = Visibility.objects.filter(
@@ -105,7 +105,7 @@ class BondmakerDashboardService:
     # ==========================
     def _get_engagement_metrics(self):
         client_ids = BondmakerSubscription.objects.filter(
-            bondmaker=self.user, active=True, end_date__gt=self.now
+            bondmaker=self.user, active=True
         ).values_list("user_id", flat=True)
 
         profile_views = UserProfileView.objects.filter(
@@ -126,7 +126,7 @@ class BondmakerDashboardService:
         """
         client_ids = list(
             BondmakerSubscription.objects.filter(
-                bondmaker=self.user, active=True, end_date__gt=self.now
+                bondmaker=self.user, active=True
             ).values_list("user_id", flat=True)
         )
 

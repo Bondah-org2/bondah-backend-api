@@ -204,6 +204,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "wallet_write": "30/min",
         "suggest_write": "60/min",
+        "report_write": "20/hour",
     },
 }
 

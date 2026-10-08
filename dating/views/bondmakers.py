@@ -206,89 +206,97 @@ class SubscribedUsersForBondmakerView(generics.ListAPIView):
     )
 # Subcription view for Bondmaker
 class SubscribeBondmakerView(generics.CreateAPIView):
+    """Follow a bondmaker (free; lasts until you unfollow)."""
+
     serializer_class = SubscribeBondmakerSerializer
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        bondmaker_id = request.data.get("bondmaker_id")
-        try:
-            bondmaker = User.objects.get(id=bondmaker_id, is_matchmaker=True)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "Bondmaker not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        subscription, created = BondmakerSubscription.objects.get_or_create(
-            bondmaker=bondmaker,
-            user=request.user,
-            defaults={
-                "start_date": timezone.now(),
-                "end_date": timezone.now() + timedelta(days=30),
-                "active": True,
-            },
-        )
-
-        if not created:
-            # Renew subscription if it expired or update dates
-            if not subscription.is_active():
-                subscription.start_date = timezone.now()
-                subscription.end_date = timezone.now() + timedelta(days=30)
-                subscription.active = True
-                subscription.save()
-
+        bondmaker = User.objects.filter(id=request.data.get("bondmaker_id"), is_matchmaker=True).first()
+        if bondmaker is None or bondmaker == request.user:
+            return Response({"error": "Bondmaker not found"}, status=status.HTTP_404_NOT_FOUND)
+        follow = _follow(request.user, bondmaker)
         return Response(
             {
-                "message": "Subscribed successfully",
-                "subscription_id": subscription.id,
-                "start_date": subscription.start_date,
-                "end_date": subscription.end_date,
-                "active": subscription.active,
+                "message": "Following",
+                "following": True,
+                "subscription_id": follow.id,
+                "start_date": follow.start_date,
+                "active": True,
             }
         )
+
+
+def _follow(user, bondmaker):
+    follow, created = BondmakerSubscription.objects.get_or_create(
+        bondmaker=bondmaker, user=user, defaults={"active": True}
+    )
+    if not created and not follow.active:
+        follow.active = True
+        follow.start_date = timezone.now()
+        follow.end_date = None
+        follow.save(update_fields=["active", "start_date", "end_date"])
+    return follow
+
+
+def _unfollow(follow):
+    follow.active = False
+    follow.end_date = timezone.now()
+    follow.save(update_fields=["active", "end_date"])
 
 
 @extend_schema(
     tags=["Subscription"],
     )
 class SubscribeToggleView(generics.CreateAPIView):
+    """bondmaker/follow/
+
+    GET ?bondmaker=<id>: {"following", "followers_count"}.
+    POST {"bondmaker": id}: follow or unfollow -> {"status": "followed" | "unfollowed", "following"}.
+    """
+
     serializer_class = SubscribeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    def create(self, request, *args, **kwargs):
-        bondmaker_id = request.data.get("bondmaker")
-
-        obj, created = BondmakerSubscription.objects.get_or_create(
-            user=request.user, bondmaker_id=bondmaker_id
+    def get(self, request, *args, **kwargs):
+        bondmaker = User.objects.filter(id=request.query_params.get("bondmaker"), is_matchmaker=True).first()
+        if bondmaker is None:
+            return Response({"error": "Bondmaker not found"}, status=status.HTTP_404_NOT_FOUND)
+        follows = BondmakerSubscription.objects.filter(bondmaker=bondmaker, active=True)
+        return Response(
+            {
+                "following": follows.filter(user=request.user).exists(),
+                "followers_count": follows.count(),
+            }
         )
 
-        if not created:
-            obj.delete()
-            return Response({"status": "unfollowed"})
-
-        return Response({"status": "followed"})
+    def create(self, request, *args, **kwargs):
+        bondmaker = User.objects.filter(id=request.data.get("bondmaker"), is_matchmaker=True).first()
+        if bondmaker is None or bondmaker == request.user:
+            return Response({"error": "Bondmaker not found"}, status=status.HTTP_404_NOT_FOUND)
+        current = BondmakerSubscription.objects.filter(user=request.user, bondmaker=bondmaker, active=True).first()
+        if current:
+            _unfollow(current)
+            return Response({"status": "unfollowed", "following": False})
+        _follow(request.user, bondmaker)
+        return Response({"status": "followed", "following": True})
 
 
 @extend_schema(
     tags=["Bondmaker"],
     )
-# End Bondmaker Subscription
 class EndBondmakerSubscriptionView(generics.UpdateAPIView):
+    """Unfollow by follow id."""
+
     serializer_class = BondmakerSubscriptionSerializer
     permission_classes = [IsAuthenticated]
 
     def post(self, request, subscription_id, *args, **kwargs):
-        try:
-            subscription = BondmakerSubscription.objects.get(
-                id=subscription_id, user=request.user, active=True
-            )
-        except BondmakerSubscription.DoesNotExist:
-            return Response({"error": "Active subscription not found"}, status=404)
-
-        subscription.active = False
-        subscription.end_date = timezone.now()
-        subscription.save()
-
-        return Response({"message": "Subscription ended successfully"})
+        follow = BondmakerSubscription.objects.filter(id=subscription_id, user=request.user, active=True).first()
+        if follow is None:
+            return Response({"error": "You're not following this bondmaker."}, status=404)
+        _unfollow(follow)
+        return Response({"message": "Unfollowed", "following": False})
 
 
 @extend_schema(

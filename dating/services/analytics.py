@@ -119,12 +119,12 @@ class BondmakerAnalyticsService:
     # ==========================
     def _get_subscription_metrics(self):
         stats = BondmakerSubscription.objects.filter(bondmaker=self.user).aggregate(
-            current=Count("id", filter=Q(active=True, end_date__gt=self.now)),
+            # Follows are free and last until unfollowed (end_date = when).
+            current=Count("id", filter=Q(active=True)),
             previous=Count(
                 "id",
-                filter=Q(
-                    start_date__lte=self.start_date, end_date__gt=self.previous_start
-                ),
+                filter=Q(start_date__lte=self.start_date)
+                & (Q(end_date__isnull=True) | Q(end_date__gt=self.start_date)),
             ),
         )
 

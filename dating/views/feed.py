@@ -3,11 +3,13 @@ from rest_framework import status, viewsets
 from rest_framework import generics
 from django.shortcuts import get_object_or_404
 from ..pagination import ActivityFeedPagination
-from django.db.models import F
+from django.db.models import Exists, F, OuterRef
+from django.utils import timezone
+from ..services import feed_service
 from ..permissions import IsBondmakerOrReadOnly
-from ..models import Activity, Post, PostComment, BondmakerSubscription, CommentInteraction
+from ..models import Activity, Post, PostComment, PostInteraction, PostReport, BondmakerSubscription, CommentInteraction
 from rest_framework import serializers
-from ..serializers import ActivityFeedSerializer, PostSerializer, PostInteractionSerializer, PostDetailSerializer, PostCommentCreateSerializer
+from ..serializers import ActivityFeedSerializer, PostSerializer, PostInteractionSerializer, PostCommentCreateSerializer
 from rest_framework import permissions
 from drf_spectacular.utils import extend_schema_view
 from django.db import transaction
@@ -16,6 +18,11 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from django.db.models import Q
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
+
+
+class ReportContentSerializer(serializers.Serializer):
+    reason = serializers.ChoiceField(choices=[c for c, _ in PostReport.REPORT_TYPES])
+    description = serializers.CharField(required=False, allow_blank=True, max_length=2000, default="")
 
 
 @extend_schema(
@@ -55,219 +62,195 @@ from rest_framework.decorators import action
 )
 
 class PostViewSet(viewsets.ModelViewSet):
-    """
-    Handles posts:
-    - list: feed (following + public posts)
-    - retrieve: single post with comments_count
-    - create / update / partial_update: create or edit post
-    - destroy: soft delete post
-    - interact: like, share, bond (custom action)
+    """Bond Story posts. Rules: services/feed_service.py.
+
+    - list: posts I may see, newest first. ?author=<id> ?search=<text>
+      ?scope=following (bondmakers I follow).
+    - retrieve: one post, only if I may see it (404 otherwise).
+    - create: bondmakers only. update / destroy: the author only.
+    - interact: like (toggle) or save.
+    - report: report a post to Team Bondah.
     """
 
     permission_classes = [IsBondmakerOrReadOnly]
     lookup_field = "pk"
+    throttle_scope = None  # reports set "report_write" per action
 
     def get_permissions(self):
-        """
-        Allow normal authenticated users to interact with posts,
-        but restrict post creation to bondmakers.
-        """
-        if self.action == "interact":
+        if self.action in ("interact", "report"):
             return [permissions.IsAuthenticated()]
-
         return super().get_permissions()
 
-    # -------- Queryset --------
     def get_queryset(self):
         user = self.request.user
-
-        base_queryset = Post.objects.filter(is_active=True).select_related("author")
-
+        qs = (
+            feed_service.visible_posts(user)
+            .select_related("author")
+            .annotate(
+                liked=Exists(
+                    PostInteraction.objects.filter(post=OuterRef("pk"), user=user, interaction_type="like")
+                )
+            )
+        )
         if self.action == "list":
-            # Feed view: posts from followed bondmakers or public posts
-            following_ids = BondmakerSubscription.objects.filter(
-                user=user, active=True
-            ).values_list("bondmaker_id", flat=True)
-
-            author_param = self.request.query_params.get("author")
-            if author_param:
+            params = self.request.query_params
+            if params.get("author"):
                 try:
-                    author_id = int(author_param)
+                    qs = qs.filter(author_id=int(params["author"]))
                 except ValueError:
                     raise serializers.ValidationError({"author": "Must be a user id."})
-                # Authors see all of their own posts; everyone else gets the
-                # same visibility rules as the feed.
-                if author_id == user.id:
-                    return base_queryset.filter(author_id=author_id).order_by("-created_at")
-                base_queryset = base_queryset.filter(author_id=author_id)
+            if params.get("scope") == "following":
+                qs = qs.filter(
+                    author_id__in=feed_service.following(user).values("bondmaker_id")
+                )
+            qs = feed_service.search(qs, params.get("search"))
+        return qs.order_by("-created_at", "-id")
 
-            return base_queryset.filter(
-                Q(author_id__in=following_ids) | Q(visibility="public")
-            ).order_by("-created_at")
-
-        # For retrieve/update/delete actions
-        return base_queryset
-
-    # -------- Serializer selection --------
     def get_serializer_class(self):
-        if self.action == "retrieve":
-            return PostDetailSerializer
-        elif self.action in ["create", "update", "partial_update"]:
-            return PostSerializer
-        elif self.action == "interact":
+        if self.action == "interact":
             return PostInteractionSerializer
+        if self.action == "report":
+            return ReportContentSerializer
         return PostSerializer
 
-    # -------- CRUD Hooks --------
     def perform_create(self, serializer):
         if not self.request.user.is_matchmaker:
             raise PermissionDenied("Only bondmakers can create posts.")
-
         serializer.save(author=self.request.user)
 
+    def _own(self, post):
+        if post.author_id != self.request.user.id:
+            raise PermissionDenied("You can only change your own posts.")
+
+    def perform_update(self, serializer):
+        self._own(serializer.instance)
+        serializer.save(edited_at=timezone.now())
+
     def perform_destroy(self, instance):
-        # Soft delete
+        self._own(instance)
         instance.is_active = False
         instance.save(update_fields=["is_active"])
 
-    # -------- Custom Actions --------
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(name="pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    )
+    @extend_schema(parameters=[OpenApiParameter(name="pk", location=OpenApiParameter.PATH, type=int)])
     @action(detail=True, methods=["post"])
     def interact(self, request, pk=None):
         post = self.get_object()
-
-        serializer = PostInteractionSerializer(
-            data=request.data,
-            context={"request": request, "post": post},
-        )
+        serializer = PostInteractionSerializer(data=request.data, context={"request": request, "post": post})
         serializer.is_valid(raise_exception=True)
+        serializer.save()
+        post.refresh_from_db(fields=["likes_count"])
+        liked = PostInteraction.objects.filter(post=post, user=request.user, interaction_type="like").exists()
+        return Response(
+            {"message": "Interaction processed", "likes_count": max(0, post.likes_count), "liked": liked},
+            status=status.HTTP_200_OK,
+        )
 
-        interaction = serializer.save()
-
-        post.refresh_from_db()
-
-        return Response({
-            "message": "Interaction processed",
-            "likes_count": post.likes_count,
-        }, status=status.HTTP_200_OK)
+    @extend_schema(parameters=[OpenApiParameter(name="pk", location=OpenApiParameter.PATH, type=int)])
+    @action(detail=True, methods=["post"], throttle_scope="report_write")
+    def report(self, request, pk=None):
+        post = self.get_object()
+        body = ReportContentSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        try:
+            _, created = feed_service.report(reporter=request.user, post=post, **body.validated_data)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"reported": True, "already": not created},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 @extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    create=extend_schema(
-        parameters=[
-            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    retrieve=extend_schema(
-        parameters=[
-            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    update=extend_schema(
-        parameters=[
-            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    partial_update=extend_schema(
-        parameters=[
-            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
-    destroy=extend_schema(
-        parameters=[
-            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    ),
+    list=extend_schema(parameters=[OpenApiParameter(name="post_pk", location=OpenApiParameter.PATH, type=int)]),
+    create=extend_schema(parameters=[OpenApiParameter(name="post_pk", location=OpenApiParameter.PATH, type=int)]),
 )
-@extend_schema(
-    tags=["PostComment"],
-    )
+@extend_schema(tags=["PostComment"])
 class PostCommentViewSet(viewsets.ModelViewSet):
+    """Comments on a post I may see. Oldest first, paged.
+
+    Writers edit their own; writers and the post's author can delete.
+    """
+
     serializer_class = PostCommentCreateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = ActivityFeedPagination
+    http_method_names = ["get", "post", "patch", "delete"]
+    throttle_scope = None  # reports set "report_write" per action
+
+    def _post(self):
+        if not hasattr(self, "_post_obj"):
+            self._post_obj = get_object_or_404(
+                feed_service.visible_posts(self.request.user).select_related("author"), pk=self.kwargs["post_pk"]
+            )
+        return self._post_obj
 
     def get_queryset(self):
-        post_id = self.kwargs["post_pk"]
+        user = self.request.user
         return (
-            PostComment.objects.filter(post_id=post_id, is_active=True)
+            PostComment.objects.filter(post=self._post(), is_active=True)
             .select_related("author")
-            .order_by("-created_at")
+            .annotate(liked=Exists(CommentInteraction.objects.filter(comment=OuterRef("pk"), user=user)))
+            .order_by("created_at", "id")
         )
 
-    # Create comment + increment Post.comments_count safely
     def perform_create(self, serializer):
-        post = get_object_or_404(Post, pk=self.kwargs["post_pk"])
-
+        post = self._post()
         with transaction.atomic():
-            serializer.save(author=self.request.user, post=post)
-
-            Post.objects.filter(id=post.id).update(
-                comments_count=F("comments_count") + 1
+            comment = serializer.save(author=self.request.user, post=post)
+            Post.objects.filter(id=post.id).update(comments_count=F("comments_count") + 1)
+        if post.author_id != self.request.user.id:
+            Activity.objects.create(
+                actor=self.request.user, recipient=post.author, action="post_comment",
+                metadata={"post_id": post.id, "comment_id": comment.id},
             )
 
-    # Soft delete comment + decrement Post.comments_count safely
+    def perform_update(self, serializer):
+        if serializer.instance.author_id != self.request.user.id:
+            raise PermissionDenied("You can only edit your own comments.")
+        serializer.save(is_edited=True)
+
     def perform_destroy(self, instance):
+        if instance.author_id != self.request.user.id and self._post().author_id != self.request.user.id:
+            raise PermissionDenied("You can only delete your own comments.")
         with transaction.atomic():
-            instance.is_active = False
-            instance.save(update_fields=["is_active"])
-
-            Post.objects.filter(id=instance.post_id).update(
-                comments_count=F("comments_count") - 1
-            )
-
-    # Safe Like Toggle (Atomic + No Double Count)
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(name="post_pk", description="Post ID", location=OpenApiParameter.PATH, type=int),
-            OpenApiParameter(name="id", description="Comment ID", location=OpenApiParameter.PATH, type=int),
-        ]
-    )
-    @action(detail=True, methods=["post"])
-    def like(self, request, post_pk=None, id=None):
-        """
-        Like/unlike a comment.
-        Each user can only like a comment once.
-        """
-        comment = self.get_object()
-
-        with transaction.atomic():
-            # Try to create a like; ensures 1 like per user per comment
-            obj, created = CommentInteraction.objects.get_or_create(
-                user=request.user,
-                comment=comment,
-            )
-
-            if not created:
-                # User already liked → toggle OFF
-                obj.delete()
-                PostComment.objects.filter(id=comment.id).update(
-                    likes_count=F("likes_count") - 1
+            updated = PostComment.objects.filter(pk=instance.pk, is_active=True).update(is_active=False)
+            if updated:
+                Post.objects.filter(id=instance.post_id, comments_count__gt=0).update(
+                    comments_count=F("comments_count") - 1
                 )
-                comment.refresh_from_db()
-                return Response({"liked": False, "likes_count": comment.likes_count})
 
-            # New like → increment safely
-            PostComment.objects.filter(id=comment.id).update(
-                likes_count=F("likes_count") + 1
+    @extend_schema(parameters=[OpenApiParameter(name="post_pk", location=OpenApiParameter.PATH, type=int)])
+    @action(detail=True, methods=["post"])
+    def like(self, request, post_pk=None, pk=None):
+        """Like or unlike a comment (one like per person)."""
+        comment = self.get_object()
+        with transaction.atomic():
+            obj, created = CommentInteraction.objects.get_or_create(user=request.user, comment=comment)
+            if created:
+                PostComment.objects.filter(id=comment.id).update(likes_count=F("likes_count") + 1)
+            else:
+                obj.delete()
+                PostComment.objects.filter(id=comment.id, likes_count__gt=0).update(likes_count=F("likes_count") - 1)
+        comment.refresh_from_db(fields=["likes_count"])
+        return Response({"liked": created, "likes_count": comment.likes_count})
+
+    @extend_schema(parameters=[OpenApiParameter(name="post_pk", location=OpenApiParameter.PATH, type=int)])
+    @action(detail=True, methods=["post"], throttle_scope="report_write")
+    def report(self, request, post_pk=None, pk=None):
+        comment = self.get_object()
+        body = ReportContentSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        try:
+            _, created = feed_service.report(
+                reporter=request.user, comment=comment, post=comment.post, **body.validated_data
             )
-            comment.refresh_from_db()
-            return Response(
-                {"liked": True, "likes_count": comment.likes_count},
-                status=status.HTTP_201_CREATED,
-            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"reported": True, "already": not created},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 # ======================================== ACTIVITY FEEDS

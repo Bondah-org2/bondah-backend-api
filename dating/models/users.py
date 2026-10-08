@@ -1203,8 +1203,10 @@ class BondmakerSubscription(models.Model):
         User, on_delete=models.CASCADE, related_name="subscribes"
     )
 
+    # A follow (free). The table keeps its old "subscription" name.
+    # It lasts until the user unfollows; end_date is when they did.
     start_date = models.DateTimeField(auto_now_add=True)
-    end_date = models.DateTimeField()
+    end_date = models.DateTimeField(null=True, blank=True)
     active = models.BooleanField(default=True)
 
     class Meta:
@@ -1215,9 +1217,6 @@ class BondmakerSubscription(models.Model):
         ]
 
     def check_active(self):
-        if timezone.now() > self.end_date:
-            self.active = False
-            self.save(update_fields=["active"])
         return self.active
 
 

@@ -14,10 +14,11 @@ class Post(models.Model):
     #     ("announcement", "Announcement"),
     # ]
 
+    # Who can see a post (the author always can).
     VISIBILITY_CHOICES = [
-        ("public", "Public"),
-        ("friends", "Friends Only"),
-        ("private", "Private"),
+        ("everyone", "Everyone"),
+        ("seekers", "Love seekers only"),
+        ("followers", "My followers only"),
     ]
 
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="posts")
@@ -35,7 +36,7 @@ class Post(models.Model):
 
     # Post metadata
     visibility = models.CharField(
-        max_length=20, choices=VISIBILITY_CHOICES, default="public"
+        max_length=20, choices=VISIBILITY_CHOICES, default="everyone"
     )
     location = models.CharField(
         max_length=255, blank=True, null=True, help_text="Post location"
@@ -59,6 +60,7 @@ class Post(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    edited_at = models.DateTimeField(null=True, blank=True)  # set when the author edits
 
     def __str__(self):
         return f"{self.author.name}: {self.content[:50]}..."
@@ -76,6 +78,7 @@ class Post(models.Model):
             models.Index(fields=["author", "created_at"]),
             # models.Index(fields=["post_type", "is_active"]),
             models.Index(fields=["visibility", "created_at"]),
+            models.Index(fields=["is_active", "visibility", "-created_at"]),
             models.Index(fields=["is_featured", "created_at"]),
         ]
 

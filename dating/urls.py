@@ -170,6 +170,7 @@ from .views import (
     PublicBondmakerListView,
     BondmakerProfileDetailView,
     SubscribeBondmakerView,
+    SubscribeToggleView,
     EndBondmakerSubscriptionView,
     AllSubscribedUsersListView,
     SubscribedUsersForBondmakerView,
@@ -393,6 +394,10 @@ urlpatterns = [
     path("admin/withdrawals/<int:pk>/reject/", withdrawal_views.AdminRejectWithdrawalView.as_view(), name="admin-withdrawal-reject"),
     # Reports and bondmaker account health (Team Bondah)
     path("admin/reports/", health_views.AdminReportListView.as_view(), name="admin-reports"),
+    path("admin/reports/content/", health_views.AdminContentReportListView.as_view(), name="admin-content-reports"),
+    path("admin/reports/content/<int:pk>/review/", health_views.AdminContentReportActionView.as_view(action="review"), name="admin-content-report-review"),
+    path("admin/reports/content/<int:pk>/resolve/", health_views.AdminContentReportActionView.as_view(action="resolve"), name="admin-content-report-resolve"),
+    path("admin/reports/content/<int:pk>/dismiss/", health_views.AdminContentReportActionView.as_view(action="dismiss"), name="admin-content-report-dismiss"),
     path("admin/reports/<int:pk>/review/", health_views.AdminReportActionView.as_view(action="review"), name="admin-report-review"),
     path("admin/reports/<int:pk>/resolve/", health_views.AdminReportActionView.as_view(action="resolve"), name="admin-report-resolve"),
     path("admin/reports/<int:pk>/dismiss/", health_views.AdminReportActionView.as_view(action="dismiss"), name="admin-report-dismiss"),
@@ -859,6 +864,8 @@ urlpatterns = [
         SubscribeBondmakerView.as_view(),
         name="subscribe-bondmaker",
     ),
+    # Follow / unfollow (free) and follow status
+    path("bondmaker/follow/", SubscribeToggleView.as_view(), name="follow-toggle"),
     path(
         "bondmaker/unsubscribe/<int:subscription_id>/",
         EndBondmakerSubscriptionView.as_view(),

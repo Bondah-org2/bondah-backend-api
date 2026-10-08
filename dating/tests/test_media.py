@@ -423,7 +423,7 @@ class PostMediaTests(MediaTestMixin, APITestCase):
             self.url,
             {
                 "content": "hello",
-                "visibility": "public",
+                "visibility": "everyone",
                 "image_urls": [image],
                 "video_url": [video],
                 "video_thumbnail": [thumb],
@@ -441,7 +441,7 @@ class PostMediaTests(MediaTestMixin, APITestCase):
         images = [self.upload(self.alice, "post_image") for _ in range(6)]
         response = self.client.post(
             self.url,
-            {"content": "x", "visibility": "public", "image_urls": images},
+            {"content": "x", "visibility": "everyone", "image_urls": images},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -293,3 +293,76 @@ class AdminSuspensionView(APIView):
             user, body.validated_data["suspended"], body.validated_data.get("note", "")
         )
         return Response(AdminHealthRowSerializer(AccountHealth.objects.select_related("user").get(pk=health.pk)).data)
+
+
+# ---------------------------------------------------- Bond Story reports
+
+
+class AdminContentReportSerializer(serializers.ModelSerializer):
+    """A reported post or comment, shaped like the user-report rows."""
+
+    reported_by = serializers.CharField(source="reporter.name", read_only=True)
+    target = serializers.CharField(source="reported_user.name", read_only=True)
+    target_id = serializers.IntegerField(source="reported_user_id", read_only=True)
+    target_is_bondmaker = serializers.BooleanField(source="reported_user.is_matchmaker", read_only=True)
+    type = serializers.SerializerMethodField()
+    reason = serializers.CharField(source="get_report_type_display", read_only=True)
+    excerpt = serializers.SerializerMethodField()
+    date = serializers.DateTimeField(source="created_at", read_only=True)
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        from ..models import PostReport
+
+        model = PostReport
+        fields = [
+            "id", "reported_by", "type", "target", "target_id", "target_is_bondmaker", "reason",
+            "description", "excerpt", "post_id", "comment_id", "date", "status", "action_taken",
+        ]
+        read_only_fields = fields
+
+    def get_type(self, obj) -> str:
+        return "Comment" if obj.comment_id else "Post"
+
+    def get_excerpt(self, obj) -> str:
+        text = obj.comment.content if obj.comment_id else (obj.post.content if obj.post_id else "")
+        return (text or "")[:280]
+
+    def get_status(self, obj) -> str:
+        return obj.get_status_display()
+
+
+class AdminContentReportListView(generics.ListAPIView):
+    """GET admin/reports/content/ ?status=Pending|Reviewed|Resolved|Dismissed"""
+
+    permission_classes = [CanViewReports]
+    serializer_class = AdminContentReportSerializer
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        from ..models import PostReport
+
+        qs = PostReport.objects.select_related("reporter", "reported_user", "post", "comment").order_by("-created_at")
+        wanted = (self.request.query_params.get("status") or "").lower()
+        if wanted in dict(PostReport.REPORT_STATUS):
+            qs = qs.filter(status=wanted)
+        return qs
+
+
+class AdminContentReportActionView(APIView):
+    """POST admin/reports/content/<id>/review|resolve|dismiss/.
+
+    Resolving hides the post or comment; on a bondmaker's post it's a strike.
+    """
+
+    permission_classes = [CanViewReports]
+    action = None
+
+    def post(self, request, pk):
+        from ..models import PostReport
+        from ..services import feed_service
+
+        report = get_object_or_404(PostReport, pk=pk)
+        report = feed_service.review_report(report, self.action, request.user, note=request.data.get("note", "") or "")
+        report = PostReport.objects.select_related("reporter", "reported_user", "post", "comment").get(pk=report.pk)
+        return Response(AdminContentReportSerializer(report).data)

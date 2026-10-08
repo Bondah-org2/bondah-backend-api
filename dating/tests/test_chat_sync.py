@@ -657,12 +657,12 @@ class PostAuthorFilterTests(APITestCase):
         self.author = make_user("author@example.com", "Author", is_matchmaker=True)
         self.other = make_user("other@example.com", "Other", is_matchmaker=True)
         self.public_post = Post.objects.create(
-            author=self.author, content="public", visibility="public"
+            author=self.author, content="public", visibility="everyone"
         )
         self.private_post = Post.objects.create(
-            author=self.author, content="private", visibility="private"
+            author=self.author, content="private", visibility="followers"
         )
-        Post.objects.create(author=self.other, content="other", visibility="public")
+        Post.objects.create(author=self.other, content="other", visibility="everyone")
         self.url = "/api/v1/bondstory/posts/"
 
     def _contents(self, response):

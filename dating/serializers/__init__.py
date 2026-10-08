@@ -135,7 +135,6 @@ from .feed import (  # noqa: F401
     PostCommentCreateSerializer,
     PostCommentNestedSerializer,
     PostCommentSerializer,
-    PostDetailSerializer,
     PostInteractionSerializer,
     PostSerializer,
     StoryCreateSerializer,
