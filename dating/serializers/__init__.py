@@ -193,7 +193,6 @@ from .bondmakers import (  # noqa: F401
     BondmakerSearchListSerializer,
     BondmakerSpecialisationSerializer,
     BondmakerSubscriptionSerializer,
-    BondmakersLeaderboardSerializer,
     PublicBondmakerProfileSerializer,
     SpecialisationCategorySerializer,
     SubscribeBondmakerSerializer,

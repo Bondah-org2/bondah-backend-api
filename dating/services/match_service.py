@@ -54,7 +54,7 @@ def bondmaker_for(target_user, prefer=None):
         preferred = active.filter(bondmaker=prefer).first()
         if preferred:
             return preferred.bondmaker
-    chosen = active.order_by("-visibility", "-updated_at").first()  # "public" sorts after "private"
+    chosen = active.order_by("-visibility", "-updated_at", "-id").first()  # "public" sorts after "private"
     return chosen.bondmaker if chosen else None
 
 

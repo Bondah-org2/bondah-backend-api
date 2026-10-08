@@ -310,6 +310,7 @@ class LikeRoutingTests(SuggestionFixture):
     def test_latest_private_when_there_is_no_public_one(self):
         Visibility.objects.filter(owner=self.seeker).delete()
         older = make_user("bm3@example.com", "Adjoa", is_matchmaker=True)
-        visible(self.seeker, older, "private")
+        old = visible(self.seeker, older, "private")
         visible(self.seeker, self.other_bm, "private")
+        Visibility.objects.filter(pk=old.pk).update(updated_at=timezone.now() - timedelta(days=1))
         self.assertEqual(match_service.bondmaker_for(self.seeker), self.other_bm)

@@ -9,10 +9,9 @@ from ..models import UserMatch, BondmakerSubscription, Specialisation
 from ..services.health_service import HIDDEN_TIERS
 from django.contrib.auth import get_user_model
 from rest_framework import filters
-from ..serializers import UserProfileDetailSerializer, PublicBondmakerProfileSerializer, BondmakerSubscriptionSerializer, SubscribeBondmakerSerializer, PendingMatchUserSerializer, BondmakerProfileUpdateSerializer, BondmakerSpecialisationSerializer, BondmakerSearchListSerializer, SpecialisationCategorySerializer, BondmakerDashboardSerializer, BondmakerAnalyticsSerializer, MatchedUserSerializer, SubscribeSerializer, BondmakersLeaderboardSerializer
+from ..serializers import UserProfileDetailSerializer, PublicBondmakerProfileSerializer, BondmakerSubscriptionSerializer, SubscribeBondmakerSerializer, PendingMatchUserSerializer, BondmakerProfileUpdateSerializer, BondmakerSpecialisationSerializer, BondmakerSearchListSerializer, SpecialisationCategorySerializer, BondmakerDashboardSerializer, BondmakerAnalyticsSerializer, MatchedUserSerializer, SubscribeSerializer
 from rest_framework import permissions
-from django.db.models import Window
-from django.db.models.functions import Rank
+from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -577,26 +576,21 @@ class BondmakerAcceptedMatchesView(generics.ListAPIView):
 
 # ======================================== BONDMAKERS LEADERBOARD
 @extend_schema(tags=["Bondmaker Leaderboard"])
-class BondmakersLeaderboardView(generics.ListAPIView):
-    serializer_class = BondmakersLeaderboardSerializer
+class BondmakersLeaderboardView(APIView):
+    """GET ?period=month (default) | week | all.
 
-    def get_queryset(self):
-        return (
-            User.objects.filter(is_matchmaker=True)
-            .annotate(
-                matches=Count(
-                    "received_requests__user_match",
-                    filter=Q(
-                        received_requests__status="completed",
-                        received_requests__user_match__status="matched",
-                    ),
-                )
-            )
-            .annotate(
-                rank=Window(
-                    expression=Rank(),
-                    order_by=F("matches").desc()
-                )
-            )
-            .order_by("rank")[:20]
-        )
+    Top bondmakers in my country by the weighted score, plus my own rank.
+    Bondmakers only. See services/leaderboard_service.py for the rules.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from ..services import leaderboard_service
+
+        if not request.user.is_matchmaker:
+            raise PermissionDenied("Only bondmakers can see the leaderboard.")
+        period = request.query_params.get("period", "month")
+        if period not in leaderboard_service.PERIODS:
+            period = "month"
+        return Response(leaderboard_service.for_user(request.user, period))
