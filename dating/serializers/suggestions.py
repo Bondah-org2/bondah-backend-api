@@ -89,17 +89,23 @@ class CreateSuggestionSerializer(serializers.Serializer):
 
 
 class SuggestedMatchSerializer(serializers.ModelSerializer):
-    """A suggestion as the client sees it."""
+    """A suggestion as the client sees it.
+
+    Once liked, `request` follows the match request it became: its status
+    (pending, accepted, rejected, expired, cancelled), the bondmaker deciding
+    and, after acceptance, the chat.
+    """
 
     suggested_user = serializers.SerializerMethodField()
     bondmaker = serializers.SerializerMethodField()
     compatibility = serializers.SerializerMethodField()
+    request = serializers.SerializerMethodField()
 
     class Meta:
         model = SuggestedMatch
         fields = [
             "id", "status", "suggested_user", "bondmaker", "note", "compatibility",
-            "created_at", "liked_at", "chat_id",
+            "created_at", "liked_at", "request",
         ]
         read_only_fields = fields
 
@@ -112,26 +118,15 @@ class SuggestedMatchSerializer(serializers.ModelSerializer):
     def get_compatibility(self, obj) -> int:
         return round(calculate_match_score(obj.user, obj.suggested_user))
 
-
-class IncomingSuggestionSerializer(serializers.ModelSerializer):
-    """A liked suggestion waiting for the suggested person's answer."""
-
-    client = serializers.SerializerMethodField()
-    bondmaker = serializers.SerializerMethodField()
-    expires_at = serializers.SerializerMethodField()
-
-    class Meta:
-        model = SuggestedMatch
-        fields = ["id", "status", "client", "bondmaker", "note", "liked_at", "expires_at", "chat_id"]
-        read_only_fields = fields
-
-    def get_client(self, obj):
-        return _person(obj.user)
-
-    def get_bondmaker(self, obj):
-        return _bondmaker_card(obj.bondmaker)
-
-    def get_expires_at(self, obj):
-        from ..services.suggestion_service import RESPONSE_TTL
-
-        return (obj.liked_at + RESPONSE_TTL) if obj.liked_at else None
+    def get_request(self, obj):
+        match_request = obj.match_request
+        if match_request is None:
+            return None
+        user_match = getattr(match_request, "user_match", None)
+        chat = getattr(user_match, "chat", None) if user_match else None
+        return {
+            "id": match_request.id,
+            "status": match_request.status,
+            "bondmaker": _bondmaker_card(match_request.bondmaker),
+            "chat_id": chat.id if chat else None,
+        }

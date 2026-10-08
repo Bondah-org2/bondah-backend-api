@@ -39,6 +39,25 @@ def is_visible_under(target_user, bondmaker) -> bool:
     ).exists()
 
 
+def bondmaker_for(target_user, prefer=None):
+    """The bondmaker a like (or a liked suggestion) of target_user goes to, or None.
+
+    `prefer` wins when the target is visible under them; then the target's
+    public bondmaker; then the private one approved most recently.
+    """
+    from dating.models import Visibility
+
+    active = Visibility.objects.filter(
+        owner=target_user, status="approved", expires_at__gt=timezone.now()
+    ).select_related("bondmaker")
+    if prefer is not None:
+        preferred = active.filter(bondmaker=prefer).first()
+        if preferred:
+            return preferred.bondmaker
+    chosen = active.order_by("-visibility", "-updated_at").first()  # "public" sorts after "private"
+    return chosen.bondmaker if chosen else None
+
+
 def create_match_request(*, requester, bondmaker, target_user, coins: int, reference_id=None):
     """Hold the coins and open the request. Raises ValidationError."""
     if requester == target_user:

@@ -173,10 +173,8 @@ from .suggestions import (  # noqa: F401
     BondmakerClientsView,
     BondmakerExploreView,
     BondmakerSuggestionView,
-    IncomingSuggestionsView,
     LikeSuggestionView,
     PassSuggestionView,
-    RespondSuggestionView,
     SuggestedMatchView,
 )
 from .visibility import (  # noqa: F401

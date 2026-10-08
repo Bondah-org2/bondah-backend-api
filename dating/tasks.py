@@ -364,7 +364,6 @@ def process_revenuecat_event(event_pk):
 def expire_stale_coin_holds():
     """Refund likes and private visibility requests nobody decided within 7 days."""
     from .services.match_service import expire_stale_match_requests
-    from .services.suggestion_service import expire_stale_suggestions
     from .services.visibility_services import expire_stale_visibility_requests
 
     def drain(expire_batch, batch_size=500):
@@ -377,8 +376,4 @@ def expire_stale_coin_holds():
 
     match_requests = drain(expire_stale_match_requests)
     visibility_requests = drain(expire_stale_visibility_requests)
-    suggestions = drain(expire_stale_suggestions)
-    return (
-        f"expired {match_requests} match requests, {visibility_requests} visibility requests, "
-        f"{suggestions} suggestions"
-    )
+    return f"expired {match_requests} match requests, {visibility_requests} visibility requests"

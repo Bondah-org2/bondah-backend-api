@@ -175,10 +175,8 @@ from .views import (
     BondmakerSuggestionView,
     BondmakerExploreView,
     BondmakerClientsView,
-    IncomingSuggestionsView,
     LikeSuggestionView,
     PassSuggestionView,
-    RespondSuggestionView,
     SetVisibilityView,
     EndVisibilityView,
     MyVisibilityListView,
@@ -1014,10 +1012,8 @@ urlpatterns = [
     ),
     # suggested matches View from bondmaker
     path("suggest/match-list/", SuggestedMatchView.as_view(), name="suggested-match"),
-    path("suggestions/incoming/", IncomingSuggestionsView.as_view(), name="incoming-suggestions"),
     path("suggestions/<int:pk>/like/", LikeSuggestionView.as_view(), name="like-suggestion"),
     path("suggestions/<int:pk>/pass/", PassSuggestionView.as_view(), name="pass-suggestion"),
-    path("suggestions/<int:pk>/respond/", RespondSuggestionView.as_view(), name="respond-suggestion"),
     # Bondmaker Explore and the client picker for suggestions
     path("bondmaker/explore/", BondmakerExploreView.as_view(), name="bondmaker-explore"),
     path("bondmaker/clients/", BondmakerClientsView.as_view(), name="bondmaker-clients"),

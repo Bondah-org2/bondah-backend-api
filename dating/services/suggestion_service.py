@@ -7,15 +7,16 @@ on the server.
 Suggestions: a bondmaker suggests a seeker from Explore to one or more of
 their own clients (seekers currently visible under them).
 
-- The client likes it: 1 coin is debited from the client and paid to the
-  suggesting bondmaker at once, then the suggested person is asked.
-- The suggested person accepts: a three-way chat opens (client, suggested
-  person, bondmaker), the same shape as an accepted like.
-- The suggested person declines, or doesn't answer within RESPONSE_TTL: the
-  suggestion closes. The coin stays with the bondmaker (it paid for the
-  suggestion, not for the outcome).
+- The client likes it: it becomes a normal like (match request). 1 coin moves
+  to the client's locked balance and the request goes to the suggested
+  person's bondmaker (match_service.bondmaker_for, preferring the suggesting
+  bondmaker when the person is visible under them too).
+- That bondmaker accepts: the coin is paid to them and the three-way chat
+  opens. Rejects, or no decision in 7 days: the coin goes back to available.
+  All of that is match_service; a suggestion only records the link.
+- The suggesting bondmaker earns nothing from the like.
 
-The suggested person hears nothing until the client likes the suggestion.
+The suggested person hears nothing about a suggestion until there's a match.
 """
 
 from datetime import date, timedelta
@@ -26,12 +27,9 @@ from django.db.models import Exists, F, OuterRef, Prefetch, Q
 from django.db.models.functions import ACos, Cos, Greatest, Least, Radians, Sin
 from django.utils import timezone
 
-from dating.models import Chat, Message, SuggestedMatch, User, UserMatch, Visibility
+from dating.models import SuggestedMatch, User, UserMatch, Visibility
 from dating.tasks import notify_user
-from . import chat_service, wallet_service
-
-SUGGESTION_LIKE_COST = 1
-RESPONSE_TTL = timedelta(days=7)
+from . import match_service
 MAX_CLIENTS_PER_SUGGESTION = 50
 ONLINE_WINDOW = timedelta(minutes=3)
 
@@ -254,7 +252,7 @@ def _lock(suggestion_id: int, **filters) -> SuggestedMatch:
 
 
 def like_suggestion(*, client, suggestion_id: int) -> SuggestedMatch:
-    """Pay the bondmaker 1 coin and ask the suggested person.
+    """Send a like for the suggested person, holding 1 coin.
 
     Raises SuggestedMatch.DoesNotExist, InsufficientFunds or ValidationError.
     """
@@ -263,35 +261,35 @@ def like_suggestion(*, client, suggestion_id: int) -> SuggestedMatch:
         if suggestion.status != "pending":
             raise ValidationError("You've already answered this suggestion.")
 
-        reference = f"suggestion:{suggestion.pk}"
-        charged = wallet_service.debit(
-            client,
-            SUGGESTION_LIKE_COST,
-            kind="suggestion_like",
-            idempotency_key=f"debit:{reference}",
-            reference_id=reference,
-        )
-        wallet_service.credit(
-            suggestion.bondmaker,
-            SUGGESTION_LIKE_COST,
-            kind="suggestion_earning",
-            idempotency_key=f"earn:{reference}",
-            reference_id=reference,
+        target = suggestion.suggested_user
+        bondmaker = match_service.bondmaker_for(target, prefer=suggestion.bondmaker)
+        if bondmaker is None:
+            raise ValidationError(f"{target.name} isn't visible right now.")
+
+        match_request, user_match = match_service.create_match_request(
+            requester=client,
+            bondmaker=bondmaker,
+            target_user=target,
+            coins=match_service.LIKE_COST,
         )
 
         suggestion.status = "liked"
         suggestion.liked_at = timezone.now()
-        suggestion.charge_transaction = charged.transaction
-        suggestion.save(update_fields=["status", "liked_at", "charge_transaction"])
+        suggestion.responded_at = suggestion.liked_at
+        suggestion.match_request = match_request
+        suggestion.save(update_fields=["status", "liked_at", "responded_at", "match_request"])
 
-        target_id = suggestion.suggested_user_id
-        bondmaker_name, client_name = suggestion.bondmaker.name, client.name
-        transaction.on_commit(lambda: notify_user.delay(
-            user_id=target_id,
-            title="Someone wants to meet you",
-            message=f"{bondmaker_name} introduced you to {client_name}, who'd like to connect.",
-            data={"type": "suggestion_request"},
-        ))
+        payload = dict(
+            user_id=bondmaker.id,
+            title="New Match Request",
+            message=f"{client.name} liked {target.name}. Review request.",
+            data={
+                "match_request_id": str(match_request.id),
+                "user_match_id": str(user_match.id),
+                "type": "match_request",
+            },
+        )
+        transaction.on_commit(lambda: notify_user.delay(**payload))
     return suggestion
 
 
@@ -304,78 +302,3 @@ def pass_suggestion(*, client, suggestion_id: int) -> SuggestedMatch:
         suggestion.responded_at = timezone.now()
         suggestion.save(update_fields=["status", "responded_at"])
     return suggestion
-
-
-# ------------------------------------------------- suggested person's side
-
-
-def _open_chat(suggestion: SuggestedMatch) -> Chat:
-    client, target, bondmaker = suggestion.user, suggestion.suggested_user, suggestion.bondmaker
-    user_match = UserMatch.objects.create(
-        user1=client,
-        user2=target,
-        distance=client.get_distance_to(target) or 0,
-        status="matched",
-    )
-    chat = Chat.objects.create(
-        chat_type="matchmaker_intro",
-        created_by=bondmaker,
-        user_match=user_match,
-    )
-    chat.participants.add(client, target, bondmaker)
-    chat_service.ensure_participants(chat)
-    Message.objects.create(
-        chat=chat,
-        message_type="system",
-        content=f"{bondmaker.name} connected {client.name} and {target.name}. Say hello!",
-    )
-    return chat
-
-
-def respond_to_suggestion(*, user, suggestion_id: int, accept: bool) -> SuggestedMatch:
-    """The suggested person answers a liked suggestion."""
-    with transaction.atomic():
-        suggestion = _lock(suggestion_id, suggested_user=user)
-        if suggestion.status != "liked":
-            raise ValidationError("This introduction is no longer waiting for you.")
-
-        suggestion.responded_at = timezone.now()
-        if accept:
-            suggestion.status = "accepted"
-            suggestion.chat = _open_chat(suggestion)
-        else:
-            suggestion.status = "declined"
-        suggestion.save(update_fields=["status", "responded_at", "chat"])
-
-        client_id, target_name = suggestion.user_id, user.name
-        chat_id = suggestion.chat_id
-        bondmaker_id = suggestion.bondmaker_id
-
-        def notify():
-            if accept:
-                data = {"type": "match_chat", "chat_id": str(chat_id)}
-                for uid in (client_id, bondmaker_id):
-                    notify_user.delay(
-                        user_id=uid,
-                        title="It's a match",
-                        message=f"{target_name} said yes. Your chat is open.",
-                        data=data,
-                    )
-
-        transaction.on_commit(notify)
-    return suggestion
-
-
-def expire_stale_suggestions(now=None, batch_size: int = 500) -> int:
-    """Close liked suggestions the suggested person never answered."""
-    cutoff = (now or timezone.now()) - RESPONSE_TTL
-    ids = list(
-        SuggestedMatch.objects.filter(status="liked", liked_at__lte=cutoff)
-        .order_by("liked_at")
-        .values_list("id", flat=True)[:batch_size]
-    )
-    if not ids:
-        return 0
-    return SuggestedMatch.objects.filter(pk__in=ids, status="liked").update(
-        status="expired", responded_at=now or timezone.now()
-    )

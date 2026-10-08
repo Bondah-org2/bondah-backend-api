@@ -20,6 +20,7 @@ from ..services.match_service import (
     REQUEST_TTL,
     cancel_match_request,
     accept_match_request,
+    bondmaker_for,
     create_match_request,
     is_visible_under,
 )
@@ -296,17 +297,8 @@ class UserInteractionView(generics.CreateAPIView):
         )
 
     def _like(self, user, target_user) -> dict:
-        visibility = (
-            Visibility.objects.filter(
-                owner=target_user,
-                visibility__in=["public", "private"],
-                status="approved",
-                expires_at__gt=timezone.now(),
-            )
-            .select_related("bondmaker")
-            .first()
-        )
-        if not visibility or not visibility.bondmaker:
+        bondmaker = bondmaker_for(target_user)
+        if bondmaker is None:
             raise _SwipeRejected(Response(
                 {"detail": "This person is not currently visible under a bondmaker.", "code": "not_visible"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -315,7 +307,7 @@ class UserInteractionView(generics.CreateAPIView):
         try:
             match_request, user_match = create_match_request(
                 requester=user,
-                bondmaker=visibility.bondmaker,
+                bondmaker=bondmaker,
                 target_user=target_user,
                 coins=LIKE_COST,
             )
@@ -331,7 +323,7 @@ class UserInteractionView(generics.CreateAPIView):
             ))
 
         return {
-            "user_id": visibility.bondmaker.id,
+            "user_id": bondmaker.id,
             "title": "New Match Request",
             "message": f"{user.name} liked {target_user.name}. Review request.",
             "data": {

@@ -15,7 +15,6 @@ from ..serializers.suggestions import (
     ClientPickerSerializer,
     CreateSuggestionSerializer,
     ExploreSeekerSerializer,
-    IncomingSuggestionSerializer,
     SuggestedMatchSerializer,
 )
 from ..services import suggestion_service
@@ -131,7 +130,7 @@ class BondmakerSuggestionView(APIView):
 
 @extend_schema(tags=["Suggestions"])
 class SuggestedMatchView(generics.ListAPIView):
-    """Suggestions bondmakers made to me. ?status=pending (default) | liked | all."""
+    """Suggestions bondmakers made to me. ?status=pending (default) | liked | passed | all."""
 
     permission_classes = [IsAuthenticated]
     serializer_class = SuggestedMatchSerializer
@@ -139,28 +138,13 @@ class SuggestedMatchView(generics.ListAPIView):
 
     def get_queryset(self):
         qs = SuggestedMatch.objects.filter(user=self.request.user).select_related(
-            "suggested_user", "bondmaker", "user"
+            "suggested_user", "bondmaker", "user",
+            "match_request__bondmaker", "match_request__user_match__chat",
         )
         wanted = self.request.query_params.get("status", "pending")
         if wanted != "all":
             qs = qs.filter(status=wanted)
         return qs.order_by("-created_at", "-id")
-
-
-@extend_schema(tags=["Suggestions"])
-class IncomingSuggestionsView(generics.ListAPIView):
-    """Introductions waiting for my answer: a client liked a suggestion of me."""
-
-    permission_classes = [IsAuthenticated]
-    serializer_class = IncomingSuggestionSerializer
-    pagination_class = ActivityFeedPagination
-
-    def get_queryset(self):
-        return (
-            SuggestedMatch.objects.filter(suggested_user=self.request.user, status="liked")
-            .select_related("user", "bondmaker")
-            .order_by("-liked_at", "-id")
-        )
 
 
 class _SuggestionAction(APIView):
@@ -178,7 +162,7 @@ class _SuggestionAction(APIView):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except InsufficientFunds:
             return Response(
-                {"detail": "Not enough coins.", "code": "insufficient_coins"},
+                {"detail": "Not enough coins to send a like.", "code": "insufficient_coins"},
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )
         except ValidationError as exc:
@@ -188,7 +172,7 @@ class _SuggestionAction(APIView):
 
 @extend_schema(tags=["Suggestions"], request=None, responses=SuggestedMatchSerializer)
 class LikeSuggestionView(_SuggestionAction):
-    """Costs 1 coin, paid to the suggesting bondmaker. Then the person is asked."""
+    """Becomes a normal like: 1 coin is held and the suggested person's bondmaker decides."""
 
     def act(self, request, pk):
         return suggestion_service.like_suggestion(client=request.user, suggestion_id=pk)
@@ -198,18 +182,3 @@ class LikeSuggestionView(_SuggestionAction):
 class PassSuggestionView(_SuggestionAction):
     def act(self, request, pk):
         return suggestion_service.pass_suggestion(client=request.user, suggestion_id=pk)
-
-
-@extend_schema(tags=["Suggestions"], responses=IncomingSuggestionSerializer)
-class RespondSuggestionView(_SuggestionAction):
-    """{"accept": true|false}. Accepting opens the three-way chat (chat_id in the answer)."""
-
-    serializer_class = IncomingSuggestionSerializer
-
-    def act(self, request, pk):
-        accept = request.data.get("accept")
-        if not isinstance(accept, bool):
-            raise ValidationError("Send accept: true or false.")
-        return suggestion_service.respond_to_suggestion(
-            user=request.user, suggestion_id=pk, accept=accept
-        )

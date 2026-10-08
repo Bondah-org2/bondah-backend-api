@@ -203,7 +203,6 @@ from .suggestions import (  # noqa: F401
     ClientPickerSerializer,
     CreateSuggestionSerializer,
     ExploreSeekerSerializer,
-    IncomingSuggestionSerializer,
     SuggestedMatchSerializer,
 )
 from .visibility import (  # noqa: F401

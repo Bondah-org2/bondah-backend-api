@@ -2,9 +2,10 @@
 Bondmaker Explore and match suggestions (rebuild phase 5).
 
 Explore lists visible seekers in the bondmaker's country with server-side
-filters. A bondmaker suggests a seeker to their own clients; a client liking
-it pays the bondmaker 1 coin and asks the suggested person, whose yes opens
-the three-way chat.
+filters. A bondmaker suggests a seeker to their own clients. A client liking it
+sends a normal like: 1 coin is locked and the suggested person's bondmaker
+decides. Accept pays that bondmaker and opens the three-way chat; reject or
+expiry returns the coin.
 """
 
 from datetime import date, timedelta
@@ -18,9 +19,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from dating.models import Chat, SuggestedMatch, UserMatch, Visibility, Wallet, WalletTransaction
-from dating.services import wallet_service
-from dating.services.suggestion_service import RESPONSE_TTL, expire_stale_suggestions
+from dating.models import Chat, MatchRequest, SuggestedMatch, Visibility, Wallet
+from dating.services import match_service, wallet_service
 
 User = get_user_model()
 
@@ -46,6 +46,10 @@ def born(years_ago):
 
 def balance(user):
     return Wallet.objects.get_or_create(user=user)[0].available_balance
+
+
+def locked(user):
+    return Wallet.objects.get_or_create(user=user)[0].locked_balance
 
 
 def visible(owner, bondmaker, kind="public", days=10):
@@ -195,40 +199,92 @@ class SuggestingTests(SuggestionFixture):
 
 
 class ClientDecisionTests(SuggestionFixture):
-    def act(self, user, name, suggestion, body=None):
+    def act(self, user, name, suggestion):
         self.as_user(user)
-        return self.client.post(reverse(name, kwargs={"pk": suggestion.pk}), body or {}, format="json")
+        return self.client.post(reverse(name, kwargs={"pk": suggestion.pk}))
 
-    def test_like_pays_the_bondmaker_one_coin_and_asks_the_person(self):
+    def like(self, suggestion):
+        with patch(NOTIFY):
+            return self.act(self.client_user, "like-suggestion", suggestion)
+
+    def test_like_locks_one_coin_and_asks_the_suggested_persons_bondmaker(self):
         suggestion = self.suggestion()
         with patch(NOTIFY) as notify, self.captureOnCommitCallbacks(execute=True):
             response = self.act(self.client_user, "like-suggestion", suggestion)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(response.data["status"], "liked")
-        self.assertEqual(balance(self.client_user), 4)
-        self.assertEqual(balance(self.bondmaker), 1)
-        self.assertTrue(
-            WalletTransaction.objects.filter(user=self.bondmaker, payment_method="suggestion_earning").exists()
-        )
-        self.assertEqual(notify.delay.call_args.kwargs["user_id"], self.seeker.id)
+        self.assertEqual(response.data["request"]["status"], "pending")
+        self.assertEqual(response.data["request"]["bondmaker"]["id"], self.other_bm.id)
+        self.assertEqual((balance(self.client_user), locked(self.client_user)), (4, 1))
+        # Neither bondmaker is paid yet.
+        self.assertEqual(balance(self.other_bm), 0)
+        self.assertEqual(balance(self.bondmaker), 0)
+        self.assertEqual(notify.delay.call_args.kwargs["user_id"], self.other_bm.id)
 
-        # A retry doesn't charge twice.
         again = self.act(self.client_user, "like-suggestion", suggestion)
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(balance(self.client_user), 4)
+        self.assertEqual(locked(self.client_user), 1)
+
+    def test_accept_pays_the_suggested_persons_bondmaker_and_opens_the_chat(self):
+        suggestion = self.suggestion()
+        self.like(suggestion)
+        suggestion.refresh_from_db()
+
+        with patch("dating.services.match_service.notify_user"):
+            coins, chat_id = match_service.accept_match_request(suggestion.match_request_id)
+
+        self.assertEqual((balance(self.client_user), locked(self.client_user)), (4, 0))
+        self.assertEqual(balance(self.other_bm), 1)
+        self.assertEqual(balance(self.bondmaker), 0)
+        chat = Chat.objects.get(pk=chat_id)
+        self.assertEqual(
+            set(chat.participants.values_list("id", flat=True)),
+            {self.client_user.id, self.seeker.id, self.other_bm.id},
+        )
+
+        self.as_user(self.client_user)
+        row = self.client.get(reverse("suggested-match"), {"status": "liked"}).data["results"][0]
+        self.assertEqual(row["request"]["status"], "accepted")
+        self.assertEqual(row["request"]["chat_id"], chat_id)
+
+    def test_reject_returns_the_coin_to_available(self):
+        suggestion = self.suggestion()
+        self.like(suggestion)
+        suggestion.refresh_from_db()
+
+        with patch("dating.services.match_service.notify_user"):
+            match_service.reject_match_request(suggestion.match_request_id)
+
+        self.assertEqual((balance(self.client_user), locked(self.client_user)), (5, 0))
+        self.assertEqual(balance(self.other_bm), 0)
+
+    def test_no_decision_in_seven_days_returns_the_coin(self):
+        suggestion = self.suggestion()
+        self.like(suggestion)
+        MatchRequest.objects.filter(suggestion=suggestion).update(
+            created_at=timezone.now() - match_service.REQUEST_TTL - timedelta(minutes=1)
+        )
+        self.assertEqual(match_service.expire_stale_match_requests(), 1)
+        self.assertEqual((balance(self.client_user), locked(self.client_user)), (5, 0))
+
+    def test_goes_to_the_suggesting_bondmaker_when_the_person_is_their_client_too(self):
+        visible(self.seeker, self.bondmaker, "private")
+        suggestion = self.suggestion()
+        response = self.like(suggestion)
+        self.assertEqual(response.data["request"]["bondmaker"]["id"], self.bondmaker.id)
 
     def test_like_without_coins_changes_nothing(self):
         suggestion = self.suggestion()
         wallet_service.debit(self.client_user, 5, kind="test", idempotency_key="drain")
 
-        response = self.act(self.client_user, "like-suggestion", suggestion)
+        response = self.like(suggestion)
 
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertEqual(response.data["code"], "insufficient_coins")
         suggestion.refresh_from_db()
         self.assertEqual(suggestion.status, "pending")
-        self.assertEqual(balance(self.bondmaker), 0)
+        self.assertFalse(MatchRequest.objects.exists())
 
     def test_only_the_client_can_like_it(self):
         suggestion = self.suggestion()
@@ -242,69 +298,18 @@ class ClientDecisionTests(SuggestionFixture):
         self.assertEqual(balance(self.client_user), 5)
 
         self.as_user(self.client_user)
-        pending = self.client.get(reverse("suggested-match")).data["results"]
-        self.assertEqual(pending, [])
+        self.assertEqual(self.client.get(reverse("suggested-match")).data["results"], [])
 
 
-class SuggestedPersonTests(SuggestionFixture):
-    def liked(self):
-        suggestion = self.suggestion()
-        self.as_user(self.client_user)
-        with patch(NOTIFY):
-            self.client.post(reverse("like-suggestion", kwargs={"pk": suggestion.pk}))
-        suggestion.refresh_from_db()
-        return suggestion
+class LikeRoutingTests(SuggestionFixture):
+    def test_public_bondmaker_wins_over_private_ones(self):
+        third = make_user("bm3@example.com", "Adjoa", is_matchmaker=True)
+        visible(self.seeker, third, "private")
+        self.assertEqual(match_service.bondmaker_for(self.seeker), self.other_bm)
 
-    def respond(self, suggestion, accept, user=None):
-        self.as_user(user or self.seeker)
-        with patch(NOTIFY):
-            return self.client.post(
-                reverse("respond-suggestion", kwargs={"pk": suggestion.pk}), {"accept": accept}, format="json"
-            )
-
-    def test_not_asked_until_the_client_likes_it(self):
-        self.suggestion()
-        self.as_user(self.seeker)
-        self.assertEqual(self.client.get(reverse("incoming-suggestions")).data["results"], [])
-
-    def test_accept_opens_the_three_way_chat(self):
-        suggestion = self.liked()
-        self.as_user(self.seeker)
-        incoming = self.client.get(reverse("incoming-suggestions")).data["results"]
-        self.assertEqual([row["id"] for row in incoming], [suggestion.id])
-        self.assertEqual(incoming[0]["client"]["id"], self.client_user.id)
-
-        response = self.respond(suggestion, True)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        chat = Chat.objects.get(pk=response.data["chat_id"])
-        self.assertEqual(chat.chat_type, "matchmaker_intro")
-        self.assertEqual(
-            set(chat.participants.values_list("id", flat=True)),
-            {self.client_user.id, self.seeker.id, self.bondmaker.id},
-        )
-        self.assertTrue(
-            UserMatch.objects.filter(user1=self.client_user, user2=self.seeker, status="matched").exists()
-        )
-
-    def test_decline_keeps_the_bondmakers_coin(self):
-        suggestion = self.liked()
-        response = self.respond(suggestion, False)
-        self.assertEqual(response.data["status"], "declined")
-        self.assertEqual(balance(self.bondmaker), 1)
-        self.assertFalse(Chat.objects.exists())
-
-    def test_only_the_suggested_person_answers(self):
-        suggestion = self.liked()
-        response = self.respond(suggestion, True, user=self.client_user)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_unanswered_introductions_expire(self):
-        suggestion = self.liked()
-        SuggestedMatch.objects.filter(pk=suggestion.pk).update(
-            liked_at=timezone.now() - RESPONSE_TTL - timedelta(minutes=1)
-        )
-        self.assertEqual(expire_stale_suggestions(), 1)
-        suggestion.refresh_from_db()
-        self.assertEqual(suggestion.status, "expired")
-        self.assertEqual(self.respond(suggestion, True).status_code, status.HTTP_400_BAD_REQUEST)
+    def test_latest_private_when_there_is_no_public_one(self):
+        Visibility.objects.filter(owner=self.seeker).delete()
+        older = make_user("bm3@example.com", "Adjoa", is_matchmaker=True)
+        visible(self.seeker, older, "private")
+        visible(self.seeker, self.other_bm, "private")
+        self.assertEqual(match_service.bondmaker_for(self.seeker), self.other_bm)
