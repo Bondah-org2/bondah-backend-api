@@ -172,17 +172,26 @@ class ConvertGiftView(generics.GenericAPIView):
     tags=["Gifts"],
     )
 class ReceivedGiftListView(generics.ListAPIView):
-    """Gifts the user has received, newest first."""
+    """Gifts the user has received, newest first. ?converted=false for the ones still to convert."""
 
     serializer_class = ReceivedGiftSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return (
-            GiftTransaction.objects.filter(recipient=self.request.user)
-            .select_related("sender", "gift")
-            .order_by("-created_at")
-        )
+        qs = GiftTransaction.objects.filter(recipient=self.request.user)
+        converted = self.request.query_params.get("converted")
+        if converted in ("false", "0"):
+            qs = qs.filter(converted_at__isnull=True)
+        elif converted in ("true", "1"):
+            qs = qs.filter(converted_at__isnull=False)
+        return qs.select_related("sender", "gift").order_by("-created_at")
+
+    def get_serializer_context(self):
+        from ..models import PlatformSettings
+
+        context = super().get_serializer_context()
+        context["gift_conversion_percent"] = PlatformSettings.current().gift_conversion_percent
+        return context
 
 
 @extend_schema(

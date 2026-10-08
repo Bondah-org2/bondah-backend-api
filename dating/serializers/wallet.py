@@ -118,6 +118,8 @@ class ReceivedGiftSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(source="sender.name", read_only=True)
     gift_name = serializers.CharField(source="gift.name", read_only=True)
     gift_icon = serializers.URLField(source="gift.icon_url", read_only=True)
+    # What converting it would give now (same formula as gift_service).
+    coins_if_converted = serializers.SerializerMethodField()
 
     class Meta:
         model = GiftTransaction
@@ -133,9 +135,20 @@ class ReceivedGiftSerializer(serializers.ModelSerializer):
             "context_type",
             "converted_at",
             "converted_coins",
+            "coins_if_converted",
             "created_at",
         ]
         read_only_fields = fields
+
+    def get_coins_if_converted(self, obj) -> int | None:
+        if obj.converted_at is not None:
+            return None
+        percent = self.context.get("gift_conversion_percent")
+        if percent is None:
+            from ..models import PlatformSettings
+
+            percent = PlatformSettings.current().gift_conversion_percent
+        return obj.total_cost * percent // 100
 
 
 class GiftCategorySerializer(serializers.ModelSerializer):
