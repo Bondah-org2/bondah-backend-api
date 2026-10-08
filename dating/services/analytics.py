@@ -14,13 +14,11 @@ from ..models import (
     PostComment,
     BondmakerTaskCompletion,
     DocumentVerification,
-    ProductRevenueRecord,
     Report,
     RevenueRecord,
     UserSubscription,
     User,
 )
-from django.db.models import Case, When, DecimalField
 
 
 # Constants
@@ -327,24 +325,15 @@ class OverviewAnalyticsService:
         }
 
     def _financial_summary(self):
-        total_requests = MatchRequest.objects.count()
+        from ..models import Withdrawal
 
-        # Total estimated payout from accepted matches (coins → USD logic if needed)
-        stats = ProductRevenueRecord.objects.aggregate(
-            total_estimated=Sum("bondmaker_share_usd"),
-            pending=Sum(
-                Case(
-                    When(paid=False, then="bondmaker_share_usd"),
-                    output_field=DecimalField(),
-                )
-            ),
-            completed=Sum(
-                Case(
-                    When(paid=True, then="bondmaker_share_usd"),
-                    output_field=DecimalField(),
-                )
-            ),
-            platform_total=Sum("platform_share_usd"),
+        # Withdrawals: what users asked to cash out and what Team Bondah paid.
+        w = Withdrawal.objects.exclude(status="cancelled").aggregate(
+            requests=Count("id", filter=Q(status__in=["pending", "paid"])),
+            requested_usd=Sum("amount_usd", filter=Q(status__in=["pending", "paid"])),
+            pending=Count("id", filter=Q(status="pending")),
+            pending_usd=Sum("amount_usd", filter=Q(status="pending")),
+            paid_usd=Sum("amount_usd", filter=Q(status="paid")),
         )
 
         # Real money received from the stores, after their fee.
@@ -352,13 +341,13 @@ class OverviewAnalyticsService:
             gross=Sum("amount_usd"), net=Sum("net_revenue_usd")
         )
 
-        # Payout figures still come from the legacy USD split records; they
-        # move to withdrawal requests in rebuild phase 7.
         return {
-            "total_estimated_payout": stats["total_estimated"] or 0,
-            "total_requests": total_requests,
-            "pending_payout": stats["pending"] or 0,
-            "completed_payout": stats["completed"] or 0,
+            "total_estimated_payout": w["requested_usd"] or 0,
+            "total_requests": w["requests"],
+            "total_requests_sub": w["requested_usd"] or 0,
+            "pending_payout": w["pending"],
+            "pending_payout_sub": w["pending_usd"] or 0,
+            "completed_payout": w["paid_usd"] or 0,
             "platform_revenue": store["net"] or 0,
             "store_revenue_gross": store["gross"] or 0,
         }

@@ -99,8 +99,16 @@ class AdminSubscriptionSerializer(serializers.ModelSerializer):
 class PlatformSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlatformSettings
-        fields = ["gift_conversion_percent", "updated_at"]
+        fields = [
+            "gift_conversion_percent", "coin_cash_rate_usd", "min_withdrawal_coins", "withdrawal_fee_usd",
+            "updated_at",
+        ]
         read_only_fields = ["updated_at"]
+        extra_kwargs = {
+            "coin_cash_rate_usd": {"min_value": 0},
+            "withdrawal_fee_usd": {"min_value": 0},
+            "min_withdrawal_coins": {"min_value": 1},
+        }
 
 
 # ---------------------------------------------------------------- views

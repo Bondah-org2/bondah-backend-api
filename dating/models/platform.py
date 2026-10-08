@@ -18,7 +18,24 @@ class PlatformSettings(models.Model):
         help_text="Share of a gift's coin cost the recipient gets when converting it to coins.",
     )
 
+    # Withdrawals stay closed until Team Bondah sets the rate and the minimum.
+    coin_cash_rate_usd = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True,
+        help_text="US dollars paid out per earned coin.",
+    )
+    min_withdrawal_coins = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Smallest withdrawal, in coins.",
+    )
+    withdrawal_fee_usd = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0,
+        help_text="Taken from each withdrawal's cash amount.",
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def withdrawals_open(self) -> bool:
+        return bool(self.coin_cash_rate_usd and self.coin_cash_rate_usd > 0 and self.min_withdrawal_coins)
 
     class Meta:
         verbose_name = "Platform settings"

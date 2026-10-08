@@ -4,6 +4,7 @@ from .media_views import (
     MediaUploadDetailView,
 )
 from django.urls import path, include
+from .views import withdrawals as withdrawal_views
 from .views import health as health_views
 from .views import liveness as liveness_views
 from rest_framework.routers import DefaultRouter
@@ -385,6 +386,11 @@ urlpatterns = [
 
     # Admin OverView
     path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
+    # Withdrawals (Team Bondah pays them by hand)
+    path("admin/withdrawals/", withdrawal_views.AdminWithdrawalListView.as_view(), name="admin-withdrawals"),
+    path("admin/withdrawals/<int:pk>/", withdrawal_views.AdminWithdrawalDetailView.as_view(), name="admin-withdrawal-detail"),
+    path("admin/withdrawals/<int:pk>/approve/", withdrawal_views.AdminApproveWithdrawalView.as_view(), name="admin-withdrawal-approve"),
+    path("admin/withdrawals/<int:pk>/reject/", withdrawal_views.AdminRejectWithdrawalView.as_view(), name="admin-withdrawal-reject"),
     # Reports and bondmaker account health (Team Bondah)
     path("admin/reports/", health_views.AdminReportListView.as_view(), name="admin-reports"),
     path("admin/reports/<int:pk>/review/", health_views.AdminReportActionView.as_view(action="review"), name="admin-report-review"),
@@ -929,6 +935,13 @@ urlpatterns = [
     # Bondcoin Wallet
     path("wallet/", MyWalletView.as_view(), name="my-wallet"),
     path("wallet/ledger/", MyLedgerView.as_view(), name="my-ledger"),
+    path("wallet/withdrawals/", withdrawal_views.WithdrawalListCreateView.as_view(), name="withdrawals"),
+    path("wallet/withdrawals/overview/", withdrawal_views.WithdrawalOverviewView.as_view(), name="withdrawal-overview"),
+    path("wallet/withdrawals/<int:pk>/cancel/", withdrawal_views.CancelWithdrawalView.as_view(), name="withdrawal-cancel"),
+    path("auth/2fa/", withdrawal_views.TwoFactorStatusView.as_view(), name="two-factor"),
+    path("auth/2fa/setup/", withdrawal_views.TwoFactorSetupView.as_view(), name="two-factor-setup"),
+    path("auth/2fa/confirm/", withdrawal_views.TwoFactorConfirmView.as_view(), name="two-factor-confirm"),
+    path("auth/2fa/disable/", withdrawal_views.TwoFactorDisableView.as_view(), name="two-factor-disable"),
 
 
     # ---------------------------------------------------------------------

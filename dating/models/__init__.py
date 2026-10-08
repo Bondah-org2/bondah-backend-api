@@ -46,6 +46,7 @@ from .feed import (
 )
 from .gifts import GiftCategory, VirtualGift, GiftTransaction
 from .platform import PlatformSettings
+from .withdrawals import TwoFactorAuth, Withdrawal
 from .live import (
     LiveSession,
     LiveParticipant,
@@ -142,6 +143,8 @@ __all__ = [
     "VirtualGift",
     "GiftTransaction",
     "PlatformSettings",
+    "TwoFactorAuth",
+    "Withdrawal",
     "RevenueCatEvent",
     # Live
     "LiveSession",
