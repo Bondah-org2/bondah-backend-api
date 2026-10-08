@@ -173,6 +173,10 @@ def create_suggestions(*, bondmaker, suggested_user_id: int, client_ids, note: s
     """
     if not bondmaker.is_matchmaker:
         raise ValidationError("Only bondmakers can suggest matches.")
+    from .health_service import health_for
+
+    if health_for(bondmaker).tier == "suspended":
+        raise ValidationError("Your account is suspended, so you can't suggest matches.")
 
     client_ids = list(dict.fromkeys(int(i) for i in client_ids))[:MAX_CLIENTS_PER_SUGGESTION]
     if not client_ids:

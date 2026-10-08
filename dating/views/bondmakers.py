@@ -6,6 +6,7 @@ from datetime import timedelta
 from ..pagination import BondmakerPagination, BondmakerPublicPagination, PendingRequestListPagination, BondmakerSearchPagination
 from django.db.models import F
 from ..models import UserMatch, BondmakerSubscription, Specialisation
+from ..services.health_service import HIDDEN_TIERS
 from django.contrib.auth import get_user_model
 from rest_framework import filters
 from ..serializers import UserProfileDetailSerializer, PublicBondmakerProfileSerializer, BondmakerSubscriptionSerializer, SubscribeBondmakerSerializer, PendingMatchUserSerializer, BondmakerProfileUpdateSerializer, BondmakerSpecialisationSerializer, BondmakerSearchListSerializer, SpecialisationCategorySerializer, BondmakerDashboardSerializer, BondmakerAnalyticsSerializer, MatchedUserSerializer, SubscribeSerializer, BondmakersLeaderboardSerializer
@@ -80,6 +81,8 @@ class PublicBondmakerListView(generics.ListAPIView):
                 document_verifications__is_authentic=True,
             )
             .exclude(id=user.id)
+            # Restricted and Suspended bondmakers are hidden from love seekers.
+            .exclude(account_health__tier__in=HIDDEN_TIERS)
             .distinct()
             .prefetch_related("document_verifications", "specialisations")
         )
@@ -410,8 +413,10 @@ class BondmakerSearchView(generics.ListAPIView):
     def get_queryset(self):
         user = self.request.user
 
-        queryset = User.objects.filter(is_matchmaker=True, country=user.country).prefetch_related(
-            "specialisations"
+        queryset = (
+            User.objects.filter(is_matchmaker=True, country=user.country)
+            .exclude(account_health__tier__in=HIDDEN_TIERS)
+            .prefetch_related("specialisations")
         )
 
         queryset = queryset.annotate(

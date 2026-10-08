@@ -13,6 +13,7 @@ from django.contrib.auth import get_user_model
 from dating.tasks import notify_user
 from ..serializers import SentLikeSerializer, MatchQueueSerializer, UserInteractionSerializer, MatchRequestSerializer, BondmakerMatchActionSerializer, BondmakerMatchActionResponseSerializer, UserSwipeCardSerializer, StaticUserProfileSerializer, MatchedUserSerializer, IncomingPendingMatchSerializer
 from ..services.match_service import reject_match_request
+from ..services import health_service
 from ..services import subscription_service
 from ..services.wallet_service import InsufficientFunds
 from ..services.match_service import (
@@ -164,15 +165,36 @@ class BondmakerMatchActionView(generics.GenericAPIView):
             allowed_status = "pending"
 
         match_request = get_object_or_404(
-            MatchRequest.objects.select_related("user_match"),
+            MatchRequest.objects.select_related("user_match__user1", "user_match__user2"),
             id=match_request_id,
             bondmaker=request.user,
             status=allowed_status,
         )
 
+        if action == "accepted":
+            if health_service.health_for(request.user).tier == "suspended":
+                return Response(
+                    {"detail": "Your account is suspended, so you can't accept matches.", "code": "account_suspended"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            user_match = getattr(match_request, "user_match", None)
+            reason = (serializer.validated_data.get("reason") or "").strip()
+            low_score = health_service.needs_reason(user_match)
+            if low_score and len(reason) < 10:
+                return Response(
+                    {
+                        "detail": "This match scores low. Tell us why it's a good match (at least 10 characters).",
+                        "code": "low_score_reason_required",
+                        "match_score": round(user_match.match_score),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
             if action == "accepted":
                 coins_earned, chat_id = accept_match_request(match_request.id)
+                if low_score:
+                    health_service.flag_low_score_accept(match_request, reason)
                 response_data = {
                     "message": "Match accepted successfully",
                     "coins_earned": coins_earned,
@@ -187,6 +209,9 @@ class BondmakerMatchActionView(generics.GenericAPIView):
                 {"detail": e.messages[0] if e.messages else str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if action in ("accepted", "rejected"):
+            health_service.after_decision(request.user)
 
         if action == "mark_successful":
             with transaction.atomic():

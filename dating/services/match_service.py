@@ -173,7 +173,8 @@ def accept_match_request(match_request_id: int) -> tuple[int, int]:
             recipient_kind="match_request_earning",
         )
         match_request.status = "accepted"
-        match_request.save(update_fields=["status"])
+        match_request.decided_at = timezone.now()
+        match_request.save(update_fields=["status", "decided_at"])
         _set_user_match_status(match_request, "matched")
 
         chat = _open_match_chat(match_request)
@@ -207,7 +208,8 @@ def reject_match_request(match_request_id: int) -> None:
         match_request = _lock_pending(match_request_id)
         _refund(match_request)
         match_request.status = "rejected"
-        match_request.save(update_fields=["status"])
+        match_request.decided_at = timezone.now()
+        match_request.save(update_fields=["status", "decided_at"])
         requester_id = match_request.requester_id
         transaction.on_commit(lambda: notify_user.delay(
             user_id=requester_id,
@@ -229,6 +231,7 @@ def expire_stale_match_requests(now=None, batch_size: int = 500) -> int:
     )
 
     expired = 0
+    bondmaker_ids = set()
     for match_request_id in stale_ids:
         with transaction.atomic():
             try:
@@ -239,7 +242,13 @@ def expire_stale_match_requests(now=None, batch_size: int = 500) -> int:
             match_request.status = "expired"
             match_request.save(update_fields=["status"])
             _set_user_match_status(match_request, "expired")
+            bondmaker_ids.add(match_request.bondmaker_id)
             expired += 1
+
+    if bondmaker_ids:
+        from . import health_service
+
+        health_service.check_expired_requests(bondmaker_ids)
     return expired
 
 

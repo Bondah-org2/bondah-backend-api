@@ -377,3 +377,11 @@ def expire_stale_coin_holds():
     match_requests = drain(expire_stale_match_requests)
     visibility_requests = drain(expire_stale_visibility_requests)
     return f"expired {match_requests} match requests, {visibility_requests} visibility requests"
+
+
+@shared_task
+def recompute_account_health():
+    """Hourly: refresh every bondmaker's score and tier (strikes age out here too)."""
+    from .services.health_service import recompute_all
+
+    return f"recomputed {recompute_all()} bondmakers"

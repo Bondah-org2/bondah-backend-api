@@ -1387,6 +1387,8 @@ class MatchRequest(models.Model):
         "dating.WalletTransaction", on_delete=models.PROTECT,
         null=True, blank=True, related_name="+",
     )
+    # When the bondmaker accepted or rejected it (speed and automation checks).
+    decided_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1395,6 +1397,8 @@ class MatchRequest(models.Model):
             models.Index(fields=["bondmaker", "status"]),
             # Expiry sweep: pending requests older than the cutoff.
             models.Index(fields=["status", "created_at"]),
+            # Account health: a bondmaker's recent decisions.
+            models.Index(fields=["bondmaker", "decided_at"]),
         ]
 
 
@@ -1557,7 +1561,21 @@ class Report(models.Model):
     reason = models.CharField(max_length=50, choices=REASON_CHOICES)
     description = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    resolved = models.BooleanField(default=False)
+    resolved = models.BooleanField(default=False)  # True once resolved or dismissed
+
+    # Team Bondah's review. "resolved" means upheld: a report against a
+    # bondmaker then becomes a strike (see health_service).
+    STATUS = (
+        ("pending", "Pending"),
+        ("reviewed", "Reviewed"),
+        ("resolved", "Resolved"),
+        ("dismissed", "Dismissed"),
+    )
+    status = models.CharField(max_length=10, choices=STATUS, default="pending", db_index=True)
+    reviewed_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

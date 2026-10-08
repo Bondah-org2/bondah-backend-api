@@ -1,4 +1,5 @@
 from .activity import Activity
+from .health import AccountHealth, HealthFlag, Strike
 from .bondcoin import (
     BondcoinPackage,
     WalletTransaction,
@@ -190,6 +191,10 @@ __all__ = [
     "SecurityPin",
     "Notification",
     "Report",
+    # Account health
+    "AccountHealth",
+    "HealthFlag",
+    "Strike",
     # Username
     "UsernameValidation",
     "validate_username_format",

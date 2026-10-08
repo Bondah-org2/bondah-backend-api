@@ -39,6 +39,11 @@ class VisibilitySerializer(serializers.ModelSerializer):
         except User.DoesNotExist:
             raise serializers.ValidationError("Invalid bondmaker.")
 
+        from ..services.health_service import HIDDEN_TIERS, health_for
+
+        if health_for(bondmaker).tier in HIDDEN_TIERS:
+            raise serializers.ValidationError("This bondmaker isn't taking new requests right now.")
+
         # Prevent multiple active public visibility
         if visibility_type == "public":
             already_public = (

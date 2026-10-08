@@ -4,6 +4,7 @@ from .media_views import (
     MediaUploadDetailView,
 )
 from django.urls import path, include
+from .views import health as health_views
 from .views import liveness as liveness_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_nested.routers import NestedDefaultRouter
@@ -384,6 +385,18 @@ urlpatterns = [
 
     # Admin OverView
     path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
+    # Reports and bondmaker account health (Team Bondah)
+    path("admin/reports/", health_views.AdminReportListView.as_view(), name="admin-reports"),
+    path("admin/reports/<int:pk>/review/", health_views.AdminReportActionView.as_view(action="review"), name="admin-report-review"),
+    path("admin/reports/<int:pk>/resolve/", health_views.AdminReportActionView.as_view(action="resolve"), name="admin-report-resolve"),
+    path("admin/reports/<int:pk>/dismiss/", health_views.AdminReportActionView.as_view(action="dismiss"), name="admin-report-dismiss"),
+    path("admin/health/flags/", health_views.AdminFlagListView.as_view(), name="admin-health-flags"),
+    path("admin/health/flags/<int:pk>/review/", health_views.AdminFlagReviewView.as_view(), name="admin-health-flag-review"),
+    path("admin/health/bondmakers/", health_views.AdminHealthListView.as_view(), name="admin-health-list"),
+    path("admin/health/bondmakers/<int:user_id>/", health_views.AdminHealthDetailView.as_view(), name="admin-health-detail"),
+    path("admin/health/bondmakers/<int:user_id>/strikes/", health_views.AdminAddStrikeView.as_view(), name="admin-health-add-strike"),
+    path("admin/health/bondmakers/<int:user_id>/suspension/", health_views.AdminSuspensionView.as_view(), name="admin-health-suspension"),
+    path("admin/health/strikes/<int:pk>/revoke/", health_views.AdminRevokeStrikeView.as_view(), name="admin-health-revoke-strike"),
     # Coin and store finance (Bondah-Admin-System > Finance)
     path("admin/finance/wallets/flagged/", AdminFlaggedWalletListView.as_view(), name="admin-flagged-wallets"),
     path("admin/finance/wallets/<int:user_id>/clear-flag/", AdminClearWalletFlagView.as_view(), name="admin-clear-wallet-flag"),
@@ -1018,6 +1031,7 @@ urlpatterns = [
     path("suggestions/<int:pk>/pass/", PassSuggestionView.as_view(), name="pass-suggestion"),
     # Bondmaker Explore and the client picker for suggestions
     path("bondmaker/explore/", BondmakerExploreView.as_view(), name="bondmaker-explore"),
+    path("bondmaker/health/", health_views.MyHealthView.as_view(), name="my-health"),
     path("bondmaker/clients/", BondmakerClientsView.as_view(), name="bondmaker-clients"),
     # ---------------------------
     # BondCircle Management

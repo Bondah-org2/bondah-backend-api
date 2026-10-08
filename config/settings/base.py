@@ -315,6 +315,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "dating.tasks.expire_stale_coin_holds",
         "schedule": crontab(minute=15),
     },
+    "recompute-account-health-hourly": {
+        "task": "dating.tasks.recompute_account_health",
+        "schedule": crontab(minute=25),
+    },
     "delete-underage-accounts": {
         "task": "dating.tasks.run_delete_underage_accounts",
         "schedule": crontab(minute=0),

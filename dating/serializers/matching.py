@@ -104,6 +104,8 @@ class BondmakerMatchActionResponseSerializer(serializers.Serializer):
 
 class BondmakerMatchActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["accepted", "rejected", "mark_successful"])
+    # Required to accept a match under the low-score line (see health_service).
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
 class MatchPersonSerializer(serializers.ModelSerializer):
