@@ -211,12 +211,17 @@ class RequestTests(WithdrawalFixture):
         response = self.withdraw()
         self.assertEqual(response.data["code"], "payouts_held")
 
-    def test_love_seekers_with_earned_coins_can_withdraw(self):
+    def test_love_seekers_cannot_withdraw(self):
         seeker = User.objects.create_user(email="s@example.com", password="x", name="Ama")
         wallet_service.credit(seeker, 150, kind="gift_converted", idempotency_key="gift")
         self.enable_2fa(seeker)
         response = self.withdraw(coins=150, user=seeker)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "bondmakers_only")
+        self.client.force_authenticate(user=seeker)
+        overview = self.client.get(reverse("withdrawal-overview")).data
+        self.assertFalse(overview["eligible"])
+        self.assertEqual(overview["withdrawable_coins"], 0)
 
 
 class AdminTests(WithdrawalFixture):

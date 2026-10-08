@@ -1,5 +1,7 @@
 """Cash withdrawals of earned coins (rebuild phase 7).
 
+- Only bondmakers can withdraw. Love seekers convert gifts to coins and
+  spend them in the app.
 - Only earned coins can be withdrawn (EARNING_KINDS: match requests,
   private visibility, converted gifts). Bought coins can only be spent; when
   someone spends, bought coins are counted as spent first.
@@ -47,6 +49,10 @@ class PayoutsHeld(ValidationError):
     pass
 
 
+class NotABondmaker(ValidationError):
+    pass
+
+
 def earned_total(user) -> int:
     return (
         WalletTransaction.objects.filter(
@@ -82,11 +88,12 @@ def overview(user) -> dict:
     settings_row = PlatformSettings.current()
     health = health_service.health_for(user) if user.is_matchmaker else None
     return {
+        "eligible": bool(user.is_matchmaker),
         "open": settings_row.withdrawals_open,
         "rate_usd": settings_row.coin_cash_rate_usd,
         "min_coins": settings_row.min_withdrawal_coins,
         "fee_usd": settings_row.withdrawal_fee_usd,
-        "withdrawable_coins": withdrawable_coins(user),
+        "withdrawable_coins": withdrawable_coins(user) if user.is_matchmaker else 0,
         "payouts_allowed": health.payouts_allowed if health else True,
         "health_tier": health.tier if health else None,
         "two_factor_enabled": two_factor.is_enabled(user),
@@ -123,10 +130,12 @@ def clean_destination(method: str, destination: dict) -> dict:
 
 
 def request_withdrawal(*, user, method: str, coins: int, destination: dict, otp_code: str) -> Withdrawal:
+    if not user.is_matchmaker:
+        raise NotABondmaker("Only bondmakers can withdraw. Coins can be spent in the app.")
     settings_row = PlatformSettings.current()
     if not settings_row.withdrawals_open:
         raise WithdrawalsClosed("Withdrawals aren't open yet.")
-    if user.is_matchmaker and not health_service.payouts_allowed(user):
+    if not health_service.payouts_allowed(user):
         raise PayoutsHeld("Payouts are on hold while your account health is Restricted or Suspended.")
 
     destination = clean_destination(method, destination)
@@ -153,7 +162,7 @@ def request_withdrawal(*, user, method: str, coins: int, destination: dict, otp_
             rate_usd=settings_row.coin_cash_rate_usd,
             fee_usd=settings_row.withdrawal_fee_usd,
             amount_usd=net,
-            health_tier=health_service.health_for(user).tier if user.is_matchmaker else "",
+            health_tier=health_service.health_for(user).tier,
         )
         held = wallet_service.hold(
             user,

@@ -32,6 +32,8 @@ def _withdrawal_error(exc: ValidationError):
         return _error(exc, "invalid_code")
     if isinstance(exc, withdrawal_service.PayoutsHeld):
         return _error(exc, "payouts_held", status.HTTP_403_FORBIDDEN)
+    if isinstance(exc, withdrawal_service.NotABondmaker):
+        return _error(exc, "bondmakers_only", status.HTTP_403_FORBIDDEN)
     if isinstance(exc, withdrawal_service.WithdrawalsClosed):
         return _error(exc, "withdrawals_closed", status.HTTP_403_FORBIDDEN)
     return _error(exc)
