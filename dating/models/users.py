@@ -501,10 +501,13 @@ class User(AbstractUser):
     notify_on_bondmaker_update = models.BooleanField(default=True)
     notify_on_promotional = models.BooleanField(default=False)
 
-    # Language Settings (From Figma Design)
+    # App languages that are fully translated (the app lists only these)
+    LANGUAGE_CHOICES = (("en", "English"), ("ar", "Arabic"))
     preferred_language = models.CharField(
-        max_length=10, default="en", help_text="User's preferred app language"
+        max_length=10, choices=LANGUAGE_CHOICES, default="en", help_text="User's preferred app language"
     )
+    THEME_CHOICES = (("system", "System"), ("light", "Light"), ("dark", "Dark"))
+    theme_preference = models.CharField(max_length=10, choices=THEME_CHOICES, default="system")
     job_title = models.CharField(max_length=50, blank=True, null=True)
     company_name = models.CharField(max_length=50, blank=True, null=True)
     bondmaker_profile_picture = MediaRefField(null=True, blank=True)
@@ -515,6 +518,13 @@ class User(AbstractUser):
 
     is_flagged_for_deletion = models.BooleanField(default=False)
     scheduled_deletion_at = models.DateTimeField(null=True, blank=True)
+
+    # Deletion the user asked for: the account is hidden (is_active=False) until
+    # deletion_scheduled_for, and signing in before then cancels it. deleted_at
+    # is set once personal data has been wiped (see services/account_service.py).
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
+    deletion_scheduled_for = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     # Bondcoin Wallet (From Figma Design)
     # bondcoin_balance = models.PositiveIntegerField(

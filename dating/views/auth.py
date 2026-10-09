@@ -196,6 +196,7 @@ class UserLoginView(GenericAPIView):
 
         try:
             user = None
+            deletion_cancelled = False
 
             # Case 1: Firebase login
             # if firebase_token:
@@ -218,6 +219,7 @@ class UserLoginView(GenericAPIView):
                 )
                 login_serializer.is_valid(raise_exception=True)
                 user = login_serializer.validated_data["user"]
+                deletion_cancelled = login_serializer.validated_data.get("deletion_cancelled", False)
 
             # Issue JWT tokens
             refresh = RefreshToken.for_user(user)
@@ -225,6 +227,7 @@ class UserLoginView(GenericAPIView):
                 {
                     "message": "Login successful",
                     "status": "success",
+                    "deletion_cancelled": deletion_cancelled,
                     "user": UserProfileSerializer(user).data,
                     "tokens": {
                         "access": str(refresh.access_token),
@@ -234,6 +237,9 @@ class UserLoginView(GenericAPIView):
                 status=status.HTTP_200_OK,
             )
 
+        except serializers.ValidationError:
+            # Wrong email or password is a 400, not a server error
+            raise
         except Exception as e:
             return Response(
                 {"message": f"Login failed: {str(e)}", "status": "error"},

@@ -285,6 +285,10 @@ class OAuthUserManager:
             # Check if user already exists
             try:
                 user = User.objects.get(email=email)
+                # Signing in during the 30-day grace period cancels a deletion
+                from ..services import account_service
+
+                user.deletion_cancelled = account_service.cancel_deletion(user)
             except User.DoesNotExist:
                 # Create new user
                 first_name = oauth_data.get("first_name", "")

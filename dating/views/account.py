@@ -9,8 +9,9 @@ from ..utils import get_cached_static_profile, get_cached_my_profile
 from django.core.cache import cache
 from ..models import Activity, DeviceRegistration, UserRoleSelection, DocumentVerification, UserSecurityQuestion, UserSocialHandle, UserInterest, UserProfileView
 from django.contrib.auth import get_user_model
-from ..serializers import LanguageSettingsSerializer, UserProfileDetailSerializer, DeviceRegistrationSerializer, NotificationSettingsSerializer, UsernameUpdateSerializer, UserSecurityQuestionSerializer, UserSecurityQuestionCreateSerializer, UserSocialHandleSerializer, UserSocialHandleCreateSerializer, UserInterestSerializer, UserRoleSelectionSerializer, UserRoleStatusSerializer, StaticUserProfileSerializer
+from ..serializers import AccountDeletionSerializer, PreferencesSerializer, LanguageSettingsSerializer, UserProfileDetailSerializer, DeviceRegistrationSerializer, NotificationSettingsSerializer, UsernameUpdateSerializer, UserSecurityQuestionSerializer, UserSecurityQuestionCreateSerializer, UserSocialHandleSerializer, UserSocialHandleCreateSerializer, UserInterestSerializer, UserRoleSelectionSerializer, UserRoleStatusSerializer, StaticUserProfileSerializer
 from ..location_utils import calculate_match_score
+from ..services import account_service
 from drf_spectacular.utils import extend_schema_view, OpenApiResponse
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
@@ -123,39 +124,39 @@ class UserProfileViews(generics.RetrieveUpdateAPIView):
             )
 
 
-@extend_schema(
-    tags = ['Authentication'],
-    request=None,
-    responses={
-        200: SimpleStatusResponseSerializer,
-        500: CustomErrorResponseSerializer,
-    },
-    description="Deactivate the authenticated user's account",
-)
-class AccountDeactivationView(generics.GenericAPIView):
+@extend_schema(tags=["Authentication"])
+class AccountDeletionView(generics.GenericAPIView):
+    """
+    auth/account/delete/
+      GET: whether the account can be deleted now, what blocks it, and the coins that would be lost.
+      POST {password}: hide the account and delete it after 30 days; signing in before then cancels it.
+    """
+
     permission_classes = [IsAuthenticated]
+    serializer_class = AccountDeletionSerializer
+
+    def get(self, request):
+        return Response(account_service.overview(request.user))
 
     def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            user = request.user
-            user.is_active = False
-            user.save(update_fields=["is_active"])
+            user = account_service.request_deletion(request.user, password=serializer.validated_data["password"])
+        except account_service.DeletionBlocked as e:
+            code = status.HTTP_400_BAD_REQUEST if e.code == "wrong_password" else status.HTTP_409_CONFLICT
+            return Response({"code": e.code, "message": e.message, "status": "error"}, status=code)
+        return Response(
+            {
+                "status": "success",
+                "message": "Your account will be deleted. Sign in within 30 days to keep it.",
+                "scheduled_for": user.deletion_scheduled_for,
+            }
+        )
 
-            return Response(
-                {
-                    "message": "Account deactivated successfully",
-                    "status": "success",
-                },
-                status=status.HTTP_200_OK,
-            )
-        except Exception as e:
-            return Response(
-                {
-                    "message": f"Failed to deactivate account: {str(e)}",
-                    "status": "error",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+
+# The old deactivate route now starts the same 30-day deletion
+AccountDeactivationView = AccountDeletionView
 
 
 @extend_schema(tags=["Notification"])
@@ -180,7 +181,7 @@ class AccountDeactivationView(generics.GenericAPIView):
 )
 
 class NotificationSettingsView(generics.GenericAPIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     serializer_class = NotificationSettingsSerializer
 
     def get(self, request):
@@ -263,6 +264,34 @@ class LanguageSettingsView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = LanguageSettingsSerializer
 
+    def get(self, request):
+        return Response({"status": "success", "settings": self.get_serializer(request.user).data})
+
+    def put(self, request):
+        serializer = self.get_serializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"status": "success", "message": "Language updated", "settings": serializer.data})
+
+    patch = put
+
+
+@extend_schema(tags=["Profile"])
+class PreferencesView(generics.GenericAPIView):
+    """auth/preferences/  GET or PATCH {preferred_language, theme_preference}"""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = PreferencesSerializer
+
+    def get(self, request):
+        return Response(self.get_serializer(request.user).data)
+
+    def patch(self, request):
+        serializer = self.get_serializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 
 @extend_schema(
     tags=["Authentication"],
@@ -294,7 +323,7 @@ class DeviceRegistrationView(generics.CreateAPIView):
     tags=["Profile"],
     )
 class UserRoleSelectionView(GenericAPIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     serializer_class = UserRoleSelectionSerializer
 
     def post(self, request):

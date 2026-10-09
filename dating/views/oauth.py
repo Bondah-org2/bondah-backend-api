@@ -88,6 +88,7 @@ class GoogleOAuthView(generics.GenericAPIView):
                     "status": "success",
                     "user": UserProfileWithSocialSerializer(user).data,
                     "tokens": tokens,
+                    "deletion_cancelled": getattr(user, "deletion_cancelled", False),
                 },
                 status=200,
             )
@@ -174,6 +175,7 @@ class AppleOAuthView(generics.GenericAPIView):
                     "status": "success",
                     "user": UserProfileWithSocialSerializer(user).data,
                     "tokens": tokens,
+                    "deletion_cancelled": getattr(user, "deletion_cancelled", False),
                 },
                 status=200,
             )
@@ -307,6 +309,7 @@ class SocialLoginView(generics.GenericAPIView):
                     "status": "success",
                     "user": UserProfileWithSocialSerializer(user).data,
                     "tokens": tokens,
+                    "deletion_cancelled": getattr(user, "deletion_cancelled", False),
                 },
                 status=200,
             )

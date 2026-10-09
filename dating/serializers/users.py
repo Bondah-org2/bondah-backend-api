@@ -53,6 +53,7 @@ class UserSerializer(serializers.ModelSerializer):
             "push_notifications_enabled",
             "email_notifications_enabled",
             "preferred_language",
+            "theme_preference",
             # "bondcoin_balance",
         ]
         read_only_fields = [
@@ -206,8 +207,27 @@ class LanguageSettingsSerializer(serializers.ModelSerializer):
         instance.preferred_language = validated_data.get(
             "preferred_language", instance.preferred_language
         )
-        instance.save()
+        instance.save(update_fields=["preferred_language"])
         return instance
+
+
+class PreferencesSerializer(serializers.ModelSerializer):
+    """App language and theme (system / light / dark)."""
+
+    class Meta:
+        model = User
+        fields = ["preferred_language", "theme_preference"]
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=list(validated_data) or None)
+        return instance
+
+
+class AccountDeletionSerializer(serializers.Serializer):
+    # Not needed for accounts that only sign in with Google or Apple
+    password = serializers.CharField(required=False, allow_blank=True, default="", write_only=True)
 
 
 # =============================================================================
@@ -447,6 +467,7 @@ class UserProfileDetailSerializer(MediaRefsMixin, serializers.ModelSerializer):
             "push_notifications_enabled",
             "email_notifications_enabled",
             "preferred_language",
+            "theme_preference",
             "profile_completion_percentage",
             "selected_role",
             "traits",

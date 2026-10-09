@@ -5,6 +5,8 @@ from .users import (  # noqa: F401
     CategoryFilterSerializer,
     DeviceRegistrationSerializer,
     LanguageSettingsSerializer,
+    PreferencesSerializer,
+    AccountDeletionSerializer,
     MessageResponseSerializer,
     NotificationSerializer,
     NotificationSettingsSerializer,

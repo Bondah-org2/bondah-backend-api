@@ -101,6 +101,13 @@ class CustomLoginSerializer(serializers.Serializer):
         if email and password:
             user = authenticate(email=email, password=password)
             if not user:
+                # Signing in during the 30-day grace period cancels a deletion
+                from ..services import account_service
+
+                user = account_service.find_for_sign_in(email, password)
+                if user:
+                    attrs["deletion_cancelled"] = account_service.cancel_deletion(user)
+            if not user:
                 raise serializers.ValidationError("Invalid credentials.")
             if not user.is_active:
                 raise serializers.ValidationError("User account is disabled.")

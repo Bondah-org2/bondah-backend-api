@@ -172,6 +172,14 @@ def run_delete_underage_accounts():
     call_command("delete_underage_accounts")
 
 
+@shared_task
+def purge_deleted_accounts():
+    """Wipe accounts whose 30-day deletion grace period is over."""
+    from .services import account_service
+
+    return account_service.purge_due_accounts()
+
+
 
 CHAT_PUSH_PREVIEWS = {
     "image": "Sent a photo",

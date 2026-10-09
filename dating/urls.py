@@ -58,6 +58,8 @@ from .views import (
     PasswordResetConfirmView,
     UserProfileViews,
     AccountDeactivationView,
+    AccountDeletionView,
+    PreferencesView,
     NotificationSettingsView,
     LanguageSettingsView,
     DeviceRegistrationView,
@@ -471,12 +473,16 @@ urlpatterns = [
     path(
         "auth/deactivate/account", AccountDeactivationView.as_view(), name="account-deactivate"
     ),
+    path("auth/deactivate/account/", AccountDeactivationView.as_view()),
+    path("auth/account/delete/", AccountDeletionView.as_view(), name="account-delete"
+    ),
     path(
         "auth/notifications/",
         NotificationSettingsView.as_view(),
         name="notification-settings",
     ),
     path("auth/language/", LanguageSettingsView.as_view(), name="language-settings"),
+    path("auth/preferences/", PreferencesView.as_view(), name="preferences"),
     path(
         "auth/device-register/",
         DeviceRegistrationView.as_view(),

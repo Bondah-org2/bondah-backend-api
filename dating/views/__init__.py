@@ -61,6 +61,8 @@ from .oauth import (  # noqa: F401
 )
 from .account import (  # noqa: F401
     AccountDeactivationView,
+    AccountDeletionView,
+    PreferencesView,
     DeviceRegistrationView,
     LanguageSettingsView,
     NotificationSettingsView,

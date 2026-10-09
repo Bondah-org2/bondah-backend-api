@@ -324,6 +324,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "dating.tasks.run_delete_underage_accounts",
         "schedule": crontab(minute=0),
     },
+    "purge-deleted-accounts-hourly": {
+        "task": "dating.tasks.purge_deleted_accounts",
+        "schedule": crontab(minute=45),
+    },
 }
 
 
