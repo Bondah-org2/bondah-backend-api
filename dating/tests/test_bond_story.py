@@ -246,3 +246,57 @@ class ReportTests(BondStoryFixture):
         comment.refresh_from_db()
         self.assertTrue(comment.is_active)
         self.assertFalse(Strike.objects.exists())
+
+
+class UpdatesTests(BondStoryFixture):
+    """The love seeker's Updates screen: Bond Story activity and who I follow."""
+
+    def test_comment_like_and_comment_reach_the_writer(self):
+        p = self.post()
+        comment = PostComment.objects.create(post=p, author=self.seeker, content="So true")
+        self.as_user(self.follower)
+        self.client.post(reverse("post-comments-like", kwargs={"post_pk": p.pk, "pk": comment.pk}))
+        self.client.post(self.comments_url(p), {"content": "Same here"}, format="json")
+
+        self.as_user(self.seeker)
+        rows = self.client.get(reverse("activity-feed"), {"kind": "bondstory"}).data["results"]
+        self.assertEqual([r["action"] for r in rows], ["comment_like"])
+        self.assertEqual(rows[0]["message"], "Kofi liked your comment on Esi's post")
+        self.assertIn("actor_avatar", rows[0])
+
+        self.as_user(self.author)
+        actions = {r["action"] for r in self.client.get(reverse("activity-feed"), {"kind": "bondstory"}).data["results"]}
+        self.assertEqual(actions, {"post_comment"})
+
+    def test_only_the_recipient_deletes_a_notification(self):
+        p = self.post()
+        comment = PostComment.objects.create(post=p, author=self.seeker, content="So true")
+        self.as_user(self.follower)
+        self.client.post(reverse("post-comments-like", kwargs={"post_pk": p.pk, "pk": comment.pk}))
+        self.as_user(self.seeker)
+        row = self.client.get(reverse("activity-feed")).data["results"][0]
+        url = reverse("activity-delete", kwargs={"pk": row["id"]})
+
+        self.as_user(self.follower)
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_404_NOT_FOUND)
+        self.as_user(self.seeker)
+        self.assertEqual(self.client.delete(url).status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.client.get(reverse("activity-feed")).data["results"], [])
+
+    def test_following_list(self):
+        self.as_user(self.follower)
+        self.client.post(reverse("follow-toggle"), {"bondmaker": self.other_bm.id}, format="json")
+        rows = self.client.get(reverse("following-list")).data["results"]
+        self.assertEqual([r["id"] for r in rows], [self.other_bm.id, self.author.id])
+        self.assertTrue(all(r["following"] for r in rows))
+
+        self.client.post(reverse("follow-toggle"), {"bondmaker": self.other_bm.id}, format="json")
+        rows = self.client.get(reverse("following-list")).data["results"]
+        self.assertEqual([r["id"] for r in rows], [self.author.id])
+
+    def test_feed_says_whether_i_follow_the_author(self):
+        self.post()
+        self.as_user(self.follower)
+        self.assertTrue(self.client.get(reverse(POSTS)).data["results"][0]["following_author"])
+        self.as_user(self.seeker)
+        self.assertFalse(self.client.get(reverse(POSTS)).data["results"][0]["following_author"])

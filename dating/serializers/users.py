@@ -847,6 +847,7 @@ class MessageResponseSerializer(serializers.Serializer):
 # ======================================== ACTIVITY FEEDS
 class ActivityFeedSerializer(serializers.ModelSerializer):
     actor_name = serializers.CharField(source="actor.name", read_only=True)
+    actor_avatar = serializers.SerializerMethodField()
     message = serializers.SerializerMethodField()
 
     class Meta:
@@ -855,6 +856,7 @@ class ActivityFeedSerializer(serializers.ModelSerializer):
             "id",
             "actor",
             "actor_name",
+            "actor_avatar",
             "action",
             "metadata",
             "message",
@@ -864,3 +866,7 @@ class ActivityFeedSerializer(serializers.ModelSerializer):
 
     def get_message(self, obj):
         return obj.render_message()
+
+    def get_actor_avatar(self, obj):
+        actor = obj.actor
+        return (actor.bondmaker_profile_picture if actor.is_matchmaker else None) or actor.profile_picture or None

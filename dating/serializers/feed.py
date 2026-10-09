@@ -54,6 +54,7 @@ def _author_card(user):
         "id": user.id,
         "name": user.name,
         "username": user.username,
+        "country": user.country or "",
         "profile_picture": getattr(user, "bondmaker_profile_picture", None) or user.profile_picture or None,
         "is_bondmaker": bool(user.is_matchmaker),
     }
@@ -124,6 +125,7 @@ class PostSerializer(MediaRefsMixin, serializers.ModelSerializer):
     )
     has_liked = serializers.SerializerMethodField()
     is_mine = serializers.SerializerMethodField()
+    following_author = serializers.SerializerMethodField()
     video_thumbnail = serializers.ListField(
         child=serializers.CharField(max_length=500),
         required=False,
@@ -158,6 +160,7 @@ class PostSerializer(MediaRefsMixin, serializers.ModelSerializer):
             # "bonds_count",
             "has_liked",
             "is_mine",
+            "following_author",
             "created_at",
             "updated_at",
             "edited_at",
@@ -200,6 +203,9 @@ class PostSerializer(MediaRefsMixin, serializers.ModelSerializer):
     def get_is_mine(self, obj) -> bool:
         request = self.context.get("request")
         return bool(request and obj.author_id == request.user.id)
+
+    def get_following_author(self, obj) -> bool:
+        return bool(getattr(obj, "following_author", False))
 
 
 class StorySerializer(serializers.ModelSerializer):

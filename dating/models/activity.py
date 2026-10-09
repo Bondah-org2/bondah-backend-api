@@ -16,8 +16,12 @@ class Activity(models.Model):
         ("match_updated", "Match Updated"),
         ("match_deleted", "Match Deleted"),
         ("gift_sent", "Gift Sent"),
-        ("post_like", "Post Liked")
+        ("post_like", "Post Liked"),
+        ("post_comment", "Post Comment"),
+        ("comment_like", "Comment Liked"),
     )
+    # Shown on the Bond Story updates screen.
+    BOND_STORY_ACTIONS = ("post_like", "post_comment", "comment_like")
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, null=False, blank=False)
     actor = models.ForeignKey(
         User, null=False, on_delete=models.CASCADE, related_name="activities_done"
@@ -62,5 +66,10 @@ class Activity(models.Model):
             return f"{actor_name} sent you a {metadata.get('gift_name', 'gift')}"
         if self.action == "post_like":
             return f"{actor_name} liked your post"
+        if self.action == "post_comment":
+            return f"{actor_name} commented on your post"
+        if self.action == "comment_like":
+            on = metadata.get("post_author_name")
+            return f"{actor_name} liked your comment on {on}'s post" if on else f"{actor_name} liked your comment"
         return self.get_action_display()
     

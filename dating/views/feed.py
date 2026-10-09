@@ -10,6 +10,7 @@ from ..permissions import IsBondmakerOrReadOnly
 from ..models import Activity, Post, PostComment, PostInteraction, PostReport, BondmakerSubscription, CommentInteraction
 from rest_framework import serializers
 from ..serializers import ActivityFeedSerializer, PostSerializer, PostInteractionSerializer, PostCommentCreateSerializer
+from ..serializers.feed import _author_card
 from rest_framework import permissions
 from drf_spectacular.utils import extend_schema_view
 from django.db import transaction
@@ -89,7 +90,9 @@ class PostViewSet(viewsets.ModelViewSet):
             .annotate(
                 liked=Exists(
                     PostInteraction.objects.filter(post=OuterRef("pk"), user=user, interaction_type="like")
-                )
+                ),
+                # For the Follow button on each card, without a query per post
+                following_author=Exists(feed_service.following(user).filter(bondmaker=OuterRef("author"))),
             )
         )
         if self.action == "list":
@@ -229,6 +232,15 @@ class PostCommentViewSet(viewsets.ModelViewSet):
             obj, created = CommentInteraction.objects.get_or_create(user=request.user, comment=comment)
             if created:
                 PostComment.objects.filter(id=comment.id).update(likes_count=F("likes_count") + 1)
+                if comment.author_id != request.user.id:
+                    Activity.objects.create(
+                        actor=request.user, recipient=comment.author, action="comment_like",
+                        metadata={
+                            "post_id": comment.post_id,
+                            "comment_id": comment.id,
+                            "post_author_name": self._post().author.name,
+                        },
+                    )
             else:
                 obj.delete()
                 PostComment.objects.filter(id=comment.id, likes_count__gt=0).update(likes_count=F("likes_count") - 1)
@@ -258,9 +270,44 @@ class PostCommentViewSet(viewsets.ModelViewSet):
     tags=["Activity Feeds"]
 )
 class ActivityFeedView(generics.ListAPIView):
+    """activity/  ?kind=bondstory: only Bond Story likes and comments."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = ActivityFeedSerializer
     pagination_class = ActivityFeedPagination
 
     def get_queryset(self):
+        qs = Activity.objects.filter(recipient=self.request.user).select_related("actor")
+        if self.request.query_params.get("kind") == "bondstory":
+            qs = qs.filter(action__in=Activity.BOND_STORY_ACTIONS)
+        return qs
+
+
+@extend_schema(tags=["Activity Feeds"])
+class ActivityDeleteView(generics.DestroyAPIView):
+    """activity/<id>/: remove one of my notifications."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
         return Activity.objects.filter(recipient=self.request.user)
+
+
+@extend_schema(tags=["Bondmaker"])
+class FollowingListView(generics.ListAPIView):
+    """bondmaker/following/: bondmakers I follow, most recent first."""
+
+    permission_classes = [IsAuthenticated]
+    pagination_class = ActivityFeedPagination
+
+    def get_queryset(self):
+        return feed_service.following(self.request.user).select_related("bondmaker").order_by("-start_date", "-id")
+
+    def list(self, request, *args, **kwargs):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(
+            [
+                {**_author_card(f.bondmaker), "following": True, "followed_at": f.start_date}
+                for f in page
+            ]
+        )

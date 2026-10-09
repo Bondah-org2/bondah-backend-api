@@ -11,6 +11,8 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_nested.routers import NestedDefaultRouter
 from .views import (
     ActivityFeedView,
+    ActivityDeleteView,
+    FollowingListView,
     MatchQueueView,
     SentLikesView,
     NewsletterSignupView,
@@ -866,6 +868,7 @@ urlpatterns = [
     ),
     # Follow / unfollow (free) and follow status
     path("bondmaker/follow/", SubscribeToggleView.as_view(), name="follow-toggle"),
+    path("bondmaker/following/", FollowingListView.as_view(), name="following-list"),
     path(
         "bondmaker/unsubscribe/<int:subscription_id>/",
         EndBondmakerSubscriptionView.as_view(),
@@ -1134,4 +1137,5 @@ urlpatterns = [
 
     # ============== Activity Feeds ==================
     path("activity/", ActivityFeedView.as_view(), name="activity-feed"),
+    path("activity/<uuid:pk>/", ActivityDeleteView.as_view(), name="activity-delete"),
 ]

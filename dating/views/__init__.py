@@ -106,6 +106,8 @@ from .chat import (  # noqa: F401
     SendMessageView,
 )
 from .feed import (  # noqa: F401
+    ActivityDeleteView,
+    FollowingListView,
     ActivityFeedView,
     PostCommentViewSet,
     PostViewSet,
