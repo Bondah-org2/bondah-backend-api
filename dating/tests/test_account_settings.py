@@ -83,6 +83,16 @@ class AccountDeletionTests(APITestCase):
         self.assertIsNone(self.user.deletion_scheduled_for)
         self.assertFalse(self.login().data["deletion_cancelled"])
 
+    def test_login_says_which_mode_the_user_was_in(self):
+        from dating.models import UserRoleSelection
+
+        self.assertEqual(self.login().data["selected_role"], "looking_for_love")
+        self.user.is_matchmaker = True
+        self.user.save()
+        self.assertEqual(self.login().data["selected_role"], "bondmaker")
+        UserRoleSelection.objects.create(user=self.user, selected_role="looking_for_love")
+        self.assertEqual(self.login().data["selected_role"], "looking_for_love")
+
     def test_a_pending_withdrawal_blocks_deletion(self):
         Withdrawal.objects.create(
             user=self.user, method="paypal", coins=10, rate_usd="0.05", amount_usd="0.50", status="pending"

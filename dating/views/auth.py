@@ -162,6 +162,13 @@ class VerifyAgeView(APIView):
 # -------------------------
 # User Login
 # -------------------------
+def _selected_role(user):
+    from ..models import UserRoleSelection
+
+    role = UserRoleSelection.objects.filter(user=user).values_list("selected_role", flat=True).first()
+    return role or ("bondmaker" if user.is_matchmaker else "looking_for_love")
+
+
 @extend_schema(
     tags=["Authentication"],
     responses={
@@ -228,6 +235,8 @@ class UserLoginView(GenericAPIView):
                     "message": "Login successful",
                     "status": "success",
                     "deletion_cancelled": deletion_cancelled,
+                    # The mode the user was last in (a bondmaker can use the app as a love seeker)
+                    "selected_role": _selected_role(user),
                     "user": UserProfileSerializer(user).data,
                     "tokens": {
                         "access": str(refresh.access_token),
