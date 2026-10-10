@@ -438,6 +438,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
             "joined_date",
             "last_active",
             "status",
+            "is_principal_admin",
         ]
 
     def get_role(self, obj) -> str:
@@ -454,6 +455,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
             "can_view_withdrawals": "Withdrawals",
             "can_view_reports": "Reports",
             "can_manage_team": "Team",
+            "can_approve_applications": "Approve applications",
         }
 
         return [label for field, label in mapping.items() if getattr(perm, field, False)]
