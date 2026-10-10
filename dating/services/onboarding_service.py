@@ -390,7 +390,9 @@ def state(user, now=None) -> dict:
         "seeker_profile": {"complete": seeker_complete, "missing": missing},
         "bondmaker_application": application,
     }
-    if next_step == "bondmaker_setup" or (app and app.status == "changes_requested"):
+    # Anyone working toward an application (also a seeker applying from inside
+    # the app) gets the list, so the app opens the first unfinished step
+    if not user.is_matchmaker and (role == BONDMAKER or next_step == "bondmaker_setup"):
         payload["application_missing"] = application_missing(user)
     return payload
 
