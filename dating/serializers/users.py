@@ -379,6 +379,39 @@ class UserRoleStatusSerializer(serializers.Serializer):
     )
 
 
+class IdentityFieldsMixin:
+    """Profile edits can't change who the account belongs to.
+
+    The email changes only through Settings, which confirms the new address
+    with a code. The birth date is set once, at the age check (or the first
+    time for accounts that skipped it), and must be 18 or over.
+    """
+
+    def validate_email(self, value):
+        instance = getattr(self, "instance", None)
+        if instance is None:
+            return value
+        if (value or "").strip().lower() != (instance.email or "").lower():
+            raise serializers.ValidationError(
+                "Change your email from Settings so the new address can be confirmed."
+            )
+        return instance.email
+
+    def validate_date_of_birth(self, value):
+        if value is None:
+            raise serializers.ValidationError("Date of birth is required.")
+        today = date.today()
+        age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
+        if age < 18:
+            raise serializers.ValidationError("You must be at least 18 years old.")
+        instance = getattr(self, "instance", None)
+        if instance is not None and instance.date_of_birth and value != instance.date_of_birth:
+            raise serializers.ValidationError(
+                "Your date of birth can't be changed. Contact support if it is wrong."
+            )
+        return value
+
+
 # =============================================================================
 # ADVANCED USER PROFILE SERIALIZERS
 # =============================================================================
@@ -593,17 +626,10 @@ class UserProfileDetailSerializer(MediaRefsMixin, serializers.ModelSerializer):
         return value
 
     def validate_date_of_birth(self, value):
-        today = date.today()
-        age = (
-            today.year
-            - value.year
-            - ((today.month, today.day) < (value.month, value.day))
-        )
+        return IdentityFieldsMixin.validate_date_of_birth(self, value)
 
-        if age < 18:
-            raise serializers.ValidationError("You must be at least 18 years old.")
-
-        return value
+    def validate_email(self, value):
+        return IdentityFieldsMixin.validate_email(self, value)
 
 
 class StaticUserProfileSerializer(serializers.ModelSerializer):

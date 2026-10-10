@@ -63,6 +63,12 @@ class AdminBondmakerApprovalTests(APITestCase):
             document_verification=self.document,
             status="pending",
         )
+        # Reviews act on the application that ties the document and selfie together
+        from django.utils import timezone
+        from dating.models import BondmakerApplication
+        BondmakerApplication.objects.create(
+            user=self.applicant, document=self.document, selfie=self.selfie, submitted_at=timezone.now()
+        )
 
         self.review_url = reverse(
             "bondmaker-review",
@@ -124,11 +130,13 @@ class AdminBondmakerApprovalTests(APITestCase):
     def test_approval_triggers_email_task(self, mock_notify, mock_email):
         """Approval fires the email Celery task."""
         self.client.force_authenticate(user=self.admin)
-        self.client.post(
-            self.review_url,
-            {"action": "approve"},
-            format="json"
-        )
+        # Emails and pushes go out once the review is committed
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                self.review_url,
+                {"action": "approve"},
+                format="json"
+            )
         mock_email.assert_called_once()
 
     def test_admin_login_returns_tokens(self):

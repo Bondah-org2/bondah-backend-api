@@ -125,6 +125,8 @@ class User(AbstractUser):
         choices=STATUS_CHOICES,
         default="active"
     )
+    # Shown to the user when Team Bondah restricts or bans the account
+    status_reason = models.CharField(max_length=500, blank=True, default="")
 
     last_used = models.DateTimeField(null=True, blank=True)
     last_active = models.DateTimeField(null=True, blank=True)
@@ -513,6 +515,8 @@ class User(AbstractUser):
     bondmaker_profile_picture = MediaRefField(null=True, blank=True)
     bondmaker_cover_picture = MediaRefField(null=True, blank=True)
     bondmaker_bio = models.TextField(blank=True, null=True)
+    # Free-text skills from the bondmaker application ("Networking", ...)
+    bondmaker_skills = models.JSONField(default=list, blank=True)
     thought_leadership = models.TextField(blank=True, null=True)
 
 

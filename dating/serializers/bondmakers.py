@@ -3,9 +3,9 @@ from django.utils import timezone
 from django.db import transaction
 from ..constants import QUESTION_UI_CONFIG
 from ..media_refs import MediaRefsMixin
-from ..models import User, UserSecurityQuestion, BondmakerSubscription, SuggestedMatch, Visibility, Specialisation
+from ..models import User, UserSecurityQuestion, UserSocialHandle, BondmakerSubscription, SuggestedMatch, Visibility, Specialisation
 from ..models.username import UsernameValidation, validate_username_format
-from .users import SimpleUserSerializer, UserSecurityQuestionDisplaySerializer, UserSecurityQuestionUpdateSerializer
+from .users import IdentityFieldsMixin, SimpleUserSerializer, UserSecurityQuestionDisplaySerializer, UserSecurityQuestionUpdateSerializer
 
 
 class BondmakerListSerializer(serializers.ModelSerializer):
@@ -66,7 +66,26 @@ class PublicBondmakerProfileSerializer(serializers.ModelSerializer):
         return verification.status
 
 
-class BondmakerProfileUpdateSerializer(MediaRefsMixin, serializers.ModelSerializer):
+# The "About your work" step sends these two; they are stored as answers
+WORK_ANSWER_FIELDS = {"business_type": "business_service", "provides_guidance": "relationship_guidance"}
+# Older app builds sent "community_service"; the stored choice is "community"
+CHOICE_ALIASES = {"community_service": "community"}
+MAX_SKILLS = 15
+MAX_SOCIAL_HANDLES = 10
+
+
+class SocialHandleInputSerializer(serializers.Serializer):
+    platform = serializers.ChoiceField(choices=UserSocialHandle.PLATFORM_CHOICES)
+    url = serializers.URLField(max_length=500)
+
+
+class BondmakerProfileUpdateSerializer(IdentityFieldsMixin, MediaRefsMixin, serializers.ModelSerializer):
+    """The bondmaker setup steps and the bondmaker profile edit screen.
+
+    Every step sends only its own fields. Answers, skills and social links are
+    validated here and saved in one transaction with the profile fields.
+    """
+
     media_ref_fields = {
         "profile_picture": ("profile_picture",),
         "bondmaker_profile_picture": ("bondmaker_profile_picture",),
@@ -78,6 +97,12 @@ class BondmakerProfileUpdateSerializer(MediaRefsMixin, serializers.ModelSerializ
     )
     security_questions_update = UserSecurityQuestionUpdateSerializer(
         many=True, write_only=True, required=False)
+    skills = serializers.ListField(
+        child=serializers.CharField(max_length=40), source="bondmaker_skills", required=False
+    )
+    business_type = serializers.CharField(write_only=True, required=False)
+    provides_guidance = serializers.CharField(write_only=True, required=False)
+    social_handles = SocialHandleInputSerializer(many=True, write_only=True, required=False)
 
     class Meta:
         model = User
@@ -94,6 +119,10 @@ class BondmakerProfileUpdateSerializer(MediaRefsMixin, serializers.ModelSerializ
             "profile_picture",
             "security_questions",
             "security_questions_update",
+            "skills",
+            "business_type",
+            "provides_guidance",
+            "social_handles",
             "bondmaker_profile_picture",
             "bondmaker_cover_picture",
         ]
@@ -123,35 +152,74 @@ class BondmakerProfileUpdateSerializer(MediaRefsMixin, serializers.ModelSerializ
 
         return clean_username
 
+    def validate_skills(self, value):
+        cleaned = []
+        for skill in value:
+            skill = skill.strip()
+            if skill and skill.lower() not in {c.lower() for c in cleaned}:
+                cleaned.append(skill)
+        if len(cleaned) > MAX_SKILLS:
+            raise serializers.ValidationError(f"Add up to {MAX_SKILLS} skills.")
+        return cleaned
+
+    def validate_social_handles(self, value):
+        if len(value) > MAX_SOCIAL_HANDLES:
+            raise serializers.ValidationError(f"Add up to {MAX_SOCIAL_HANDLES} links.")
+        platforms = [h["platform"] for h in value]
+        if len(platforms) != len(set(platforms)):
+            raise serializers.ValidationError("Add one link per platform.")
+        return value
+
+    @staticmethod
+    def _clean_answer(question_type, answer):
+        config = QUESTION_UI_CONFIG.get(question_type, {"input_type": "text"})
+        answer = (answer or "").strip()
+        if config["input_type"] == "choice":
+            answer = CHOICE_ALIASES.get(answer, answer)
+            allowed = {c["value"] for c in config["choices"]}
+            if answer not in allowed:
+                raise serializers.ValidationError(
+                    {question_type: f"Choose one of: {', '.join(sorted(allowed))}."}
+                )
+            return None, answer
+        if not answer:
+            raise serializers.ValidationError({question_type: "This answer can't be empty."})
+        if len(answer) > 2000:
+            raise serializers.ValidationError({question_type: "Keep this answer under 2000 characters."})
+        return answer, None
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        answers = {}
+        for q in attrs.pop("security_questions_update", []):
+            answers[q["question_type"]] = self._clean_answer(q["question_type"], q["answer"])
+        for field, question_type in WORK_ANSWER_FIELDS.items():
+            if field in attrs:
+                answers[question_type] = self._clean_answer(question_type, attrs.pop(field))
+        attrs["_answers"] = answers
+        return attrs
+
     @transaction.atomic
     def update(self, instance, validated_data):
-        questions = validated_data.pop("security_questions", [])
+        answers = validated_data.pop("_answers", {})
+        handles = validated_data.pop("social_handles", None)
 
-        # Update user fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # Save security questions
-        for q in questions:
-            question_type = q["question_type"]
-            answer = q["answer"]
-
-            obj, _ = UserSecurityQuestion.objects.update_or_create(
+        for question_type, (text, choice) in answers.items():
+            UserSecurityQuestion.objects.update_or_create(
                 user=instance,
                 question_type=question_type,
-                defaults={
-                    "response_text": (
-                        answer
-                        if QUESTION_UI_CONFIG[question_type]["input_type"] == "text"
-                        else None
-                    ),
-                    "response_choice": (
-                        answer
-                        if QUESTION_UI_CONFIG[question_type]["input_type"] == "choice"
-                        else None
-                    ),
-                },
+                defaults={"response_text": text, "response_choice": choice},
+            )
+
+        if handles is not None:
+            # The step sends the full list, so it replaces what was there
+            UserSocialHandle.objects.filter(user=instance).delete()
+            UserSocialHandle.objects.bulk_create(
+                [UserSocialHandle(user=instance, platform=h["platform"], url=h["url"]) for h in handles]
             )
 
         return instance

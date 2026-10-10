@@ -9,6 +9,7 @@ from rest_framework import generics
 from django.utils import timezone
 import uuid
 from rest_framework import serializers
+from rest_framework.exceptions import APIException
 from django.core.exceptions import ValidationError
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
@@ -19,6 +20,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from ..serializers import CustomLoginSerializer, PasswordResetSerializer, PasswordResetConfirmSerializer, ChangeLoginInfoSerializer, UserProfileSerializer, VerifyAgeSerializer, UserLogoutRequestSerializer, UserLoginRequestSerializer, TokenRefreshRequestSerializer, RegisterRequestOTPSerializer, VerifyOTPSerializer, ResendEmailOTPSerializer, PasswordResetResendSerializer, OTPSerializer, ConfirmRegistrationSerializer, MessageResponseSerializer, SecurityPinSetupSerializer
 from django.db import transaction
+from ..services import onboarding_service
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, inline_serializer
 from dating.openapi.response_serializers import CustomErrorResponseSerializer, StatusMessageSerializer, TokenRefreshResponseSerializer, ValidationErrorResponseSerializer, RegisterRequestOTPResponseSerializer, RegisterVerifyOTPResponseSerializer, UserRegisterResponseSerializer, UserRegisterErrorSerializer, UserLoginResponseSerializer, UserLoginValidationErrorSerializer, UserLoginUnauthorizedSerializer, UserLoginErrorSerializer
@@ -163,9 +165,10 @@ class VerifyAgeView(APIView):
 # User Login
 # -------------------------
 def _selected_role(user):
-    from ..models import UserRoleSelection
-
-    role = UserRoleSelection.objects.filter(user=user).values_list("selected_role", flat=True).first()
+    role = onboarding_service.selected_role(user)
+    # Only an approved bondmaker opens in bondmaker mode
+    if role == "bondmaker" and not user.is_matchmaker:
+        return "looking_for_love"
     return role or ("bondmaker" if user.is_matchmaker else "looking_for_love")
 
 
@@ -237,6 +240,8 @@ class UserLoginView(GenericAPIView):
                     "deletion_cancelled": deletion_cancelled,
                     # The mode the user was last in (a bondmaker can use the app as a love seeker)
                     "selected_role": _selected_role(user),
+                    # Where the app should go next (setup step, application status or the app)
+                    "onboarding": onboarding_service.state(user),
                     "user": UserProfileSerializer(user).data,
                     "tokens": {
                         "access": str(refresh.access_token),
@@ -246,8 +251,8 @@ class UserLoginView(GenericAPIView):
                 status=status.HTTP_200_OK,
             )
 
-        except serializers.ValidationError:
-            # Wrong email or password is a 400, not a server error
+        except APIException:
+            # Wrong email or password (400) or a banned account (401), not a server error
             raise
         except Exception as e:
             return Response(
@@ -335,16 +340,44 @@ class TokenRefreshView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        refresh_token = serializer.validated_data["refresh_token"]
+        from rest_framework_simplejwt.exceptions import TokenError
+        from rest_framework_simplejwt.serializers import TokenRefreshSerializer
         from rest_framework_simplejwt.tokens import RefreshToken
 
-        token = RefreshToken(refresh_token)
+        from ..authentication import AccountBanned
 
+        refresh_token = serializer.validated_data["refresh_token"]
+        try:
+            user_id = RefreshToken(refresh_token).get("user_id")
+        except TokenError:
+            return Response(
+                {"message": "Session expired. Please sign in again.", "status": "error", "code": "token_invalid"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        user = User.objects.filter(pk=user_id).only("id", "is_active", "status", "status_reason").first()
+        if not user or not user.is_active:
+            return Response(
+                {"message": "Session expired. Please sign in again.", "status": "error", "code": "token_invalid"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if user.status == "banned":
+            raise AccountBanned({"detail": user.status_reason or AccountBanned.default_detail, "code": "account_banned"})
+
+        # Rotates the refresh token and blacklists the old one (SIMPLE_JWT settings)
+        refreshed = TokenRefreshSerializer(data={"refresh": refresh_token})
+        try:
+            refreshed.is_valid(raise_exception=True)
+        except TokenError:
+            return Response(
+                {"message": "Session expired. Please sign in again.", "status": "error", "code": "token_invalid"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        tokens = refreshed.validated_data
         return Response(
             {
                 "message": "Token refreshed successfully",
                 "status": "success",
-                "tokens": {"access": str(token.access_token), "refresh": str(token)},
+                "tokens": {"access": tokens["access"], "refresh": tokens.get("refresh", refresh_token)},
             },
             status=status.HTTP_200_OK,
         )

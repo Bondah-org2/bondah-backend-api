@@ -10,7 +10,10 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 from ..pagination import BondmakerPagination
-from ..permissions import CanViewApplications, CanViewOverview
+from ..permissions import CanManageTeam, CanViewApplications, CanViewOverview
+from ..models import AdminPermission
+from django.db import transaction
+from rest_framework.exceptions import PermissionDenied
 from ..models import NewsletterSubscriber, Waitlist, DocumentVerification
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -59,20 +62,13 @@ class AdminLoginView(APIView):
 
         refresh = RefreshToken.for_user(user)
 
+        from .onboarding import admin_profile
+
         return Response({
-
             "access": str(refresh.access_token),
-
             "refresh": str(refresh),
-
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "role": user.role.name if user.role else None,
-            }
-
+            # The sections this person can open come from the backend's own flags
+            "user": admin_profile(user),
         }, status=status.HTTP_200_OK)
 
 
@@ -107,12 +103,7 @@ class AdminLogoutView(APIView):
     )
 class CreateAdminMemberView(generics.CreateAPIView):
     serializer_class = CreateTeamMemberSerializer
-    permission_classes = [IsPrincipalAdmin]
-
-    def perform_create(self, serializer):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can Create members")
-        serializer.save()
+    permission_classes = [CanManageTeam]
 
 
 @extend_schema(
@@ -123,14 +114,14 @@ class CreateAdminMemberView(generics.CreateAPIView):
     }
     )
 class UpdateAdminMemberView(generics.UpdateAPIView):
-    queryset = User.objects.filter(is_staff=True)
+    queryset = User.objects.filter(is_staff=True).select_related("role", "admin_permissions")
     serializer_class = UpdateAdminMemberSerializer
-    permission_classes = [IsPrincipalAdmin]
+    permission_classes = [CanManageTeam]
 
-    def perform_update(self, serializer):
-        if not self.request.user.is_principal_admin:
-            raise PermissionError("Only Principal Admin can update members")
-        serializer.save()
+    def get_object(self):
+        member = super().get_object()
+        guard_team_change(self.request.user, member)
+        return member
 
 
 @extend_schema(
@@ -141,9 +132,30 @@ class UpdateAdminMemberView(generics.UpdateAPIView):
     }
     )
 class RemoveAdminMemberView(generics.DestroyAPIView):
+    """Takes away admin access. The user row stays: it may own app data and ledger history."""
+
     serializer_class = RemoveAdminMemberSerializer
     queryset = User.objects.filter(is_staff=True)
-    permission_classes = [IsPrincipalAdmin]
+    permission_classes = [CanManageTeam]
+
+    def perform_destroy(self, instance):
+        from ..services.account_service import _sign_out_everywhere
+
+        guard_team_change(self.request.user, instance)
+        with transaction.atomic():
+            AdminPermission.objects.filter(user=instance).delete()
+            instance.is_staff = False
+            instance.role = None
+            instance.save(update_fields=["is_staff", "role"])
+            transaction.on_commit(lambda: _sign_out_everywhere(instance))
+
+
+def guard_team_change(actor, member):
+    """Nobody edits the principal admin or their own access; only the principal admin can."""
+    if member.is_principal_admin:
+        raise PermissionDenied("The principal admin can't be changed here.")
+    if member.pk == actor.pk and not actor.is_principal_admin:
+        raise PermissionDenied("You can't change your own access.")
 
 
 @extend_schema(
@@ -151,7 +163,7 @@ class RemoveAdminMemberView(generics.DestroyAPIView):
     )
 class AdminTeamView(generics.ListAPIView):
     serializer_class = TeamMemberSerializer
-    permission_classes = [IsPrincipalAdmin]
+    permission_classes = [CanManageTeam]
 
     def get_queryset(self):
         """
@@ -161,7 +173,7 @@ class AdminTeamView(generics.ListAPIView):
             - Filter by role
             - Filter by status
         """
-        qs = User.objects.filter(is_staff=True).select_related("role")
+        qs = User.objects.filter(is_staff=True).select_related("role", "admin_permissions")
 
         # ----- Search -----
         search_query = self.request.query_params.get("search", None)
@@ -277,6 +289,8 @@ class AdminNewsletterListView(GenericAPIView):
     # tags=["Bondmaker"],
     )
 class AdminBondmakerReviewView(GenericAPIView):
+    """Kept for older admin builds: reviews the open application that holds this document."""
+
     permission_classes = [CanApproveApplications]
 
     class InputSerializer(serializers.Serializer):
@@ -286,112 +300,26 @@ class AdminBondmakerReviewView(GenericAPIView):
     serializer_class = InputSerializer
 
     def post(self, request, verification_id):
+        from ..models import BondmakerApplication
+        from ..services import onboarding_service
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        action = serializer.validated_data["action"]
-        reason = serializer.validated_data.get("reason", "")
-
-        document = get_object_or_404(DocumentVerification, id=verification_id)
-        user = document.user
-
-        selfie = user.selfie_verifications.filter(
-            document_verification=document
-        ).last()
-
-        # Document is the source of truth; selfie is optional
-        if document.status != "pending":
-            return Response(
-                {"error": "KYC already reviewed"},
-                status=status.HTTP_400_BAD_REQUEST,
+        app = BondmakerApplication.objects.filter(document_id=verification_id, status="pending").first()
+        if not app:
+            return Response({"error": "No application is waiting on this document"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            onboarding_service.review_application(
+                app.pk,
+                serializer.validated_data["action"],
+                request.user,
+                note=serializer.validated_data.get("reason", "") or (
+                    "" if serializer.validated_data["action"] == "approve" else "Rejected by Team Bondah"
+                ),
             )
-
-        if selfie and selfie.status != "pending":
-            return Response(
-                {"error": "KYC already reviewed"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # APPROVE
-        if action == "approve":
-            document.status = "approved"
-            document.is_authentic = True
-            document.verified_at = timezone.now()
-            document.save()
-
-            if selfie:
-                selfie.status = "approved"
-                selfie.is_match = True
-                selfie.verified_at = timezone.now()
-                selfie.save()
-
-            user.is_matchmaker = True
-            user.save(update_fields=["is_matchmaker"])
-
-            #  Notify user
-            notify_user.delay(
-                user_id=user.id,
-                title="Bondmaker Application Approved 🎉",
-                message="Congratulations! Your bondmaker application has been approved.",
-                data={
-                    "type": "kyc_update",
-                    "status": "approved"
-                },
-            )
-
-            try:
-                # Send Email to approved BondMaker
-                send_bondmaker_approval_email.delay(
-                    user.name,
-                    user.email
-                )
-            except Exception as e:
-                logger.error("An error occured while sending mail to just approved bondmaker", exc_info=True)
-
-            return Response({
-                "message": "KYC approved successfully",
-                "user_id": user.id
-            })
-
-        # REJECT
-        if action == "reject":
-            document.status = "rejected"
-            document.rejection_reason = reason or "Rejected by admin"
-            document.save()
-
-            if selfie:
-                selfie.status = "rejected"
-                selfie.is_match = False
-                selfie.save()
-
-            user.is_matchmaker = False
-            user.save(update_fields=["is_matchmaker"])
-
-            # Notify user
-            notify_user.delay(
-                user_id=user.id,
-                title="Bondmaker Application Rejected",
-                message=f"Your application was rejected. Reason: {reason or 'Not specified'}",
-                data={
-                    "type": "kyc_update",
-                    "status": "rejected"
-                },
-            )
-
-            try:
-                # Send Email to approved BondMaker
-                send_bondmaker_rejection_email.delay(
-                    user.name,
-                    user.email,
-                    reason
-                )
-            except Exception as e:
-                logger.error("An error occured while sending mail to just rejected bondmaker", exc_info=True)
-
-            return Response({
-                "message": "KYC rejected",
-                "reason": reason
-            })
+        except onboarding_service.OnboardingError as exc:
+            return Response({"error": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"message": "Application reviewed", "user_id": app.user_id})
 
 
 @extend_schema(

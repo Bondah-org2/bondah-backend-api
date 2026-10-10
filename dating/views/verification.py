@@ -36,9 +36,12 @@ class DocumentVerificationListView(generics.ListCreateAPIView):
 @extend_schema(
     tags=["DocumentVerification"],
     )
-class DocumentVerificationDetailView(generics.RetrieveUpdateDestroyAPIView):
+class DocumentVerificationDetailView(generics.RetrieveAPIView):
     """
-    Retrieve, update, or delete a specific document verification
+    Retrieve one of my document verifications.
+
+    Read-only: a submitted ID can't be swapped or deleted. To fix one, Team
+    Bondah asks for a new scan and the app uploads a new document.
     """
 
     permission_classes = [IsAuthenticated]

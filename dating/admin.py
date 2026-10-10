@@ -1,6 +1,8 @@
 from django.contrib import admin
 from .models import (
     User,
+    AccountStatusChange,
+    BondmakerApplication,
     NewsletterSubscriber,
     PuzzleVerification,
     # CoinTransaction,
@@ -402,6 +404,30 @@ class UserRoleSelectionAdmin(admin.ModelAdmin):
         ("User", {"fields": ("user",)}),
         ("Role Selection", {"fields": ("selected_role", "selected_at")}),
     )
+
+
+@admin.register(BondmakerApplication)
+class BondmakerApplicationAdmin(admin.ModelAdmin):
+    """Read-only here: reviews go through the admin app so the rules and notifications run."""
+
+    list_display = ("id", "user", "status", "submitted_at", "reviewed_at", "reviewed_by")
+    list_filter = ("status",)
+    search_fields = ("user__email", "user__name")
+    raw_id_fields = ("user", "document", "selfie", "reviewed_by")
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AccountStatusChange)
+class AccountStatusChangeAdmin(admin.ModelAdmin):
+    list_display = ("user", "from_status", "to_status", "changed_by", "created_at")
+    list_filter = ("to_status",)
+    search_fields = ("user__email",)
+    raw_id_fields = ("user", "changed_by")
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 # Advanced Search and Discovery Models

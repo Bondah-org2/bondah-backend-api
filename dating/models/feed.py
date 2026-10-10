@@ -435,7 +435,7 @@ class UserSocialHandle(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.user.name}'s {self.get_platform_display()} handle: {self.handle}"
+        return f"{self.user.name}'s {self.get_platform_display()} link: {self.url}"
 
 
 class UserSecurityQuestion(models.Model):

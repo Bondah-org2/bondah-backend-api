@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 
 from ..models import AccountHealth, HealthFlag, Report, Strike, User
 from ..pagination import ActivityFeedPagination
-from ..permissions import CanViewReports
+from ..permissions import CanViewReports, IsApprovedBondmaker
 from ..services import health_service
 
 
@@ -117,11 +117,9 @@ class AdminReportSerializer(serializers.ModelSerializer):
 class MyHealthView(APIView):
     """My account health: score and its parts, tier, active strikes and open flags."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApprovedBondmaker]
 
     def get(self, request):
-        if not request.user.is_matchmaker:
-            return Response({"detail": "Only bondmakers have account health."}, status=status.HTTP_403_FORBIDDEN)
         health = health_service.recompute(request.user)
         strikes = Strike.objects.filter(user=request.user).order_by("-created_at")[:20]
         flags = HealthFlag.objects.filter(user=request.user, status="pending").select_related(

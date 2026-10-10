@@ -6,6 +6,7 @@ from .media_views import (
 from django.urls import path, include
 from .views import withdrawals as withdrawal_views
 from .views import health as health_views
+from .views import onboarding as onboarding_views
 from .views import liveness as liveness_views
 from rest_framework.routers import DefaultRouter
 from rest_framework_nested.routers import NestedDefaultRouter
@@ -397,6 +398,14 @@ urlpatterns = [
     path("admin/withdrawals/<int:pk>/approve/", withdrawal_views.AdminApproveWithdrawalView.as_view(), name="admin-withdrawal-approve"),
     path("admin/withdrawals/<int:pk>/reject/", withdrawal_views.AdminRejectWithdrawalView.as_view(), name="admin-withdrawal-reject"),
     # Reports and bondmaker account health (Team Bondah)
+    # Onboarding, bondmaker applications and account status (phase 11)
+    path("admin/me/", onboarding_views.AdminMeView.as_view(), name="admin-me"),
+    path("admin/applications/", onboarding_views.AdminApplicationListView.as_view(), name="admin-applications"),
+    path("admin/applications/stats/", onboarding_views.AdminApplicationStatsView.as_view(), name="admin-application-stats"),
+    path("admin/applications/<int:pk>/", onboarding_views.AdminApplicationDetailView.as_view(), name="admin-application-detail"),
+    path("admin/applications/<int:pk>/review/", onboarding_views.AdminApplicationReviewView.as_view(), name="admin-application-review"),
+    path("admin/users/", onboarding_views.AdminUserListView.as_view(), name="admin-users"),
+    path("admin/users/<int:user_id>/status/", onboarding_views.AdminUserStatusView.as_view(), name="admin-user-status"),
     path("admin/reports/", health_views.AdminReportListView.as_view(), name="admin-reports"),
     path("admin/reports/content/", health_views.AdminContentReportListView.as_view(), name="admin-content-reports"),
     path("admin/reports/content/<int:pk>/review/", health_views.AdminContentReportActionView.as_view(action="review"), name="admin-content-report-review"),
@@ -837,6 +846,8 @@ urlpatterns = [
         name="bondmaker-pennding_list",
     ),
     path("user/role-status/", UserRoleStatusView.as_view(), name="role_status"),
+    path("onboarding/state/", onboarding_views.OnboardingStateView.as_view(), name="onboarding-state"),
+    path("bondmaker/application/", onboarding_views.MyApplicationView.as_view(), name="my-bondmaker-application"),
     path(
         "admin/bondmakers/",
         AdminBondmakerListView.as_view(),

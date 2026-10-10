@@ -323,35 +323,26 @@ class DeviceRegistrationView(generics.CreateAPIView):
     tags=["Profile"],
     )
 class UserRoleSelectionView(GenericAPIView):
+    """Save the mode I want. Bondmaker mode only becomes active once Team Bondah approves me."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = UserRoleSelectionSerializer
 
     def post(self, request):
+        from ..services import onboarding_service
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        selected_role = serializer.validated_data["selected_role"]
-
-        role_selection, _ = UserRoleSelection.objects.update_or_create(
-            user=request.user,
-            defaults={"selected_role": selected_role},
+        selected_role = onboarding_service.set_selected_role(
+            request.user, serializer.validated_data["selected_role"]
         )
-
-        # TODO: IF USER CHOOSE BONDMAKER, HE OUGHT TO UNDERGO SERIES OF VERIFICATION STEPS
-        # If user chose bondmaker, create or reuse pending verification
-        # if selected_role == "bondmaker":
-        #     DocumentVerification.objects.get_or_create(
-        #         user=request.user,
-        #         status="pending",
-        #         defaults={"document_type": "passport"},
-        #     )
-
         return Response(
             {
                 "message": "Role selection saved",
                 "status": "success",
                 "selected_role": selected_role,
-                "is_matchmaker": request.user.is_matchmaker,  # still False
+                "is_matchmaker": request.user.is_matchmaker,
+                "onboarding": onboarding_service.state(request.user),
             }
         )
 
@@ -364,32 +355,17 @@ class UserRoleStatusView(GenericAPIView):
     serializer_class = UserRoleStatusSerializer
 
     def get(self, request):
+        from ..services import onboarding_service
+
         user = request.user
-
-        # Role selection
-        role_selection = UserRoleSelection.objects.filter(user=user).first()
-        selected_role = (
-            role_selection.selected_role if role_selection else "looking_for_love"
-        )
-
-        # Latest verification (if any)
-        verification = (
-            DocumentVerification.objects.filter(user=user)
-            .order_by("-uploaded_at")
-            .first()
-        )
-        verification_status = verification.status if verification else None
-
-        data = {
-            "selected_role": selected_role,
+        state = onboarding_service.state(user)
+        application = state["bondmaker_application"]
+        return Response({
+            "selected_role": state["selected_role"] or "looking_for_love",
             "is_matchmaker": user.is_matchmaker,
-            "verification_status": verification_status,
-        }
-
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-
-        return Response(serializer.data)
+            "application_status": application["status"] if application else None,
+            "onboarding": state,
+        })
 
 
 @extend_schema(

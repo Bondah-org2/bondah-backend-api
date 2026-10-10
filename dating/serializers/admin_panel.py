@@ -271,6 +271,29 @@ class AdminPermissionSerializer(serializers.ModelSerializer):
         ]
 
 
+TEAM_STATUSES = ("active", "inactive")
+
+
+def _role_flags(role) -> dict:
+    from ..permissions import ADMIN_FLAGS
+
+    return {f: bool(getattr(role, f, False)) for f in ADMIN_FLAGS}
+
+
+def _check_grantable(actor, flags: dict):
+    """A team manager can only hand out access they have themselves."""
+    from ..permissions import admin_flags
+
+    if actor.is_principal_admin:
+        return
+    mine = admin_flags(actor)
+    over = [f for f, on in flags.items() if on and not mine.get(f)]
+    if over:
+        raise serializers.ValidationError(
+            {"permissions": f"You can't grant access you don't have: {', '.join(over)}."}
+        )
+
+
 class CreateTeamMemberSerializer(serializers.ModelSerializer):
     role = serializers.SlugRelatedField(
         queryset=AdminRole.objects.all(), slug_field="name"
@@ -297,9 +320,25 @@ class CreateTeamMemberSerializer(serializers.ModelSerializer):
         extra_kwargs = {"password": {"write_only": True}}
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
+        if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
+
+    def validate_password(self, value):
+        from .auth import ConfirmRegistrationSerializer
+
+        return ConfirmRegistrationSerializer.validate_password_strength(value)
+
+    def validate_status(self, value):
+        if value not in TEAM_STATUSES:
+            raise serializers.ValidationError("A team member is active or inactive.")
+        return value
+
+    def validate(self, attrs):
+        flags = _role_flags(attrs["role"])
+        flags.update(attrs.get("permissions") or {})
+        _check_grantable(self.context["request"].user, flags)
+        return attrs
 
     @transaction.atomic
     def create(self, validated_data):
@@ -356,8 +395,11 @@ class AdminLoginSerializer(serializers.Serializer):
         if not user:
             raise serializers.ValidationError("Invalid login credentials")
 
-        if not user.is_staff:
+        if not user.is_staff and not user.is_principal_admin:
             raise serializers.ValidationError("Not an admin account")
+
+        if user.status != "active":
+            raise serializers.ValidationError("This admin account is not active")
 
         data["user"] = user
 
@@ -446,6 +488,26 @@ class UpdateAdminMemberSerializer(serializers.ModelSerializer):
             "status",
             "permission_data"
         ]
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def validate_status(self, value):
+        if value not in TEAM_STATUSES:
+            raise serializers.ValidationError("A team member is active or inactive.")
+        return value
+
+    def validate(self, attrs):
+        if "permissions" in attrs:
+            flags = attrs["permissions"]
+        elif attrs.get("role"):
+            flags = _role_flags(attrs["role"])
+        else:
+            flags = {}
+        _check_grantable(self.context["request"].user, flags)
+        return attrs
 
     @transaction.atomic
     def update(self, instance, validated_data):

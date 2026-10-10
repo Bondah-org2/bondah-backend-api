@@ -119,6 +119,12 @@ class DocumentVerificationCreateSerializer(MediaRefsMixin, serializers.ModelSeri
     def validate(self, attrs):
         user = self.context["request"].user
 
+        from ..services import onboarding_service
+
+        blocker = onboarding_service.apply_blocker(user)
+        if blocker:
+            raise serializers.ValidationError({"code": blocker[0], "detail": blocker[1]})
+
         if DocumentVerification.objects.filter(
             user=user,
             status__in=["pending", "approved"]
@@ -266,6 +272,9 @@ class SelfieSubmissionSerializer(MediaRefsMixin, serializers.ModelSerializer):
             document = DocumentVerification.objects.get(id=value, user=user)
         except DocumentVerification.DoesNotExist:
             raise serializers.ValidationError("Invalid document verification")
+        if document.status != "pending":
+            # A reviewed ID can't take a new selfie; scan a new ID first
+            raise serializers.ValidationError("This ID was already reviewed. Scan your ID again.")
 
         return document  # Return the document object itself
 

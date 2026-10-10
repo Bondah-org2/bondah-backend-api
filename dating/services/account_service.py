@@ -137,7 +137,7 @@ _NULL_FIELDS = (
     "bondmaker_cover_picture", "last_location_update", "last_seen", "last_active", "last_used",
     "no_of_kids", "gender", "preferred_gender",
 )
-_EMPTY_LIST_FIELDS = ("traits", "partner_qualities", "profile_gallery", "languages", "hobbies", "interests")
+_EMPTY_LIST_FIELDS = ("traits", "partner_qualities", "profile_gallery", "languages", "hobbies", "interests", "bondmaker_skills")
 
 
 def _model_field(name):
@@ -180,7 +180,7 @@ def _delete_personal_records(user):
     for model, field in (
         ("DeviceRegistration", "user"), ("LocationHistory", "user"), ("LocationPermission", "user"),
         ("SearchQuery", "user"), ("FeedSearch", "user"), ("UserSocialHandle", "user"),
-        ("UserSecurityQuestion", "user"), ("DocumentVerification", "user"),
+        ("UserSecurityQuestion", "user"), ("BondmakerApplication", "user"), ("DocumentVerification", "user"),
         ("SelfieVerification", "user"), ("LivenessVerification", "user"),
         ("PhoneVerification", "user"), ("EmailVerification", "user"), ("SecurityPin", "user"),
         ("TwoFactorAuth", "user"), ("UserProfileView", "viewer"), ("UserProfileView", "viewed_user"),

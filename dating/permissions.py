@@ -62,6 +62,7 @@ class IsPrincipalAdmin(BasePermission):
         return (
             request.user.is_authenticated
             and request.user.is_principal_admin
+            and request.user.is_active
         )
 
 
@@ -78,34 +79,70 @@ class IsAdminForListElseAuthenticated(BasePermission):
         return False
 
 
+# Admin team access (rebuild phase 11)
+#
+# The per-person AdminPermission flags are the only source of truth. A role
+# (AdminRole) just fills in default flags when a member is created or their
+# role changes. The principal admin has every flag. A team member whose
+# status isn't "active", or who lost staff access, has none, so a token issued
+# before the change stops working at once.
+
+ADMIN_FLAGS = (
+    "can_view_overview",
+    "can_view_applications",
+    "can_view_withdrawals",
+    "can_view_reports",
+    "can_approve_applications",
+    "can_manage_team",
+)
+
+# Admin app sections and the flag that opens each one
+ADMIN_SECTIONS = {
+    "overview": "can_view_overview",
+    "applications": "can_view_applications",
+    "withdrawals": "can_view_withdrawals",
+    "reports": "can_view_reports",
+    "team": "can_manage_team",
+}
+
+
+def admin_flags(user) -> dict:
+    none = dict.fromkeys(ADMIN_FLAGS, False)
+    if not user or not user.is_authenticated or not user.is_active:
+        return none
+    if getattr(user, "status", "active") != "active":
+        return none
+    if getattr(user, "is_principal_admin", False):
+        return dict.fromkeys(ADMIN_FLAGS, True)
+    if not user.is_staff:
+        return none
+    perm = getattr(user, "admin_permissions", None)
+    if perm is None:
+        return none
+    return {f: bool(getattr(perm, f, False)) for f in ADMIN_FLAGS}
+
+
+def admin_sections(user) -> list:
+    flags = admin_flags(user)
+    return [section for section, flag in ADMIN_SECTIONS.items() if flags[flag]]
+
+
 class HasAdminPermission(BasePermission):
-    """
-    Base permission class to check AdminPermission flags
-    """
+    """Checks one AdminPermission flag (see admin_flags)."""
 
     permission_field = None  # override in child classes
 
     def has_permission(self, request, view):
-        user = request.user
+        return admin_flags(request.user).get(self.permission_field, False)
 
-        # Must be authenticated
-        if not user or not user.is_authenticated:
-            return False
 
-        # The principal admin can see every section (the admin app assumes this too).
-        if getattr(user, "is_principal_admin", False):
-            return True
+class IsApprovedBondmaker(BasePermission):
+    """Approved by Team Bondah. Choosing bondmaker mode alone is not enough."""
 
-        # Must be staff/admin
-        if not user.is_staff:
-            return False
+    message = {"detail": "Only approved bondmakers can do this.", "code": "bondmakers_only"}
 
-        # Must have admin_permissions object
-        if not hasattr(user, "admin_permissions"):
-            return False
-
-        # Check specific permission
-        return getattr(user.admin_permissions, self.permission_field, False)
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_matchmaker)
 
 
 class CanViewApplications(HasAdminPermission):

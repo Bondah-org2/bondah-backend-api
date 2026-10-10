@@ -1,4 +1,5 @@
 from ..models.users import PasswordResetPurpose
+import hmac
 import logging
 from dating.tasks import send_otp_email
 from rest_framework import serializers
@@ -9,6 +10,7 @@ from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.db.models import F
 from datetime import date
 from rest_framework.validators import UniqueValidator
 from ..models import User, EmailVerification, PhoneVerification, PasswordResetOTP, SecurityPin
@@ -111,6 +113,13 @@ class CustomLoginSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Invalid credentials.")
             if not user.is_active:
                 raise serializers.ValidationError("User account is disabled.")
+            if user.status == "banned":
+                from ..authentication import AccountBanned
+
+                raise AccountBanned({
+                    "detail": user.status_reason or AccountBanned.default_detail,
+                    "code": "account_banned",
+                })
             attrs["user"] = user
             return attrs
         else:
@@ -282,7 +291,6 @@ class RegisterRequestOTPSerializer(serializers.Serializer):
 
 
         try:
-            logger.info(f"About to send token: {verification.otp_code}")
             send_otp_email.delay(email, verification.otp_code)
         except Exception:
             logger.error("Code not sent", exc_info=True)
@@ -300,15 +308,27 @@ class VerifyOTPSerializer(serializers.Serializer):
         email = attrs["email"]
         otp_code = attrs["otp_code"]
 
-        verification = EmailVerification.objects.filter(
-            email=email, otp_code=otp_code, is_used=False
-        ).first()
+        # The live code for this email; wrong guesses count against it
+        verification = (
+            EmailVerification.objects.filter(email=email, is_used=False)
+            .order_by("-created_at")
+            .first()
+        )
 
         if not verification:
             raise serializers.ValidationError("Invalid OTP.")
 
+        if verification.failed_attempts >= EmailVerification.MAX_ATTEMPTS:
+            raise serializers.ValidationError("Too many wrong codes. Request a new code.")
+
         if verification.is_expired():
             raise serializers.ValidationError("OTP expired.")
+
+        if not hmac.compare_digest(str(verification.otp_code), str(otp_code)):
+            EmailVerification.objects.filter(pk=verification.pk).update(
+                failed_attempts=F("failed_attempts") + 1
+            )
+            raise serializers.ValidationError("Invalid OTP.")
 
         attrs["verification"] = verification
         return attrs
@@ -450,11 +470,10 @@ class ResendEmailOTPSerializer(serializers.Serializer):
 
         verification.otp_code = EmailVerification.generate_otp()
         verification.expires_at = timezone.now() + timedelta(minutes=10)
+        verification.failed_attempts = 0
         verification.save()
-        print(verification.otp_code)
 
         try:
-            logger.info(f"About to send token: {verification.otp_code}")
             # Send OTP email
             send_otp_email.delay(
                 verification.email,
@@ -502,6 +521,11 @@ class VerifyAgeSerializer(serializers.Serializer):
                     'date_of_birth': 'You must be at least 18 years old to register.'
                 }
             )
+        if verification.user is None:
+            raise serializers.ValidationError("Invalid or unverified registration token.")
+        if verification.user.date_of_birth and verification.user.date_of_birth != dob:
+            # The age check runs once; a retry with the same date is fine
+            raise serializers.ValidationError("Your date of birth is already set.")
         attrs["user"] = verification.user
         return attrs
 

@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import filters
 from ..serializers import UserProfileDetailSerializer, PublicBondmakerProfileSerializer, BondmakerSubscriptionSerializer, SubscribeBondmakerSerializer, PendingMatchUserSerializer, BondmakerProfileUpdateSerializer, BondmakerSpecialisationSerializer, BondmakerSearchListSerializer, SpecialisationCategorySerializer, BondmakerDashboardSerializer, BondmakerAnalyticsSerializer, MatchedUserSerializer, SubscribeSerializer
 from rest_framework import permissions
+from ..permissions import IsApprovedBondmaker
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -355,13 +356,10 @@ class BondmakerPendingMatchListView(generics.ListAPIView):
     )
 class BondmakerSpecialisationView(generics.RetrieveUpdateAPIView):
     serializer_class = BondmakerSpecialisationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApprovedBondmaker]
 
     def get_object(self):
         user = self.request.user
-
-        if not user.is_matchmaker:
-            raise PermissionDenied("Only bondmakers can manage specialisations.")
 
         return user
 
@@ -481,13 +479,10 @@ class SpecialisationCategoryListView(generics.GenericAPIView):
     )
 class BondmakerDashboardView(generics.GenericAPIView):
     serializer_class = BondmakerDashboardSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApprovedBondmaker]
 
     def get(self, request, *args, **kwargs):
         user = request.user
-
-        if not user.is_matchmaker:
-            return Response({"detail": "Not allowed."}, status=403)
 
         service = BondmakerDashboardService(user)
         dashboard_data = service.get_dashboard_data()
@@ -512,7 +507,7 @@ ALLOWED_PERIODS = [30, 60, 90, 120]  # allowed analytics periods in days
     )
 class BondmakerAnalyticsView(generics.GenericAPIView):
     serializer_class = BondmakerAnalyticsSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApprovedBondmaker]
 
     # Declare the query param for Swagger
     @extend_schema(
@@ -530,9 +525,6 @@ class BondmakerAnalyticsView(generics.GenericAPIView):
     )
     def get(self, request):
         user = request.user
-
-        if not user.is_matchmaker:
-            return Response({"detail": "Not allowed."}, status=403)
 
         # Get 'days' from query params, validate it
         try:
@@ -591,13 +583,10 @@ class BondmakersLeaderboardView(APIView):
     Bondmakers only. See services/leaderboard_service.py for the rules.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsApprovedBondmaker]
 
     def get(self, request):
         from ..services import leaderboard_service
-
-        if not request.user.is_matchmaker:
-            raise PermissionDenied("Only bondmakers can see the leaderboard.")
         period = request.query_params.get("period", "month")
         if period not in leaderboard_service.PERIODS:
             period = "month"

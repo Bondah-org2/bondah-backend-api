@@ -3,6 +3,7 @@ from django.db.models import Q
 from .fields import MediaRefField
 from django.utils import timezone
 import random
+import secrets
 import string
 
 from .users import User
@@ -672,6 +673,8 @@ class UserVerificationStatus(models.Model):
 class EmailVerification(models.Model):
     """Email OTP verification for user registration"""
 
+    MAX_ATTEMPTS = 5
+
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -686,13 +689,15 @@ class EmailVerification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     verified_at = models.DateTimeField(blank=True, null=True)
+    # Wrong codes entered; the code stops working after MAX_ATTEMPTS
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
     temp_password = models.CharField(max_length=128, null=True, blank=True)
     registration_token = models.UUIDField(
         default=uuid.uuid4, editable=False
     )
 
     def __str__(self):
-        return f"Email OTP for {self.email} - {self.otp_code}"
+        return f"Email OTP for {self.email}"
 
     def is_expired(self):
         return timezone.now() > self.expires_at
@@ -707,7 +712,7 @@ class EmailVerification(models.Model):
     @classmethod
     def generate_otp(cls):
         """Generate a 6-digit OTP"""
-        return "".join(random.choices(string.digits, k=6))
+        return "".join(secrets.choice(string.digits) for _ in range(6))
 
     @classmethod
     def create_verification(cls, user=None, email=None):
@@ -754,7 +759,7 @@ class PhoneVerification(models.Model):
     verified_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
-        return f"Phone OTP for {self.country_code}{self.phone_number} - {self.otp_code}"
+        return f"Phone OTP for {self.country_code}{self.phone_number}"
 
     def is_expired(self):
         from django.utils import timezone
@@ -777,7 +782,7 @@ class PhoneVerification(models.Model):
     def generate_otp(cls):
         """Generate 4-digit OTP"""
 
-        return "".join(random.choices(string.digits, k=4))
+        return "".join(secrets.choice(string.digits) for _ in range(4))
 
     @classmethod
     def create_verification(cls, user, phone_number, country_code="+1"):
